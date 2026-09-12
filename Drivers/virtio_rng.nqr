@@ -26,22 +26,22 @@ function virtio_rng_dma_test(location: u32): bool {
     let descLength: *u32 = (descPage + 8) as *u32
     let descFlags: *u16 = (descPage + 12) as *u16
     let descNext: *u16 = (descPage + 14) as *u16
-    *descAddress = bufferPage as u64
-    *descLength = 32 as u32
-    *descFlags = 2 as u16
-    *descNext = 0 as u16
+    descAddress[0] = bufferPage as u64
+    descLength[0] = 32 as u32
+    descFlags[0] = 2 as u16
+    descNext[0] = 0 as u16
 
     let availFlags: *u16 = availPage as *u16
     let availIndex: *u16 = (availPage + 2) as *u16
     let availRing0: *u16 = (availPage + 4) as *u16
-    *availFlags = 0 as u16
-    *availIndex = 0 as u16
-    *availRing0 = 0 as u16
+    availFlags[0] = 0 as u16
+    availIndex[0] = 0 as u16
+    availRing0[0] = 0 as u16
 
     let usedFlags: *u16 = usedPage as *u16
     let usedIndex: *volatile u16 = (usedPage + 2) as *volatile u16
-    *usedFlags = 0 as u16
-    *usedIndex = 0 as u16
+    usedFlags[0] = 0 as u16
+    usedIndex[0] = 0 as u16
 
     if !virtio_driver_ok(location) {
         virtio_reset(location)
@@ -49,7 +49,7 @@ function virtio_rng_dma_test(location: u32): bool {
     }
 
     atomicFence()
-    *availIndex = 1 as u16
+    availIndex[0] = 1 as u16
     atomicFence()
     if !virtio_notify_queue(location, 0 as u16, notifyOffset) {
         virtio_reset(location)
@@ -57,14 +57,14 @@ function virtio_rng_dma_test(location: u32): bool {
     }
 
     let spins: usize = 0
-    while *usedIndex == (0 as u16) && spins < 2000000 {
+    while usedIndex[0] == (0 as u16) && spins < 2000000 {
         intrinsic("x86.pause")
         spins = spins + 1
     }
 
-    let completed: bool = *usedIndex != (0 as u16)
+    let completed: bool = usedIndex[0] != (0 as u16)
     let usedLength: *volatile u32 = (usedPage + 8) as *volatile u32
-    let received: bool = completed && *usedLength > (0 as u32)
+    let received: bool = completed && usedLength[0] > (0 as u32)
     virtio_reset(location)
     return received
 }
