@@ -19,9 +19,6 @@ if ! command -v qemu-system-x86_64 >/dev/null 2>&1; then
 fi
 
 # NoqFS v1 test image.
-# sector 0: superblock { magic, version, root dir sector, entry count, sector size }
-# sector 1: one 32-byte root directory entry { key, first sector, byte length, flags }
-# sector 2: file payload beginning with the HELO marker.
 truncate -s 1M "$DISK"
 printf 'NQFS' | dd of="$DISK" bs=1 seek=0 conv=notrunc status=none
 printf '\x01\x00\x00\x00' | dd of="$DISK" bs=1 seek=4 conv=notrunc status=none
@@ -37,9 +34,10 @@ printf 'HELO from NoqFS\n' | dd of="$DISK" bs=1 seek=1024 conv=notrunc status=no
 
 rm -f "$LOG"
 set +e
-timeout 12s qemu-system-x86_64 \
+timeout 15s qemu-system-x86_64 \
     -machine q35 \
     -m "$MEMORY" \
+    -smp 4 \
     -cdrom "$OUT/noqerios.iso" \
     -device virtio-rng-pci,disable-legacy=on \
     -drive if=none,format=raw,file="$DISK",id=noqerios-test-disk \
@@ -67,6 +65,13 @@ grep -q "NoqeriOS: VMM isolated CR3 map unmap protect test passed" "$LOG"
 grep -q "NoqeriOS: kernel heap alloc free reuse stress passed" "$LOG"
 grep -q "NoqeriOS: legacy page allocator rebased onto PMM-owned pool" "$LOG"
 grep -q "NoqeriOS: round-robin process scheduler core active" "$LOG"
+grep -q "NoqeriOS: ACPI RSDP XSDT and MADT discovered" "$LOG"
+grep -q "NoqeriOS: MADT CPU and IOAPIC topology parsed" "$LOG"
+grep -q "NoqeriOS: local APIC enabled and legacy PIC masked" "$LOG"
+grep -q "NoqeriOS: IOAPIC routes PIT IRQ0 to native vector 48" "$LOG"
+grep -q "NoqeriOS: INIT SIPI application-processor startup succeeded" "$LOG"
+grep -q "NoqeriOS: timer-preemptive kernel thread context switching active" "$LOG"
+grep -q "NoqeriOS: SMP per-CPU run queues active on all discovered CPUs" "$LOG"
 grep -q "NoqeriOS: PCI configuration space enumerated" "$LOG"
 grep -q "NoqeriOS: VirtIO RNG PCI device detected" "$LOG"
 grep -q "NoqeriOS: modern VirtIO PCI transport capabilities detected" "$LOG"
@@ -77,10 +82,11 @@ grep -q "NoqeriOS: VirtIO block sector read succeeded" "$LOG"
 grep -q "NoqeriOS: NoqFS boot volume recognized by VFS" "$LOG"
 grep -q "NoqeriOS: VFS opened and read a NoqFS file" "$LOG"
 grep -q "NoqeriOS: IDT and PIT timer interrupts active" "$LOG"
+grep -q "NoqeriOS: APIC IOAPIC interrupt delivery active" "$LOG"
 grep -q "NoqeriOS: ring-3 transition and syscall gate active" "$LOG"
 grep -q "NoqeriOS: ring-3 syscall reached Noqeri dispatcher" "$LOG"
 grep -q "NoqeriOS: modular monolith core services online" "$LOG"
 grep -q "NoqeriOS: bootstrap milestone complete" "$LOG"
 
-echo "NoqeriOS QEMU smoke test passed with $MEMORY RAM"
+echo "NoqeriOS QEMU SMP smoke test passed with $MEMORY RAM"
 cat "$LOG"

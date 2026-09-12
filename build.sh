@@ -117,13 +117,14 @@ echo "Using $($NOQERI --version | head -n 1)"
 as --64 "$OUT/kernel_noqeri.s" -o "$OUT/kernel_noqeri.o"
 as --64 "$ROOT/Arch/x86_64/entry.S" -o "$OUT/entry.o"
 as --64 "$ROOT/Arch/x86_64/arch.S" -o "$OUT/arch.o"
+as --64 "$ROOT/Arch/x86_64/platform.S" -o "$OUT/platform.o"
 as --64 "$ROOT/Arch/x86_64/interrupts.S" -o "$OUT/interrupts.o"
 as --64 "$ROOT/Arch/x86_64/userspace.S" -o "$OUT/userspace.o"
 
 ld -nostdlib -z max-page-size=0x1000 \
    -T "$ROOT/Arch/x86_64/linker.ld" \
    -o "$OUT/kernel.elf" \
-   "$OUT/entry.o" "$OUT/arch.o" "$OUT/interrupts.o" "$OUT/userspace.o" "$OUT/kernel_noqeri.o"
+   "$OUT/entry.o" "$OUT/arch.o" "$OUT/platform.o" "$OUT/interrupts.o" "$OUT/userspace.o" "$OUT/kernel_noqeri.o"
 
 grub-file --is-x86-multiboot2 "$OUT/kernel.elf"
 

@@ -1,0 +1,191 @@
+module os.kernel.acpi
+
+import "memory.nqr"
+
+record AcpiPlatform {
+    rsdp: usize;
+    root: usize;
+    madt: usize;
+    lapicAddress: usize;
+    ioapicAddress: usize;
+    ioapicGsiBase: u32;
+    timerGsi: u32;
+    timerFlags: u16;
+    keyboardGsi: u32;
+    keyboardFlags: u16;
+    cpuApicIds: *u32;
+    cpuCount: usize;
+    cpuCapacity: usize;
+}
+
+function acpi_read_u8(address: usize): u8 {
+    let p: *u8 = address as *u8
+    return p[0]
+}
+
+function acpi_read_u16(address: usize): u16 {
+    let p: *u16 = address as *u16
+    return p[0]
+}
+
+function acpi_read_u32(address: usize): u32 {
+    let p: *u32 = address as *u32
+    return p[0]
+}
+
+function acpi_read_u64(address: usize): u64 {
+    let p: *u64 = address as *u64
+    return p[0]
+}
+
+function acpi_checksum(address: usize, length: usize): bool {
+    if address == (0 as usize) || length == (0 as usize) { return false }
+    let bytes: *u8 = address as *u8
+    let index: usize = 0 as usize
+    let sum: u32 = 0 as u32
+    while index < length {
+        sum = sum + (bytes[index] as u32)
+        index = index + (1 as usize)
+    }
+    return (sum % (256 as u32)) == (0 as u32)
+}
+
+function acpi_find_rsdp(multibootInfo: usize): usize {
+    if multibootInfo == (0 as usize) { return 0 as usize }
+    let totalSize: usize = acpi_read_u32(multibootInfo) as usize
+    let end: usize = multibootInfo + totalSize
+    let cursor: usize = multibootInfo + (8 as usize)
+    let oldRsdp: usize = 0 as usize
+
+    while cursor + (8 as usize) <= end {
+        let kind: u32 = acpi_read_u32(cursor)
+        let size: usize = acpi_read_u32(cursor + (4 as usize)) as usize
+        if size < (8 as usize) { return 0 as usize }
+        if kind == (15 as u32) {
+            let rsdp: usize = cursor + (8 as usize)
+            if acpi_read_u64(rsdp) == (2329016660419433298 as u64) { return rsdp }
+        }
+        if kind == (14 as u32) {
+            let rsdp: usize = cursor + (8 as usize)
+            if acpi_read_u64(rsdp) == (2329016660419433298 as u64) { oldRsdp = rsdp }
+        }
+        if kind == (0 as u32) { return oldRsdp }
+        let padding: usize = ((8 as usize) - (size % (8 as usize))) % (8 as usize)
+        cursor = cursor + size + padding
+    }
+    return oldRsdp
+}
+
+function acpi_table_valid(table: usize, signature: u32): bool {
+    if table == (0 as usize) { return false }
+    if acpi_read_u32(table) != signature { return false }
+    let length: usize = acpi_read_u32(table + (4 as usize)) as usize
+    if length < (36 as usize) || length > (1048576 as usize) { return false }
+    return acpi_checksum(table, length)
+}
+
+function acpi_find_table_in_root(root: usize, xsdt: bool, signature: u32): usize {
+    if root == (0 as usize) { return 0 as usize }
+    let length: usize = acpi_read_u32(root + (4 as usize)) as usize
+    if length < (36 as usize) { return 0 as usize }
+    let entrySize: usize = 4 as usize
+    if xsdt { entrySize = 8 as usize }
+    let cursor: usize = root + (36 as usize)
+    let end: usize = root + length
+    while cursor + entrySize <= end {
+        let address: usize = 0 as usize
+        if xsdt {
+            address = acpi_read_u64(cursor) as usize
+        } else {
+            address = acpi_read_u32(cursor) as usize
+        }
+        if acpi_table_valid(address, signature) { return address }
+        cursor = cursor + entrySize
+    }
+    return 0 as usize
+}
+
+function acpi_parse_madt(platform: *AcpiPlatform): bool {
+    if platform == null || platform.madt == (0 as usize) { return false }
+    let madt: usize = platform.madt
+    let length: usize = acpi_read_u32(madt + (4 as usize)) as usize
+    if length < (44 as usize) { return false }
+
+    platform.lapicAddress = acpi_read_u32(madt + (36 as usize)) as usize
+    platform.ioapicAddress = 0 as usize
+    platform.ioapicGsiBase = 0 as u32
+    platform.timerGsi = 0 as u32
+    platform.timerFlags = 0 as u16
+    platform.keyboardGsi = 1 as u32
+    platform.keyboardFlags = 0 as u16
+    platform.cpuCount = 0 as usize
+
+    let cursor: usize = madt + (44 as usize)
+    let end: usize = madt + length
+    while cursor + (2 as usize) <= end {
+        let kind: u8 = acpi_read_u8(cursor)
+        let itemLength: usize = acpi_read_u8(cursor + (1 as usize)) as usize
+        if itemLength < (2 as usize) || cursor + itemLength > end { return false }
+
+        if kind == (0 as u8) && itemLength >= (8 as usize) {
+            let apicId: u32 = acpi_read_u8(cursor + (3 as usize)) as u32
+            let flags: u32 = acpi_read_u32(cursor + (4 as usize))
+            if flags % (2 as u32) == (1 as u32) && platform.cpuCount < platform.cpuCapacity {
+                platform.cpuApicIds[platform.cpuCount] = apicId
+                platform.cpuCount = platform.cpuCount + (1 as usize)
+            }
+        } else if kind == (1 as u8) && itemLength >= (12 as usize) {
+            if platform.ioapicAddress == (0 as usize) {
+                platform.ioapicAddress = acpi_read_u32(cursor + (4 as usize)) as usize
+                platform.ioapicGsiBase = acpi_read_u32(cursor + (8 as usize))
+            }
+        } else if kind == (2 as u8) && itemLength >= (10 as usize) {
+            let source: u8 = acpi_read_u8(cursor + (3 as usize))
+            let gsi: u32 = acpi_read_u32(cursor + (4 as usize))
+            let flags: u16 = acpi_read_u16(cursor + (8 as usize))
+            if source == (0 as u8) {
+                platform.timerGsi = gsi
+                platform.timerFlags = flags
+            } else if source == (1 as u8) {
+                platform.keyboardGsi = gsi
+                platform.keyboardFlags = flags
+            }
+        } else if kind == (5 as u8) && itemLength >= (12 as usize) {
+            platform.lapicAddress = acpi_read_u64(cursor + (4 as usize)) as usize
+        }
+        cursor = cursor + itemLength
+    }
+
+    return platform.lapicAddress != (0 as usize) && platform.ioapicAddress != (0 as usize) && platform.cpuCount > (0 as usize)
+}
+
+function acpi_discover(multibootInfo: usize, cpuStorage: usize, cpuCapacity: usize, platform: *AcpiPlatform): bool {
+    if platform == null || cpuStorage == (0 as usize) || cpuCapacity == (0 as usize) { return false }
+    platform.cpuApicIds = cpuStorage as *u32
+    platform.cpuCapacity = cpuCapacity
+    platform.cpuCount = 0 as usize
+
+    let rsdp: usize = acpi_find_rsdp(multibootInfo)
+    if rsdp == (0 as usize) { return false }
+    platform.rsdp = rsdp
+
+    let revision: u8 = acpi_read_u8(rsdp + (15 as usize))
+    let xsdt: bool = revision >= (2 as u8)
+    let root: usize = 0 as usize
+    if xsdt {
+        let rsdpLength: usize = acpi_read_u32(rsdp + (20 as usize)) as usize
+        if rsdpLength < (36 as usize) || !acpi_checksum(rsdp, rsdpLength) { return false }
+        root = acpi_read_u64(rsdp + (24 as usize)) as usize
+        if !acpi_table_valid(root, 1413763928 as u32) { return false }
+    } else {
+        if !acpi_checksum(rsdp, 20 as usize) { return false }
+        root = acpi_read_u32(rsdp + (16 as usize)) as usize
+        if !acpi_table_valid(root, 1413763922 as u32) { return false }
+    }
+    platform.root = root
+
+    let madt: usize = acpi_find_table_in_root(root, xsdt, 1128878145 as u32)
+    if madt == (0 as usize) { return false }
+    platform.madt = madt
+    return acpi_parse_madt(platform)
+}
