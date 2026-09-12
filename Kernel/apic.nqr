@@ -43,7 +43,8 @@ function lapic_timer_start(base: usize, initialCount: u32): bool {
 function lapic_timer_stop(base: usize): void {
     if base == (0 as usize) { return }
     let value: u32 = apic_mmio_read32(base + (800 as usize))
-    if (value / (65536 as u32)) % (2 as u32) == (0 as u32) {
+    let maskedBit: u32 = (value / (65536 as u32)) % (2 as u32)
+    if maskedBit == (0 as u32) {
         apic_mmio_write32(base + (800 as usize), value + (65536 as u32))
     }
     apic_mmio_write32(base + (896 as usize), 0 as u32)
@@ -90,7 +91,8 @@ function ioapic_mask_all(base: usize): void {
     while index <= maxEntry {
         let register: u32 = (16 as u32) + (index * (2 as u32))
         let low: u32 = ioapic_read(base, register)
-        if (low / (65536 as u32)) % (2 as u32) == (0 as u32) {
+        let maskedBit: u32 = (low / (65536 as u32)) % (2 as u32)
+        if maskedBit == (0 as u32) {
             ioapic_write(base, register, low + (65536 as u32))
         }
         index = index + (1 as u32)
