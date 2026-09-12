@@ -1,0 +1,202 @@
+module os.kernel.memory.heap
+
+import "pmm.nqr"
+
+record HeapBlock {
+    size: usize;
+    used: u32;
+    reserved: u32;
+    next: *HeapBlock;
+    magic: u64;
+}
+
+record KernelHeap {
+    pmm: *PhysicalMemoryManager;
+    first: *HeapBlock;
+    activeAllocations: usize;
+    totalAllocations: usize;
+    totalFrees: usize;
+    bytesInUse: usize;
+    pageCount: usize;
+}
+
+function heap_header_size(): usize { return 32 as usize }
+function heap_block_magic(): u64 { return 1313820752 as u64 }
+
+function heap_align16(value: usize): usize {
+    if value == (0 as usize) { return 0 as usize }
+    return ((value + (15 as usize)) / (16 as usize)) * (16 as usize)
+}
+
+function heap_initialize(heap: *KernelHeap, pmm: *PhysicalMemoryManager): bool {
+    if heap == null || pmm == null { return false }
+    heap.pmm = pmm
+    heap.first = null
+    heap.activeAllocations = 0 as usize
+    heap.totalAllocations = 0 as usize
+    heap.totalFrees = 0 as usize
+    heap.bytesInUse = 0 as usize
+    heap.pageCount = 0 as usize
+    return true
+}
+
+function heap_append_block(heap: *KernelHeap, block: *HeapBlock): void {
+    if heap.first == null {
+        heap.first = block
+        return
+    }
+    let cursor: *HeapBlock = heap.first
+    while cursor.next != null {
+        cursor = cursor.next
+    }
+    cursor.next = block
+}
+
+function heap_add_region(heap: *KernelHeap, minimumPayload: usize): bool {
+    if heap == null || heap.pmm == null { return false }
+    let totalNeeded: usize = minimumPayload + heap_header_size()
+    let pages: usize = (totalNeeded + (4095 as usize)) / (4096 as usize)
+    let pageCount: usize = pages
+    if pageCount == (0 as usize) { pageCount = 1 as usize }
+
+    let base: usize = pmm_alloc_contiguous(heap.pmm, pageCount)
+    if base == (0 as usize) { return false }
+
+    let block: *HeapBlock = base as *HeapBlock
+    block.size = (pageCount * (4096 as usize)) - heap_header_size()
+    block.used = 0 as u32
+    block.reserved = 0 as u32
+    block.next = null
+    block.magic = heap_block_magic()
+    heap_append_block(heap, block)
+    heap.pageCount = heap.pageCount + pageCount
+    return true
+}
+
+function heap_split_block(block: *HeapBlock, requested: usize): void {
+    let header: usize = heap_header_size()
+    if block.size < (requested + header + (16 as usize)) { return }
+
+    let originalSize: usize = block.size
+    let splitAddress: usize = (block as usize) + header + requested
+    let split: *HeapBlock = splitAddress as *HeapBlock
+    split.size = originalSize - requested - header
+    split.used = 0 as u32
+    split.reserved = 0 as u32
+    split.next = block.next
+    split.magic = heap_block_magic()
+
+    block.size = requested
+    block.next = split
+}
+
+function heap_try_allocate(heap: *KernelHeap, requested: usize): usize {
+    let block: *HeapBlock = heap.first
+    let result: usize = 0 as usize
+    while block != null && result == (0 as usize) {
+        if block.magic == heap_block_magic() && block.used == (0 as u32) && block.size >= requested {
+            heap_split_block(block, requested)
+            block.used = 1 as u32
+            heap.activeAllocations = heap.activeAllocations + (1 as usize)
+            heap.totalAllocations = heap.totalAllocations + (1 as usize)
+            heap.bytesInUse = heap.bytesInUse + block.size
+            result = (block as usize) + heap_header_size()
+        }
+        block = block.next
+    }
+    return result
+}
+
+function kmalloc(heap: *KernelHeap, size: usize): usize {
+    if heap == null || size == (0 as usize) { return 0 as usize }
+    let requested: usize = heap_align16(size)
+    let result: usize = heap_try_allocate(heap, requested)
+    if result != (0 as usize) { return result }
+    if !heap_add_region(heap, requested) { return 0 as usize }
+    return heap_try_allocate(heap, requested)
+}
+
+function kzalloc(heap: *KernelHeap, size: usize): usize {
+    let address: usize = kmalloc(heap, size)
+    if address == (0 as usize) { return 0 as usize }
+    let bytes: *u8 = address as *u8
+    let index: usize = 0 as usize
+    while index < size {
+        bytes[index] = 0 as u8
+        index = index + (1 as usize)
+    }
+    return address
+}
+
+function heap_blocks_contiguous(first: *HeapBlock, second: *HeapBlock): bool {
+    if first == null || second == null { return false }
+    let expected: usize = (first as usize) + heap_header_size() + first.size
+    return expected == (second as usize)
+}
+
+function heap_coalesce_forward(block: *HeapBlock): void {
+    if block == null || block.used != (0 as u32) { return }
+    let next: *HeapBlock = block.next
+    if next == null || next.used != (0 as u32) || next.magic != heap_block_magic() { return }
+    if !heap_blocks_contiguous(block, next) { return }
+
+    block.size = block.size + heap_header_size() + next.size
+    block.next = next.next
+}
+
+function kfree(heap: *KernelHeap, address: usize): bool {
+    if heap == null || address == (0 as usize) || address < heap_header_size() { return false }
+    let blockAddress: usize = address - heap_header_size()
+    let block: *HeapBlock = blockAddress as *HeapBlock
+    if block.magic != heap_block_magic() || block.used != (1 as u32) { return false }
+
+    let previous: *HeapBlock = null
+    let cursor: *HeapBlock = heap.first
+    while cursor != null && cursor != block {
+        previous = cursor
+        cursor = cursor.next
+    }
+    if cursor != block { return false }
+
+    let released: usize = block.size
+    block.used = 0 as u32
+    if heap.activeAllocations > (0 as usize) { heap.activeAllocations = heap.activeAllocations - (1 as usize) }
+    heap.totalFrees = heap.totalFrees + (1 as usize)
+    if heap.bytesInUse >= released { heap.bytesInUse = heap.bytesInUse - released }
+
+    heap_coalesce_forward(block)
+    if previous != null && previous.used == (0 as u32) && heap_blocks_contiguous(previous, block) {
+        heap_coalesce_forward(previous)
+    }
+    return true
+}
+
+function heap_active_allocations(heap: *KernelHeap): usize { return heap.activeAllocations }
+function heap_bytes_in_use(heap: *KernelHeap): usize { return heap.bytesInUse }
+function heap_backing_pages(heap: *KernelHeap): usize { return heap.pageCount }
+
+function heap_self_test(heap: *KernelHeap): bool {
+    if heap == null { return false }
+    let first: usize = kmalloc(heap, 64 as usize)
+    let second: usize = kmalloc(heap, 128 as usize)
+    let third: usize = kzalloc(heap, 512 as usize)
+    let large: usize = kmalloc(heap, 5000 as usize)
+    if first == (0 as usize) || second == (0 as usize) || third == (0 as usize) || large == (0 as usize) { return false }
+    if first == second || first == third || second == third { return false }
+
+    let firstBytes: *u8 = first as *u8
+    let thirdBytes: *u8 = third as *u8
+    firstBytes[0] = 90 as u8
+    if firstBytes[0] != (90 as u8) || thirdBytes[0] != (0 as u8) || thirdBytes[511] != (0 as u8) { return false }
+
+    if !kfree(heap, second) { return false }
+    let replacement: usize = kmalloc(heap, 96 as usize)
+    if replacement != second { return false }
+
+    if !kfree(heap, replacement) { return false }
+    if !kfree(heap, first) { return false }
+    if !kfree(heap, third) { return false }
+    if !kfree(heap, large) { return false }
+    if heap.activeAllocations != (0 as usize) || heap.bytesInUse != (0 as usize) { return false }
+    return heap.pageCount >= (3 as usize)
+}
