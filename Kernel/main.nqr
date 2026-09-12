@@ -8,6 +8,7 @@ import "../Drivers/virtio.nqr"
 import "../Drivers/virtio_rng.nqr"
 import "../Drivers/virtio_block.nqr"
 import "memory.nqr"
+import "vfs.nqr"
 
 export function kernel_main(multibootInfo: usize): void {
     arch_cli()
@@ -64,6 +65,11 @@ export function kernel_main(multibootInfo: usize): void {
         serial_write("NoqeriOS: VirtIO block device detected\n")
         if virtio_modern_transport_present(blockLocation) && virtio_block_read_smoke(blockLocation) {
             serial_write("NoqeriOS: VirtIO block sector read succeeded\n")
+            if vfs_probe_boot_volume(blockLocation) {
+                serial_write("NoqeriOS: NoqFS boot volume recognized by VFS\n")
+            } else {
+                serial_write("NoqeriOS: NoqFS boot volume probe failed\n")
+            }
         } else {
             serial_write("NoqeriOS: VirtIO block sector read failed\n")
         }
