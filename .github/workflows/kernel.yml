@@ -1,0 +1,47 @@
+name: NoqeriOS kernel
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  qemu-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout NoqeriOS
+        uses: actions/checkout@v4
+
+      - name: Checkout Noqeri compiler
+        uses: actions/checkout@v4
+        with:
+          repository: EMN90909/Noqeri
+          path: .deps/Noqeri
+
+      - name: Install kernel test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils grub-common grub-pc-bin xorriso mtools qemu-system-x86 cmake g++
+
+      - name: Build Noqeri compiler
+        run: |
+          cmake -S .deps/Noqeri -B .deps/Noqeri/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build .deps/Noqeri/build --parallel
+
+      - name: Compile and boot NoqeriOS
+        env:
+          NOQERI: ${{ github.workspace }}/.deps/Noqeri/build/noqeri
+        run: bash Tests/qemu-smoke.sh
+
+      - name: Upload serial log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noqerios-serial-log
+          path: build/qemu-serial.log
+          if-no-files-found: ignore
