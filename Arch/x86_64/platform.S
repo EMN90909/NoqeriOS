@@ -171,6 +171,23 @@ kernel_thread_trampoline:
     hlt
     jmp 1b
 
+# Poll xAPIC ICR delivery status with a finite bound so a bad destination can
+# never wedge the BSP forever. r10 is the local-APIC MMIO base; eax returns bool.
+.L_smp_wait_delivery:
+    mov $5000000, %ecx
+.L_smp_wait_delivery_loop:
+    mov 0x300(%r10), %eax
+    test $0x1000, %eax
+    jz .L_smp_wait_delivery_done
+    pause
+    dec %ecx
+    jnz .L_smp_wait_delivery_loop
+    xor %eax, %eax
+    ret
+.L_smp_wait_delivery_done:
+    mov $1, %eax
+    ret
+
 .global arch_smp_start_ap
 .type arch_smp_start_ap, @function
 arch_smp_start_ap:
@@ -183,9 +200,14 @@ arch_smp_start_ap:
     mov %rsi, %r13
     mov %rdx, %r14
 
-    # Temporary COM1 trace: S=start, R=real mode, P=protected mode,
-    # L=long mode, K=about to enter Noqeri AP code, O=online, F=timeout.
+    # Temporary COM1 trace. S<digit> begins a target; I/A/B are delivery
+    # completions for INIT/SIPI/SIPI; W waits for AP readiness; R/P/L/K are AP
+    # real/protected/long/kernel-entry stages; O=online and F=failure.
     mov $83, %al
+    mov $0x3f8, %dx
+    out %al, %dx
+    mov %r12b, %al
+    add $48, %al
     mov $0x3f8, %dx
     out %al, %dx
 
@@ -210,10 +232,13 @@ arch_smp_start_ap:
     shl $24, %eax
     mov %eax, 0x310(%r10)
     movl $0x00004500, 0x300(%r10)
-2:
-    mov 0x300(%r10), %eax
-    test $0x1000, %eax
-    jnz 2b
+    call .L_smp_wait_delivery
+    test %eax, %eax
+    jz 9f
+    mov $73, %al
+    mov $0x3f8, %dx
+    out %al, %dx
+
     mov $200000, %ecx
 3:
     pause
@@ -223,10 +248,13 @@ arch_smp_start_ap:
     shl $24, %eax
     mov %eax, 0x310(%r10)
     movl $0x00004607, 0x300(%r10)
-4:
-    mov 0x300(%r10), %eax
-    test $0x1000, %eax
-    jnz 4b
+    call .L_smp_wait_delivery
+    test %eax, %eax
+    jz 9f
+    mov $65, %al
+    mov $0x3f8, %dx
+    out %al, %dx
+
     mov $100000, %ecx
 5:
     pause
@@ -236,10 +264,15 @@ arch_smp_start_ap:
     shl $24, %eax
     mov %eax, 0x310(%r10)
     movl $0x00004607, 0x300(%r10)
-6:
-    mov 0x300(%r10), %eax
-    test $0x1000, %eax
-    jnz 6b
+    call .L_smp_wait_delivery
+    test %eax, %eax
+    jz 9f
+    mov $66, %al
+    mov $0x3f8, %dx
+    out %al, %dx
+    mov $87, %al
+    mov $0x3f8, %dx
+    out %al, %dx
 
     mov $50000000, %ecx
 7:
