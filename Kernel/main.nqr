@@ -87,14 +87,20 @@ export function kernel_main(multibootInfo: usize): void {
                     serial_write("NoqeriOS: VFS opened and read a NoqFS file\n")
                 } else if vfsTest == (-2 as isize) {
                     serial_write("NoqeriOS: VFS file test remount failed\n")
-                } else if vfsTest == (-3 as isize) {
-                    serial_write("NoqeriOS: VFS root entry lookup failed\n")
                 } else if vfsTest == (-4 as isize) {
                     serial_write("NoqeriOS: VFS file payload read failed\n")
                 } else if vfsTest == (-5 as isize) {
                     serial_write("NoqeriOS: VFS file payload marker mismatch\n")
+                } else if vfsTest == (-12 as isize) {
+                    serial_write("NoqeriOS: NoqFS mount lost root entry count\n")
+                } else if vfsTest == (-13 as isize) {
+                    serial_write("NoqeriOS: NoqFS mount lost root directory sector\n")
+                } else if vfsTest == (-15 as isize) {
+                    serial_write("NoqeriOS: NoqFS root directory sector read failed\n")
+                } else if vfsTest == (-16 as isize) {
+                    serial_write("NoqeriOS: NoqFS root directory key mismatch\n")
                 } else {
-                    serial_write("NoqeriOS: VFS file test allocation failed\n")
+                    serial_write("NoqeriOS: VFS file test metadata/allocation failed\n")
                 }
             } else {
                 serial_write("NoqeriOS: NoqFS boot volume probe failed\n")
