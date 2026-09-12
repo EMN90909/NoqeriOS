@@ -61,9 +61,12 @@ function pci_enable_device(location: u32): void {
     let slot: u32 = pci_location_slot(location)
     let fn: u32 = pci_location_fn(location)
     let command: u16 = pci_read16(bus, slot, fn, 4 as u32)
-    if (command % (2 as u16)) == (0 as u16) { command = command + (1 as u16) }
-    if ((command / (2 as u16)) % (2 as u16)) == (0 as u16) { command = command + (2 as u16) }
-    if ((command / (4 as u16)) % (2 as u16)) == (0 as u16) { command = command + (4 as u16) }
+    let ioEnabled: u16 = command % (2 as u16)
+    if ioEnabled == (0 as u16) { command = command + (1 as u16) }
+    let memoryEnabled: u16 = (command / (2 as u16)) % (2 as u16)
+    if memoryEnabled == (0 as u16) { command = command + (2 as u16) }
+    let busMasterEnabled: u16 = (command / (4 as u16)) % (2 as u16)
+    if busMasterEnabled == (0 as u16) { command = command + (4 as u16) }
     pci_write16(bus, slot, fn, 4 as u32, command)
 }
 
