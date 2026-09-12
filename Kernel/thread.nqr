@@ -159,9 +159,7 @@ function thread_create_kernel(system: *SchedulerSystem, queue: *CpuRunQueue, ent
     thread.kernelStackTop = stackBase + (16384 as usize)
     thread.argument = storage
     thread.savedRsp = arch_prepare_kernel_thread(thread.kernelStackTop, tid, storage)
-    if thread.savedRsp == (0 as usize) {
-        return null
-    }
+    if thread.savedRsp == (0 as usize) { return null }
     if !thread_enqueue(queue, thread) { return null }
     return thread
 }
@@ -203,9 +201,7 @@ function thread_schedule_tick(system: *SchedulerSystem, apicId: u32, frameRsp: u
     }
 
     current.remainingTicks = current.quantumTicks
-    if current.state == (2 as u32) {
-        thread_enqueue(queue, current)
-    }
+    if current.state == (2 as u32) { thread_enqueue(queue, current) }
 
     let next: *KernelThread = thread_dequeue(queue)
     if next == null {
@@ -220,12 +216,8 @@ function thread_schedule_tick(system: *SchedulerSystem, apicId: u32, frameRsp: u
     queue.switchCount = queue.switchCount + (1 as usize)
     system.totalSwitches = system.totalSwitches + (1 as usize)
 
-    if next.cr3 != (arch_read_cr3() as usize) {
-        arch_write_cr3(next.cr3 as u64)
-    }
-    if next.kernelStackTop != (0 as usize) {
-        arch_set_tss_rsp0(next.kernelStackTop)
-    }
+    if next.cr3 != (arch_read_cr3() as usize) { arch_write_cr3(next.cr3 as u64) }
+    if next.kernelStackTop != (0 as usize) { arch_set_tss_rsp0(next.kernelStackTop) }
     return next.savedRsp
 }
 
@@ -237,17 +229,13 @@ export function kernel_timer_interrupt(frameRsp: usize, apicId: u32): usize {
 
 export function kernel_thread_entry(tid: usize, argument: usize): void {
     let thread: *KernelThread = argument as *KernelThread
-    if thread == null || thread.tid != tid {
-        while true { arch_halt() }
-    }
-
+    if thread == null || thread.tid != tid { while true { arch_halt() } }
     if thread.entryKind == (1 as u32) {
         while true {
             thread.workCounter = thread.workCounter + (1 as usize)
             arch_pause()
         }
     }
-
     while true { arch_halt() }
 }
 
@@ -256,6 +244,8 @@ export function kernel_thread_finished(): void {
 }
 
 export function kernel_ap_main(apicId: u32): void {
+    arch_cli()
+    arch_interrupts_load()
     let systemAddress: usize = arch_scheduler_system()
     if systemAddress == (0 as usize) {
         arch_smp_mark_online()
@@ -276,9 +266,7 @@ export function kernel_ap_main(apicId: u32): void {
 
     let bootstrap: *KernelThread = thread_create_bootstrap(system, queue)
     let worker: *KernelThread = null
-    if bootstrap != null {
-        worker = thread_create_kernel(system, queue, 1 as u32)
-    }
+    if bootstrap != null { worker = thread_create_kernel(system, queue, 1 as u32) }
     if bootstrap != null && worker != null {
         queue.online = 1 as u32
         lapic_timer_start(arch_get_lapic_base(), 5000000 as u32)
