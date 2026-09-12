@@ -1,0 +1,14 @@
+module os.kernel.vfs
+
+import "../Drivers/virtio_block.nqr"
+
+function vfs_probe_boot_volume(blockLocation: u32): bool {
+    let sectorPage: usize = arch_alloc_page()
+    if sectorPage == 0 { return false }
+    if !virtio_block_read_sector(blockLocation, 0 as u64, sectorPage) { return false }
+
+    // Bootstrap NoqFS superblock: 4-byte "NQFS" magic followed by u32 version.
+    let magic: *volatile u32 = sectorPage as *volatile u32
+    let version: *volatile u32 = (sectorPage + 4) as *volatile u32
+    return magic[0] == (1397117262 as u32) && version[0] == (1 as u32)
+}
