@@ -2,8 +2,6 @@ module os.drivers.virtio_rng
 
 import "virtio.nqr"
 
-extern function arch_alloc_page(): usize;
-
 function virtio_rng_dma_test(location: u32): bool {
     if !virtio_begin_driver(location) { return false }
 
@@ -56,7 +54,7 @@ function virtio_rng_dma_test(location: u32): bool {
         return false
     }
 
-    let spins: usize = 0
+    let spins: usize = 0 as usize
     while usedIndex[0] == (0 as u16) && spins < 2000000 {
         intrinsic("x86.pause")
         spins = spins + 1
