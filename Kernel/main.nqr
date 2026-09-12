@@ -1,0 +1,77 @@
+module os.kernel
+
+import "../Drivers/serial.nqr"
+import "../Drivers/framebuffer.nqr"
+import "memory.nqr"
+
+extern function arch_cli(): void;
+extern function arch_sti(): void;
+extern function arch_halt(): void;
+extern function arch_kernel_end(): usize;
+extern function arch_early_allocator_set(start: usize, end: usize): bool;
+extern function arch_alloc_page(): usize;
+extern function arch_interrupts_init(): void;
+extern function arch_timer_ticks(): usize;
+extern function arch_userspace_init(): bool;
+extern function arch_enter_user_test(): bool;
+extern function arch_user_test_seen(): bool;
+
+export function kernel_main(multibootInfo: usize): void {
+    arch_cli()
+    serial_init()
+    serial_write("NoqeriOS: entered 64-bit Noqeri kernel\n")
+    serial_write("NoqeriOS: serial driver online\n")
+
+    let kernelEnd: usize = arch_kernel_end()
+    let memoryStart: usize = usable_region_start(multibootInfo, kernelEnd)
+    let memoryEnd: usize = usable_region_end(multibootInfo, kernelEnd)
+    if memoryStart != 0 && memoryEnd > memoryStart && arch_early_allocator_set(memoryStart, memoryEnd) {
+        serial_write("NoqeriOS: physical memory map accepted\n")
+        let firstPage: usize = arch_alloc_page()
+        if firstPage != 0 {
+            serial_write("NoqeriOS: physical page allocation succeeded\n")
+        } else {
+            serial_write("NoqeriOS: physical page allocation failed\n")
+        }
+    } else {
+        serial_write("NoqeriOS: no usable physical memory region found\n")
+    }
+
+    arch_interrupts_init()
+    arch_sti()
+    let ticks: usize = arch_timer_ticks()
+    while ticks < 3 {
+        arch_halt()
+        ticks = arch_timer_ticks()
+    }
+    arch_cli()
+    serial_write("NoqeriOS: IDT and PIT timer interrupts active\n")
+
+    if arch_userspace_init() {
+        if arch_enter_user_test() {
+            if arch_user_test_seen() {
+                serial_write("NoqeriOS: ring-3 transition and syscall gate active\n")
+            } else {
+                serial_write("NoqeriOS: ring-3 syscall return was not observed\n")
+            }
+        } else {
+            serial_write("NoqeriOS: ring-3 transition failed\n")
+        }
+    } else {
+        serial_write("NoqeriOS: TSS/userspace initialization failed\n")
+    }
+
+    if framebuffer_probe(multibootInfo) {
+        serial_write("NoqeriOS: 32-bit framebuffer discovered\n")
+        if framebuffer_draw_boot_mark(multibootInfo) {
+            serial_write("NoqeriOS: framebuffer MMIO write succeeded\n")
+        }
+    } else {
+        serial_write("NoqeriOS: no supported framebuffer; serial remains active\n")
+    }
+
+    serial_write("NoqeriOS: bootstrap milestone complete\n")
+    while true {
+        arch_halt()
+    }
+}
