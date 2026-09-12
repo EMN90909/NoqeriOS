@@ -2,41 +2,75 @@ module os.drivers.virtio
 
 import "pci.nqr"
 
-function virtio_modern_transport_present(location: u32): bool {
-    if location == (65536 as u32) {
-        return false
+function virtio_find_capability(location: u32, wantedType: u8): u32 {
+    if location == (65536 as u32) { return 0 as u32 }
+    let bus: u32 = pci_location_bus(location)
+    let slot: u32 = pci_location_slot(location)
+    let fn: u32 = pci_location_fn(location)
+    let capability: u32 = (pci_read8(bus, slot, fn, 52 as u32)) as u32
+    let walked: usize = 0
+    while capability != (0 as u32) && walked < 48 {
+        let capabilityId: u8 = pci_read8(bus, slot, fn, capability)
+        let nextCapability: u32 = (pci_read8(bus, slot, fn, capability + (1 as u32))) as u32
+        if capabilityId == (9 as u8) && pci_read8(bus, slot, fn, capability + (3 as u32)) == wantedType {
+            return capability
+        }
+        capability = nextCapability
+        walked = walked + 1
     }
+    return 0 as u32
+}
+
+function virtio_modern_transport_present(location: u32): bool {
+    return virtio_find_capability(location, 1 as u8) != (0 as u32) &&
+           virtio_find_capability(location, 2 as u8) != (0 as u32) &&
+           virtio_find_capability(location, 3 as u8) != (0 as u32) &&
+           virtio_find_capability(location, 5 as u8) != (0 as u32)
+}
+
+function virtio_pci_cfg_read8(location: u32, targetCapability: u32, targetOffset: u32): u8 {
+    let pciCfgCapability: u32 = virtio_find_capability(location, 5 as u8)
+    if pciCfgCapability == (0 as u32) || targetCapability == (0 as u32) { return 255 as u8 }
 
     let bus: u32 = pci_location_bus(location)
     let slot: u32 = pci_location_slot(location)
     let fn: u32 = pci_location_fn(location)
+    let targetBar: u8 = pci_read8(bus, slot, fn, targetCapability + (4 as u32))
+    let targetBaseOffset: u32 = pci_read32(bus, slot, fn, targetCapability + (8 as u32))
 
-    let commonSeen: bool = false
-    let notifySeen: bool = false
-    let isrSeen: bool = false
-    let capability: u32 = (pci_read8(bus, slot, fn, 52 as u32)) as u32
-    let walked: usize = 0
+    pci_write8(bus, slot, fn, pciCfgCapability + (4 as u32), targetBar)
+    pci_write32(bus, slot, fn, pciCfgCapability + (8 as u32), targetBaseOffset + targetOffset)
+    pci_write32(bus, slot, fn, pciCfgCapability + (12 as u32), 1 as u32)
+    return pci_read8(bus, slot, fn, pciCfgCapability + (16 as u32))
+}
 
-    while capability != (0 as u32) && walked < 48 {
-        let capabilityId: u8 = pci_read8(bus, slot, fn, capability)
-        let nextCapability: u32 = (pci_read8(bus, slot, fn, capability + (1 as u32))) as u32
+function virtio_pci_cfg_write8(location: u32, targetCapability: u32, targetOffset: u32, value: u8): bool {
+    let pciCfgCapability: u32 = virtio_find_capability(location, 5 as u8)
+    if pciCfgCapability == (0 as u32) || targetCapability == (0 as u32) { return false }
 
-        if capabilityId == (9 as u8) {
-            let configType: u8 = pci_read8(bus, slot, fn, capability + (3 as u32))
-            if configType == (1 as u8) {
-                commonSeen = true
-            }
-            if configType == (2 as u8) {
-                notifySeen = true
-            }
-            if configType == (3 as u8) {
-                isrSeen = true
-            }
-        }
+    let bus: u32 = pci_location_bus(location)
+    let slot: u32 = pci_location_slot(location)
+    let fn: u32 = pci_location_fn(location)
+    let targetBar: u8 = pci_read8(bus, slot, fn, targetCapability + (4 as u32))
+    let targetBaseOffset: u32 = pci_read32(bus, slot, fn, targetCapability + (8 as u32))
 
-        capability = nextCapability
-        walked = walked + 1
-    }
+    pci_write8(bus, slot, fn, pciCfgCapability + (4 as u32), targetBar)
+    pci_write32(bus, slot, fn, pciCfgCapability + (8 as u32), targetBaseOffset + targetOffset)
+    pci_write32(bus, slot, fn, pciCfgCapability + (12 as u32), 1 as u32)
+    pci_write8(bus, slot, fn, pciCfgCapability + (16 as u32), value)
+    return true
+}
 
-    return commonSeen && notifySeen && isrSeen
+function virtio_status_handshake(location: u32): bool {
+    let commonCapability: u32 = virtio_find_capability(location, 1 as u8)
+    if commonCapability == (0 as u32) { return false }
+
+    if !virtio_pci_cfg_write8(location, commonCapability, 20 as u32, 0 as u8) { return false }
+    if virtio_pci_cfg_read8(location, commonCapability, 20 as u32) != (0 as u8) { return false }
+    if !virtio_pci_cfg_write8(location, commonCapability, 20 as u32, 1 as u8) { return false }
+    if !virtio_pci_cfg_write8(location, commonCapability, 20 as u32, 3 as u8) { return false }
+
+    let status: u8 = virtio_pci_cfg_read8(location, commonCapability, 20 as u32)
+    virtio_pci_cfg_write8(location, commonCapability, 20 as u32, 0 as u8)
+    return status == (3 as u8)
 }
