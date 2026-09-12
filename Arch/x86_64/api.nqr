@@ -1,0 +1,28 @@
+module os.arch.x86_64.api
+
+extern function arch_out8(port: u16, value: u8): void;
+extern function arch_in8(port: u16): u8;
+extern function arch_out16(port: u16, value: u16): void;
+extern function arch_in16(port: u16): u16;
+extern function arch_out32(port: u16, value: u32): void;
+extern function arch_in32(port: u16): u32;
+
+extern function arch_cli(): void;
+extern function arch_sti(): void;
+extern function arch_halt(): void;
+extern function arch_pause(): void;
+extern function arch_read_cr2(): u64;
+extern function arch_read_cr3(): u64;
+extern function arch_write_cr3(value: u64): void;
+
+extern function arch_kernel_start(): usize;
+extern function arch_kernel_end(): usize;
+extern function arch_early_allocator_set(start: usize, end: usize): bool;
+extern function arch_alloc_page(): usize;
+
+extern function arch_serial_write(text: string): void;
+extern function arch_interrupts_init(): void;
+extern function arch_timer_ticks(): usize;
+extern function arch_userspace_init(): bool;
+extern function arch_enter_user_test(): bool;
+extern function arch_user_test_seen(): bool;
