@@ -25,6 +25,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: EMN90909/Noqeri
+          ref: fix/optimizer-jump-remap
           path: .deps/Noqeri
 
       - name: Install kernel test dependencies
