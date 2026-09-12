@@ -109,7 +109,8 @@ function virtio_begin_driver(location: u32): bool {
 
     virtio_pci_cfg_write32(location, common, 0 as u32, 1 as u32)
     let highFeatures: u32 = virtio_pci_cfg_read32(location, common, 4 as u32)
-    if (highFeatures % (2 as u32)) == (0 as u32) { virtio_pci_cfg_write8(location, common, 20 as u32, 0 as u8); return false }
+    let versionOnePresent: u32 = highFeatures % (2 as u32)
+    if versionOnePresent == (0 as u32) { virtio_pci_cfg_write8(location, common, 20 as u32, 0 as u8); return false }
 
     virtio_pci_cfg_write32(location, common, 8 as u32, 0 as u32)
     virtio_pci_cfg_write32(location, common, 12 as u32, 0 as u32)
