@@ -14,7 +14,8 @@ function apic_mmio_write32(address: usize, value: u32): void {
 }
 
 function lapic_id(base: usize): u32 {
-    return apic_mmio_read32(base + (32 as usize)) / (16777216 as u32)
+    if base == (0 as usize) { return 0 as u32 }
+    return arch_current_apic_id()
 }
 
 function lapic_enable(base: usize): bool {
@@ -33,7 +34,6 @@ function lapic_eoi(base: usize): void {
 
 function lapic_timer_start(base: usize, initialCount: u32): bool {
     if base == (0 as usize) || initialCount == (0 as u32) { return false }
-    // Divide by 16, vector 48, periodic mode (bit 17).
     apic_mmio_write32(base + (992 as usize), 3 as u32)
     apic_mmio_write32(base + (800 as usize), 131120 as u32)
     apic_mmio_write32(base + (896 as usize), initialCount)
@@ -104,7 +104,7 @@ function apic_platform_initialize(platform: *AcpiPlatform): bool {
     if !lapic_enable(platform.lapicAddress) { return false }
     ioapic_mask_all(platform.ioapicAddress)
 
-    let destination: u32 = lapic_id(platform.lapicAddress)
+    let destination: u32 = arch_current_apic_id()
     if !ioapic_route(platform.ioapicAddress, platform.ioapicGsiBase, platform.timerGsi, 48 as u8, destination, platform.timerFlags) {
         return false
     }
@@ -113,5 +113,5 @@ function apic_platform_initialize(platform: *AcpiPlatform): bool {
 
 function apic_route_keyboard(platform: *AcpiPlatform): bool {
     if platform == null { return false }
-    return ioapic_route(platform.ioapicAddress, platform.ioapicGsiBase, platform.keyboardGsi, 49 as u8, lapic_id(platform.lapicAddress), platform.keyboardFlags)
+    return ioapic_route(platform.ioapicAddress, platform.ioapicGsiBase, platform.keyboardGsi, 49 as u8, arch_current_apic_id(), platform.keyboardFlags)
 }
