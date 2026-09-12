@@ -98,10 +98,29 @@ function ioapic_mask_all(base: usize): void {
     }
 }
 
+function apic_trace_topology(platform: *AcpiPlatform): void {
+    arch_serial_write("NoqeriOS: current APIC ID hex ")
+    arch_serial_hex_u32(arch_current_apic_id())
+    let index: usize = 0 as usize
+    while index < platform.cpuCount && index < (8 as usize) {
+        if index == (0 as usize) { arch_serial_write("NoqeriOS: MADT APIC ID[0] hex ") }
+        else if index == (1 as usize) { arch_serial_write("NoqeriOS: MADT APIC ID[1] hex ") }
+        else if index == (2 as usize) { arch_serial_write("NoqeriOS: MADT APIC ID[2] hex ") }
+        else if index == (3 as usize) { arch_serial_write("NoqeriOS: MADT APIC ID[3] hex ") }
+        else if index == (4 as usize) { arch_serial_write("NoqeriOS: MADT APIC ID[4] hex ") }
+        else if index == (5 as usize) { arch_serial_write("NoqeriOS: MADT APIC ID[5] hex ") }
+        else if index == (6 as usize) { arch_serial_write("NoqeriOS: MADT APIC ID[6] hex ") }
+        else { arch_serial_write("NoqeriOS: MADT APIC ID[7] hex ") }
+        arch_serial_hex_u32(platform.cpuApicIds[index])
+        index = index + (1 as usize)
+    }
+}
+
 function apic_platform_initialize(platform: *AcpiPlatform): bool {
     if platform == null || platform.lapicAddress == (0 as usize) || platform.ioapicAddress == (0 as usize) { return false }
     arch_pic_mask_all()
     if !lapic_enable(platform.lapicAddress) { return false }
+    apic_trace_topology(platform)
     ioapic_mask_all(platform.ioapicAddress)
 
     let destination: u32 = arch_current_apic_id()
