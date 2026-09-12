@@ -1,0 +1,76 @@
+module os.drivers.framebuffer
+
+record Mb2Tag {
+    kind: u32;
+    size: u32;
+}
+
+record Mb2FramebufferTag {
+    kind: u32;
+    size: u32;
+    address: u64;
+    pitch: u32;
+    width: u32;
+    height: u32;
+    bpp: u8;
+    framebufferType: u8;
+    reserved: u16;
+}
+
+function mb2_find_framebuffer(info: usize): usize {
+    let cursor: usize = info + 8
+    while true {
+        let tag: *Mb2Tag = cursor as *Mb2Tag
+        if tag.kind == (8 as u32) {
+            return cursor
+        }
+        if tag.kind == (0 as u32) {
+            return 0
+        }
+        let size: usize = tag.size as usize
+        let padding: usize = (8 - (size % 8)) % 8
+        cursor = cursor + size + padding
+    }
+    return 0
+}
+
+function framebuffer_probe(info: usize): bool {
+    let address: usize = mb2_find_framebuffer(info)
+    if address == 0 {
+        return false
+    }
+    let fb: *Mb2FramebufferTag = address as *Mb2FramebufferTag
+    return fb.bpp == (32 as u8)
+}
+
+function framebuffer_draw_boot_mark(info: usize): bool {
+    let address: usize = mb2_find_framebuffer(info)
+    if address == 0 {
+        return false
+    }
+
+    let fb: *Mb2FramebufferTag = address as *Mb2FramebufferTag
+    if fb.bpp != (32 as u8) {
+        return false
+    }
+
+    let framebufferAddress: usize = fb.address as usize
+    let pixels: *volatile u32 = framebufferAddress as *volatile u32
+    let stride: usize = (fb.pitch as usize) / 4
+    let maxWidth: usize = fb.width as usize
+    let maxHeight: usize = fb.height as usize
+
+    let drawWidth: usize = 96
+    let drawHeight: usize = 64
+    let y: usize = 0
+    while y < drawHeight && y < maxHeight {
+        let x: usize = 0
+        while x < drawWidth && x < maxWidth {
+            let color: u32 = 2105599 as u32
+            pixels[(y * stride) + x] = color
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return true
+}
