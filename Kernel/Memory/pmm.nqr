@@ -70,7 +70,7 @@ function pmm_frame_count_for_info(info: usize): usize {
     let highest: u64 = pmm_highest_memory_address(info)
     if highest == (0 as u64) { return 0 as usize }
     let frames: u64 = highest / (4096 as u64)
-    if (highest % (4096 as u64)) != (0 as u64) {
+    if highest % (4096 as u64) != (0 as u64) {
         frames = frames + (1 as u64)
     }
     return frames as usize
@@ -353,7 +353,7 @@ function pmm_self_test(pmm: *PhysicalMemoryManager): bool {
     let third: usize = pmm_alloc_page(pmm)
     let fourth: usize = pmm_alloc_page(pmm)
     if first == (0 as usize) || second == (0 as usize) || third == (0 as usize) || fourth == (0 as usize) { return false }
-    if (first % (4096 as usize)) != (0 as usize) || (second % (4096 as usize)) != (0 as usize) { return false }
+    if first % (4096 as usize) != (0 as usize) || (second % (4096 as usize)) != (0 as usize) { return false }
     if first == second || first == third || first == fourth || second == third || second == fourth || third == fourth { return false }
 
     if !pmm_free_page(pmm, second) || !pmm_free_page(pmm, fourth) { return false }
