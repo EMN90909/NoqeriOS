@@ -117,7 +117,7 @@ function vmm_create_address_space(pmm: *PhysicalMemoryManager, currentRoot: usiz
 
 function vmm_map_page(space: *AddressSpace, pmm: *PhysicalMemoryManager, virtualAddress: usize, physicalAddress: usize, writable: bool, user: bool): isize {
     if space == null || pmm == null || space.rootPhysical == (0 as usize) { return -1 as isize }
-    if (virtualAddress % (4096 as usize)) != (0 as usize) || (physicalAddress % (4096 as usize)) != (0 as usize) { return -2 as isize }
+    if virtualAddress % (4096 as usize) != (0 as usize) || (physicalAddress % (4096 as usize)) != (0 as usize) { return -2 as isize }
 
     let pml4: *u64 = space.rootPhysical as *u64
     let pdptPhysical: usize = vmm_ensure_next_table(pml4, vmm_pml4_index(virtualAddress), pmm, user)
@@ -160,7 +160,7 @@ function vmm_walk_pte(space: *AddressSpace, virtualAddress: usize): *u64 {
 }
 
 function vmm_unmap_page(space: *AddressSpace, virtualAddress: usize): usize {
-    if (virtualAddress % (4096 as usize)) != (0 as usize) { return 0 as usize }
+    if virtualAddress % (4096 as usize) != (0 as usize) { return 0 as usize }
     let pte: *u64 = vmm_walk_pte(space, virtualAddress)
     if pte == null || !vmm_entry_present(*pte) { return 0 as usize }
     let physical: usize = vmm_entry_address(*pte)
