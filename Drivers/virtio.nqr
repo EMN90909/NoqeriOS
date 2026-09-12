@@ -1,0 +1,42 @@
+module os.drivers.virtio
+
+import "pci.nqr"
+
+function virtio_modern_transport_present(location: u32): bool {
+    if location == (65536 as u32) {
+        return false
+    }
+
+    let bus: u32 = pci_location_bus(location)
+    let slot: u32 = pci_location_slot(location)
+    let fn: u32 = pci_location_fn(location)
+
+    let commonSeen: bool = false
+    let notifySeen: bool = false
+    let isrSeen: bool = false
+    let capability: u32 = (pci_read8(bus, slot, fn, 52 as u32)) as u32
+    let walked: usize = 0
+
+    while capability != (0 as u32) && walked < 48 {
+        let capabilityId: u8 = pci_read8(bus, slot, fn, capability)
+        let nextCapability: u32 = (pci_read8(bus, slot, fn, capability + (1 as u32))) as u32
+
+        if capabilityId == (9 as u8) {
+            let configType: u8 = pci_read8(bus, slot, fn, capability + (3 as u32))
+            if configType == (1 as u8) {
+                commonSeen = true
+            }
+            if configType == (2 as u8) {
+                notifySeen = true
+            }
+            if configType == (3 as u8) {
+                isrSeen = true
+            }
+        }
+
+        capability = nextCapability
+        walked = walked + 1
+    }
+
+    return commonSeen && notifySeen && isrSeen
+}
