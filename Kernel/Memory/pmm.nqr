@@ -1,0 +1,385 @@
+module os.kernel.memory.pmm
+
+import "../memory.nqr"
+
+record PhysicalMemoryManager {
+    usedBitmap: *u8;
+    reservedBitmap: *u8;
+    frameCount: usize;
+    bitmapBytes: usize;
+    freeFrames: usize;
+    reservedFrames: usize;
+    allocatedFrames: usize;
+    searchFrame: usize;
+    allocationLimitFrame: usize;
+    highestAddress: u64;
+}
+
+function pmm_bit_weight(bit: usize): u8 {
+    if bit == (0 as usize) { return 1 as u8 }
+    if bit == (1 as usize) { return 2 as u8 }
+    if bit == (2 as usize) { return 4 as u8 }
+    if bit == (3 as usize) { return 8 as u8 }
+    if bit == (4 as usize) { return 16 as u8 }
+    if bit == (5 as usize) { return 32 as u8 }
+    if bit == (6 as usize) { return 64 as u8 }
+    return 128 as u8
+}
+
+function pmm_bitmap_get(bitmap: *u8, frame: usize): bool {
+    let byteIndex: usize = frame / (8 as usize)
+    let bitIndex: usize = frame % (8 as usize)
+    let weight: usize = pmm_bit_weight(bitIndex) as usize
+    let value: usize = bitmap[byteIndex] as usize
+    return ((value / weight) % (2 as usize)) == (1 as usize)
+}
+
+function pmm_bitmap_set(bitmap: *u8, frame: usize, state: bool): void {
+    let byteIndex: usize = frame / (8 as usize)
+    let bitIndex: usize = frame % (8 as usize)
+    let weight: u8 = pmm_bit_weight(bitIndex)
+    let oldState: bool = pmm_bitmap_get(bitmap, frame)
+    if state && !oldState {
+        bitmap[byteIndex] = bitmap[byteIndex] + weight
+    } else if !state && oldState {
+        bitmap[byteIndex] = bitmap[byteIndex] - weight
+    }
+}
+
+function pmm_highest_memory_address(info: usize): u64 {
+    let tagAddress: usize = mb2_find_memory_map(info)
+    if tagAddress == (0 as usize) { return 0 as u64 }
+
+    let tag: *Mb2MmapTag = tagAddress as *Mb2MmapTag
+    let cursor: usize = tagAddress + (16 as usize)
+    let tagEnd: usize = tagAddress + (tag.size as usize)
+    let highest: u64 = 0 as u64
+
+    while cursor < tagEnd {
+        let entry: *Mb2MmapEntry = cursor as *Mb2MmapEntry
+        let endAddress: u64 = entry.baseAddress + entry.length
+        if endAddress >= entry.baseAddress && endAddress > highest {
+            highest = endAddress
+        }
+        cursor = cursor + (tag.entrySize as usize)
+    }
+    return highest
+}
+
+function pmm_frame_count_for_info(info: usize): usize {
+    let highest: u64 = pmm_highest_memory_address(info)
+    if highest == (0 as u64) { return 0 as usize }
+    let frames: u64 = highest / (4096 as u64)
+    if (highest % (4096 as u64)) != (0 as u64) {
+        frames = frames + (1 as u64)
+    }
+    return frames as usize
+}
+
+function pmm_required_metadata_pages(info: usize): usize {
+    let frames: usize = pmm_frame_count_for_info(info)
+    if frames == (0 as usize) { return 0 as usize }
+    let bytesPerBitmap: usize = (frames + (7 as usize)) / (8 as usize)
+    let totalBytes: usize = bytesPerBitmap * (2 as usize)
+    return (totalBytes + (4095 as usize)) / (4096 as usize)
+}
+
+function pmm_raw_set_frame(pmm: *PhysicalMemoryManager, frame: usize, used: bool, reserved: bool): void {
+    if frame >= pmm.frameCount { return }
+    pmm_bitmap_set(pmm.usedBitmap, frame, used)
+    pmm_bitmap_set(pmm.reservedBitmap, frame, reserved)
+}
+
+function pmm_raw_release_usable_range(pmm: *PhysicalMemoryManager, baseAddress: u64, length: u64): void {
+    if length == (0 as u64) { return }
+    let endAddress: u64 = baseAddress + length
+    if endAddress < baseAddress { return }
+
+    let firstFrame64: u64 = (baseAddress + (4095 as u64)) / (4096 as u64)
+    let endFrame64: u64 = endAddress / (4096 as u64)
+    let firstFrame: usize = firstFrame64 as usize
+    let endFrame: usize = endFrame64 as usize
+    let frame: usize = firstFrame
+
+    while frame < endFrame && frame < pmm.frameCount {
+        pmm_raw_set_frame(pmm, frame, false, false)
+        frame = frame + (1 as usize)
+    }
+}
+
+function pmm_raw_reserve_range(pmm: *PhysicalMemoryManager, startAddress: usize, length: usize): void {
+    if length == (0 as usize) { return }
+    let endAddress: usize = startAddress + length
+    if endAddress < startAddress { return }
+
+    let firstFrame: usize = startAddress / (4096 as usize)
+    let endFrame: usize = (endAddress + (4095 as usize)) / (4096 as usize)
+    let frame: usize = firstFrame
+    while frame < endFrame && frame < pmm.frameCount {
+        pmm_raw_set_frame(pmm, frame, true, true)
+        frame = frame + (1 as usize)
+    }
+}
+
+function pmm_recount(pmm: *PhysicalMemoryManager): void {
+    pmm.freeFrames = 0 as usize
+    pmm.reservedFrames = 0 as usize
+    pmm.allocatedFrames = 0 as usize
+
+    let frame: usize = 0 as usize
+    while frame < pmm.frameCount {
+        let used: bool = pmm_bitmap_get(pmm.usedBitmap, frame)
+        let reserved: bool = pmm_bitmap_get(pmm.reservedBitmap, frame)
+        if !used {
+            pmm.freeFrames = pmm.freeFrames + (1 as usize)
+        } else if reserved {
+            pmm.reservedFrames = pmm.reservedFrames + (1 as usize)
+        } else {
+            pmm.allocatedFrames = pmm.allocatedFrames + (1 as usize)
+        }
+        frame = frame + (1 as usize)
+    }
+}
+
+function pmm_initialize(info: usize, kernelStart: usize, bootstrapEnd: usize, bitmapBase: usize, bitmapPages: usize, pmm: *PhysicalMemoryManager): bool {
+    if info == (0 as usize) || pmm == null || bitmapBase == (0 as usize) || bitmapPages == (0 as usize) { return false }
+
+    let frameCount: usize = pmm_frame_count_for_info(info)
+    if frameCount == (0 as usize) { return false }
+    let bitmapBytes: usize = (frameCount + (7 as usize)) / (8 as usize)
+    let metadataBytes: usize = bitmapBytes * (2 as usize)
+    let metadataCapacity: usize = bitmapPages * (4096 as usize)
+    if metadataCapacity < metadataBytes { return false }
+
+    pmm.usedBitmap = bitmapBase as *u8
+    pmm.reservedBitmap = (bitmapBase + bitmapBytes) as *u8
+    pmm.frameCount = frameCount
+    pmm.bitmapBytes = bitmapBytes
+    pmm.freeFrames = 0 as usize
+    pmm.reservedFrames = 0 as usize
+    pmm.allocatedFrames = 0 as usize
+    pmm.searchFrame = 0 as usize
+    pmm.highestAddress = pmm_highest_memory_address(info)
+
+    let identityFrames: usize = (1073741824 as usize) / (4096 as usize)
+    pmm.allocationLimitFrame = frameCount
+    if pmm.allocationLimitFrame > identityFrames {
+        pmm.allocationLimitFrame = identityFrames
+    }
+
+    let byteIndex: usize = 0 as usize
+    while byteIndex < bitmapBytes {
+        pmm.usedBitmap[byteIndex] = 255 as u8
+        pmm.reservedBitmap[byteIndex] = 255 as u8
+        byteIndex = byteIndex + (1 as usize)
+    }
+
+    let tagAddress: usize = mb2_find_memory_map(info)
+    if tagAddress == (0 as usize) { return false }
+    let tag: *Mb2MmapTag = tagAddress as *Mb2MmapTag
+    let cursor: usize = tagAddress + (16 as usize)
+    let tagEnd: usize = tagAddress + (tag.size as usize)
+    while cursor < tagEnd {
+        let entry: *Mb2MmapEntry = cursor as *Mb2MmapEntry
+        if entry.kind == (1 as u32) {
+            pmm_raw_release_usable_range(pmm, entry.baseAddress, entry.length)
+        }
+        cursor = cursor + (tag.entrySize as usize)
+    }
+
+    pmm_raw_reserve_range(pmm, 0 as usize, 1048576 as usize)
+    if bootstrapEnd > kernelStart {
+        pmm_raw_reserve_range(pmm, kernelStart, bootstrapEnd - kernelStart)
+    }
+
+    let infoSizePtr: *u32 = info as *u32
+    let infoSize: usize = infoSizePtr[0] as usize
+    if infoSize >= (8 as usize) {
+        pmm_raw_reserve_range(pmm, info, infoSize)
+    }
+
+    // The current linker keeps the ring-3 regression text/stack in 4-8 MiB.
+    pmm_raw_reserve_range(pmm, 4194304 as usize, 4194304 as usize)
+
+    pmm_recount(pmm)
+    pmm.searchFrame = (1048576 as usize) / (4096 as usize)
+    return pmm.freeFrames > (0 as usize)
+}
+
+function pmm_is_reserved(pmm: *PhysicalMemoryManager, physicalAddress: usize): bool {
+    if pmm == null || (physicalAddress % (4096 as usize)) != (0 as usize) { return true }
+    let frame: usize = physicalAddress / (4096 as usize)
+    if frame >= pmm.frameCount { return true }
+    return pmm_bitmap_get(pmm.reservedBitmap, frame)
+}
+
+function pmm_is_used(pmm: *PhysicalMemoryManager, physicalAddress: usize): bool {
+    if pmm == null || (physicalAddress % (4096 as usize)) != (0 as usize) { return true }
+    let frame: usize = physicalAddress / (4096 as usize)
+    if frame >= pmm.frameCount { return true }
+    return pmm_bitmap_get(pmm.usedBitmap, frame)
+}
+
+function pmm_alloc_page(pmm: *PhysicalMemoryManager): usize {
+    if pmm == null || pmm.allocationLimitFrame == (0 as usize) { return 0 as usize }
+    let limit: usize = pmm.allocationLimitFrame
+    let frame: usize = pmm.searchFrame
+    let scanned: usize = 0 as usize
+    let result: usize = 0 as usize
+
+    while scanned < limit && result == (0 as usize) {
+        if frame >= limit { frame = 0 as usize }
+        let used: bool = pmm_bitmap_get(pmm.usedBitmap, frame)
+        let reserved: bool = pmm_bitmap_get(pmm.reservedBitmap, frame)
+        if !used && !reserved {
+            pmm_bitmap_set(pmm.usedBitmap, frame, true)
+            if pmm.freeFrames > (0 as usize) { pmm.freeFrames = pmm.freeFrames - (1 as usize) }
+            pmm.allocatedFrames = pmm.allocatedFrames + (1 as usize)
+            result = frame * (4096 as usize)
+            pmm.searchFrame = frame + (1 as usize)
+        }
+        frame = frame + (1 as usize)
+        scanned = scanned + (1 as usize)
+    }
+    return result
+}
+
+function pmm_alloc_contiguous(pmm: *PhysicalMemoryManager, count: usize): usize {
+    if pmm == null || count == (0 as usize) || count > pmm.allocationLimitFrame { return 0 as usize }
+    let limit: usize = pmm.allocationLimitFrame
+    let frame: usize = 0 as usize
+    let runStart: usize = 0 as usize
+    let runLength: usize = 0 as usize
+    let result: usize = 0 as usize
+
+    while frame < limit && result == (0 as usize) {
+        let freeFrame: bool = !pmm_bitmap_get(pmm.usedBitmap, frame) && !pmm_bitmap_get(pmm.reservedBitmap, frame)
+        if freeFrame {
+            if runLength == (0 as usize) { runStart = frame }
+            runLength = runLength + (1 as usize)
+            if runLength == count {
+                let mark: usize = runStart
+                while mark < (runStart + count) {
+                    pmm_bitmap_set(pmm.usedBitmap, mark, true)
+                    mark = mark + (1 as usize)
+                }
+                pmm.freeFrames = pmm.freeFrames - count
+                pmm.allocatedFrames = pmm.allocatedFrames + count
+                pmm.searchFrame = runStart + count
+                result = runStart * (4096 as usize)
+            }
+        } else {
+            runLength = 0 as usize
+        }
+        frame = frame + (1 as usize)
+    }
+    return result
+}
+
+function pmm_free_page(pmm: *PhysicalMemoryManager, physicalAddress: usize): bool {
+    if pmm == null || physicalAddress == (0 as usize) || (physicalAddress % (4096 as usize)) != (0 as usize) { return false }
+    let frame: usize = physicalAddress / (4096 as usize)
+    if frame >= pmm.frameCount { return false }
+    if pmm_bitmap_get(pmm.reservedBitmap, frame) { return false }
+    if !pmm_bitmap_get(pmm.usedBitmap, frame) { return false }
+
+    pmm_bitmap_set(pmm.usedBitmap, frame, false)
+    pmm.freeFrames = pmm.freeFrames + (1 as usize)
+    if pmm.allocatedFrames > (0 as usize) { pmm.allocatedFrames = pmm.allocatedFrames - (1 as usize) }
+    if frame < pmm.searchFrame { pmm.searchFrame = frame }
+    return true
+}
+
+function pmm_reserve_range(pmm: *PhysicalMemoryManager, startAddress: usize, length: usize): bool {
+    if pmm == null || length == (0 as usize) { return false }
+    let endAddress: usize = startAddress + length
+    if endAddress < startAddress { return false }
+    let firstFrame: usize = startAddress / (4096 as usize)
+    let endFrame: usize = (endAddress + (4095 as usize)) / (4096 as usize)
+    if firstFrame >= pmm.frameCount { return false }
+
+    let frame: usize = firstFrame
+    while frame < endFrame && frame < pmm.frameCount {
+        let wasUsed: bool = pmm_bitmap_get(pmm.usedBitmap, frame)
+        let wasReserved: bool = pmm_bitmap_get(pmm.reservedBitmap, frame)
+        if !wasReserved {
+            if !wasUsed {
+                if pmm.freeFrames > (0 as usize) { pmm.freeFrames = pmm.freeFrames - (1 as usize) }
+            } else if pmm.allocatedFrames > (0 as usize) {
+                pmm.allocatedFrames = pmm.allocatedFrames - (1 as usize)
+            }
+            pmm.reservedFrames = pmm.reservedFrames + (1 as usize)
+        }
+        pmm_bitmap_set(pmm.usedBitmap, frame, true)
+        pmm_bitmap_set(pmm.reservedBitmap, frame, true)
+        frame = frame + (1 as usize)
+    }
+    return true
+}
+
+function pmm_release_range(pmm: *PhysicalMemoryManager, startAddress: usize, length: usize): bool {
+    if pmm == null || length == (0 as usize) { return false }
+    let endAddress: usize = startAddress + length
+    if endAddress < startAddress { return false }
+    let firstFrame: usize = startAddress / (4096 as usize)
+    let endFrame: usize = (endAddress + (4095 as usize)) / (4096 as usize)
+    if firstFrame >= pmm.frameCount { return false }
+
+    let frame: usize = firstFrame
+    while frame < endFrame && frame < pmm.frameCount {
+        if pmm_bitmap_get(pmm.reservedBitmap, frame) {
+            pmm_bitmap_set(pmm.reservedBitmap, frame, false)
+            pmm_bitmap_set(pmm.usedBitmap, frame, false)
+            if pmm.reservedFrames > (0 as usize) { pmm.reservedFrames = pmm.reservedFrames - (1 as usize) }
+            pmm.freeFrames = pmm.freeFrames + (1 as usize)
+        }
+        frame = frame + (1 as usize)
+    }
+    if firstFrame < pmm.searchFrame { pmm.searchFrame = firstFrame }
+    return true
+}
+
+function pmm_total_frames(pmm: *PhysicalMemoryManager): usize { return pmm.frameCount }
+function pmm_free_frames(pmm: *PhysicalMemoryManager): usize { return pmm.freeFrames }
+function pmm_reserved_frames(pmm: *PhysicalMemoryManager): usize { return pmm.reservedFrames }
+function pmm_allocated_frames(pmm: *PhysicalMemoryManager): usize { return pmm.allocatedFrames }
+
+function pmm_self_test(pmm: *PhysicalMemoryManager): bool {
+    if pmm == null || pmm.freeFrames < (32 as usize) { return false }
+    let originalSearch: usize = pmm.searchFrame
+
+    let first: usize = pmm_alloc_page(pmm)
+    let second: usize = pmm_alloc_page(pmm)
+    let third: usize = pmm_alloc_page(pmm)
+    let fourth: usize = pmm_alloc_page(pmm)
+    if first == (0 as usize) || second == (0 as usize) || third == (0 as usize) || fourth == (0 as usize) { return false }
+    if (first % (4096 as usize)) != (0 as usize) || (second % (4096 as usize)) != (0 as usize) { return false }
+    if first == second || first == third || first == fourth || second == third || second == fourth || third == fourth { return false }
+
+    if !pmm_free_page(pmm, second) || !pmm_free_page(pmm, fourth) { return false }
+    pmm.searchFrame = second / (4096 as usize)
+    let reused: usize = pmm_alloc_page(pmm)
+    if reused != second { return false }
+    if !pmm_free_page(pmm, reused) { return false }
+
+    if !pmm_reserve_range(pmm, fourth, 4096 as usize) { return false }
+    if !pmm_is_reserved(pmm, fourth) { return false }
+    pmm.searchFrame = fourth / (4096 as usize)
+    let afterReserved: usize = pmm_alloc_page(pmm)
+    if afterReserved == fourth { return false }
+    if afterReserved != (0 as usize) && !pmm_free_page(pmm, afterReserved) { return false }
+    if !pmm_release_range(pmm, fourth, 4096 as usize) { return false }
+    if pmm_is_reserved(pmm, fourth) || pmm_is_used(pmm, fourth) { return false }
+
+    let contiguous: usize = pmm_alloc_contiguous(pmm, 4 as usize)
+    if contiguous == (0 as usize) { return false }
+    let index: usize = 0 as usize
+    while index < (4 as usize) {
+        if !pmm_free_page(pmm, contiguous + (index * (4096 as usize))) { return false }
+        index = index + (1 as usize)
+    }
+
+    if !pmm_free_page(pmm, first) || !pmm_free_page(pmm, third) { return false }
+    pmm.searchFrame = originalSearch
+    return true
+}
