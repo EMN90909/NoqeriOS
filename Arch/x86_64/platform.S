@@ -183,6 +183,12 @@ arch_smp_start_ap:
     mov %rsi, %r13
     mov %rdx, %r14
 
+    # Temporary COM1 trace: S=start, R=real mode, P=protected mode,
+    # L=long mode, K=about to enter Noqeri AP code, O=online, F=timeout.
+    mov $83, %al
+    mov $0x3f8, %dx
+    out %al, %dx
+
     lea ap_trampoline_start(%rip), %rsi
     mov $0x7000, %rdi
     mov $(ap_trampoline_end-ap_trampoline_start), %rcx
@@ -244,9 +250,15 @@ arch_smp_start_ap:
     dec %ecx
     jnz 7b
 9:
+    mov $70, %al
+    mov $0x3f8, %dx
+    out %al, %dx
     xor %eax, %eax
     jmp 10f
 8:
+    mov $79, %al
+    mov $0x3f8, %dx
+    out %al, %dx
     mov $1, %eax
 10:
     pop %r14
@@ -261,6 +273,9 @@ arch_smp_start_ap:
 ap_trampoline_start:
 .code16
     cli
+    mov $82, %al
+    mov $0x3f8, %dx
+    out %al, %dx
     xor %ax, %ax
     mov %ax, %ds
     mov %ax, %es
@@ -273,6 +288,9 @@ ap_trampoline_start:
 
 .code32
 ap_protected:
+    mov $80, %al
+    mov $0x3f8, %dx
+    out %al, %dx
     mov $0x10, %ax
     mov %ax, %ds
     mov %ax, %es
@@ -293,6 +311,9 @@ ap_protected:
 
 .code64
 ap_long:
+    mov $76, %al
+    mov $0x3f8, %dx
+    out %al, %dx
     mov $0x10, %ax
     mov %ax, %ds
     mov %ax, %es
@@ -303,6 +324,9 @@ ap_long:
     movabs $0x7f28, %rax
     mov (%rax), %rsp
     xor %rbp, %rbp
+    mov $75, %al
+    mov $0x3f8, %dx
+    out %al, %dx
     movabs $0x7f38, %rax
     mov (%rax), %rdi
     movabs $0x7f30, %rax
