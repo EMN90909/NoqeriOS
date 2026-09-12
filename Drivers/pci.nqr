@@ -1,5 +1,7 @@
 module os.drivers.pci
 
+extern function arch_out8(port: u16, value: u8): void;
+extern function arch_in8(port: u16): u8;
 extern function arch_out16(port: u16, value: u16): void;
 extern function arch_in16(port: u16): u16;
 extern function arch_out32(port: u16, value: u32): void;
@@ -33,26 +35,15 @@ function pci_write16(bus: u32, slot: u32, fn: u32, offset: u32, value: u16): voi
 }
 
 function pci_read8(bus: u32, slot: u32, fn: u32, offset: u32): u8 {
-    let aligned: u32 = offset - (offset % (4 as u32))
-    let value: u32 = pci_read32(bus, slot, fn, aligned)
-    let byteIndex: u32 = offset % (4 as u32)
-    if byteIndex == (0 as u32) { return (value % (256 as u32)) as u8 }
-    if byteIndex == (1 as u32) { return ((value / (256 as u32)) % (256 as u32)) as u8 }
-    if byteIndex == (2 as u32) { return ((value / (65536 as u32)) % (256 as u32)) as u8 }
-    return ((value / (16777216 as u32)) % (256 as u32)) as u8
+    arch_out32(3320 as u16, pci_config_address(bus, slot, fn, offset))
+    let port: u16 = (3324 + (offset % (4 as u32))) as u16
+    return arch_in8(port)
 }
 
-function pci_write8(bus: u32, slot: u32, fn: u32, offset: u32, byteValue: u8): void {
-    let aligned: u32 = offset - (offset % (4 as u32))
-    let original: u32 = pci_read32(bus, slot, fn, aligned)
-    let byteIndex: u32 = offset % (4 as u32)
-    let factor: u32 = 1 as u32
-    if byteIndex == (1 as u32) { factor = 256 as u32 }
-    if byteIndex == (2 as u32) { factor = 65536 as u32 }
-    if byteIndex == (3 as u32) { factor = 16777216 as u32 }
-    let oldByte: u32 = (original / factor) % (256 as u32)
-    let updated: u32 = original - (oldByte * factor) + ((byteValue as u32) * factor)
-    pci_write32(bus, slot, fn, aligned, updated)
+function pci_write8(bus: u32, slot: u32, fn: u32, offset: u32, value: u8): void {
+    arch_out32(3320 as u16, pci_config_address(bus, slot, fn, offset))
+    let port: u16 = (3324 + (offset % (4 as u32))) as u16
+    arch_out8(port, value)
 }
 
 function pci_vendor_id(bus: u32, slot: u32, fn: u32): u16 {
