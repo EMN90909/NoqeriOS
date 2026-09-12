@@ -2,6 +2,7 @@ module os.kernel
 
 import "../Drivers/serial.nqr"
 import "../Drivers/framebuffer.nqr"
+import "../Drivers/pci.nqr"
 import "memory.nqr"
 
 extern function arch_cli(): void;
@@ -35,6 +36,16 @@ export function kernel_main(multibootInfo: usize): void {
         }
     } else {
         serial_write("NoqeriOS: no usable physical memory region found\n")
+    }
+
+    let pciDevices: usize = pci_count_devices()
+    if pciDevices > 0 {
+        serial_write("NoqeriOS: PCI configuration space enumerated\n")
+    } else {
+        serial_write("NoqeriOS: PCI enumeration found no devices\n")
+    }
+    if pci_has_vendor(6900 as u16) {
+        serial_write("NoqeriOS: VirtIO PCI device detected\n")
     }
 
     arch_interrupts_init()
