@@ -170,3 +170,37 @@ arch_serial_write:
     jmp 3b
 5:
     ret
+
+.global arch_serial_hex_u32
+.type arch_serial_hex_u32, @function
+arch_serial_hex_u32:
+    push %rbp
+    mov %rsp, %rbp
+    sub $16, %rsp
+    mov %edi, %r8d
+    lea -12(%rbp), %rdi
+    movb $'0', 0(%rdi)
+    movb $'x', 1(%rdi)
+    lea serial_hex_digits(%rip), %r11
+    xor %r10d, %r10d
+    mov $28, %r9d
+6:
+    mov %r8d, %eax
+    mov %r9b, %cl
+    shr %cl, %eax
+    and $0x0f, %eax
+    movzbl (%r11,%rax,1), %eax
+    mov %al, 2(%rdi,%r10,1)
+    sub $4, %r9d
+    inc %r10d
+    cmp $8, %r10d
+    jb 6b
+    movb $10, 10(%rdi)
+    movb $0, 11(%rdi)
+    call arch_serial_write
+    leave
+    ret
+
+.section .rodata
+serial_hex_digits:
+    .ascii "0123456789ABCDEF"
