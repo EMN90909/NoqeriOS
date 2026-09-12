@@ -53,7 +53,7 @@ done
 
 if (( ${#missing_tools[@]} > 0 )); then
     if (( BOOTSTRAP == 0 )); then
-        echo "Missing build tools: ${missing_tools[*}" >&2
+        echo "Missing build tools: ${missing_tools[*]}" >&2
         echo "Re-run with --bootstrap to install them on Ubuntu/Debian/WSL." >&2
         exit 3
     fi
