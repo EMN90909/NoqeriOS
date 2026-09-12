@@ -57,9 +57,11 @@ function pmm_highest_memory_address(info: usize): u64 {
 
     while cursor < tagEnd {
         let entry: *Mb2MmapEntry = cursor as *Mb2MmapEntry
-        let endAddress: u64 = entry.baseAddress + entry.length
-        if endAddress >= entry.baseAddress && endAddress > highest {
-            highest = endAddress
+        if entry.kind == (1 as u32) {
+            let endAddress: u64 = entry.baseAddress + entry.length
+            if endAddress >= entry.baseAddress && endAddress > highest {
+                highest = endAddress
+            }
         }
         cursor = cursor + (tag.entrySize as usize)
     }
