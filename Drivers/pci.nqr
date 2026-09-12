@@ -100,24 +100,27 @@ function pci_find_vendor_location(vendorWanted: u16): u32 {
     return 65536 as u32
 }
 
-function pci_location_bus(location: u32): u32 { return location / (256 as u32) }
-function pci_location_slot(location: u32): u32 { return (location % (256 as u32)) / (8 as u32) }
-function pci_location_fn(location: u32): u32 { return location % (8 as u32) }
-function pci_has_vendor(vendorWanted: u16): bool { return pci_find_vendor_location(vendorWanted) != (65536 as u32) }
-
-function pci_has_device(vendorWanted: u16, deviceWanted: u16): bool {
+function pci_find_device_location(vendorWanted: u16, deviceWanted: u16): u32 {
     let bus: u32 = 0 as u32
     while bus < (256 as u32) {
         let slot: u32 = 0 as u32
         while slot < (32 as u32) {
             let fn: u32 = 0 as u32
             while fn < (8 as u32) {
-                if pci_vendor_id(bus, slot, fn) == vendorWanted && pci_device_id(bus, slot, fn) == deviceWanted { return true }
+                if pci_vendor_id(bus, slot, fn) == vendorWanted && pci_device_id(bus, slot, fn) == deviceWanted {
+                    return (bus * (256 as u32)) + (slot * (8 as u32)) + fn
+                }
                 fn = fn + (1 as u32)
             }
             slot = slot + (1 as u32)
         }
         bus = bus + (1 as u32)
     }
-    return false
+    return 65536 as u32
 }
+
+function pci_location_bus(location: u32): u32 { return location / (256 as u32) }
+function pci_location_slot(location: u32): u32 { return (location % (256 as u32)) / (8 as u32) }
+function pci_location_fn(location: u32): u32 { return location % (8 as u32) }
+function pci_has_vendor(vendorWanted: u16): bool { return pci_find_vendor_location(vendorWanted) != (65536 as u32) }
+function pci_has_device(vendorWanted: u16, deviceWanted: u16): bool { return pci_find_device_location(vendorWanted, deviceWanted) != (65536 as u32) }
