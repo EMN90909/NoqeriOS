@@ -14,6 +14,7 @@ extern function arch_pause(): void;
 extern function arch_read_cr2(): u64;
 extern function arch_read_cr3(): u64;
 extern function arch_write_cr3(value: u64): void;
+extern function arch_invlpg(address: usize): void;
 
 extern function arch_kernel_start(): usize;
 extern function arch_kernel_end(): usize;

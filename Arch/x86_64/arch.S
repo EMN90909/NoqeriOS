@@ -97,6 +97,12 @@ arch_write_cr3:
     mov %rdi, %cr3
     ret
 
+.global arch_invlpg
+.type arch_invlpg, @function
+arch_invlpg:
+    invlpg (%rdi)
+    ret
+
 .global arch_kernel_start
 .type arch_kernel_start, @function
 arch_kernel_start:

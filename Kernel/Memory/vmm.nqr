@@ -1,0 +1,304 @@
+module os.kernel.memory.vmm
+
+import "../../Arch/x86_64/api.nqr"
+import "pmm.nqr"
+
+record AddressSpace {
+    rootPhysical: usize;
+    ownsRoot: u32;
+    reserved: u32;
+}
+
+function vmm_zero_page(address: usize): void {
+    let words: *u64 = address as *u64
+    let index: usize = 0 as usize
+    while index < (512 as usize) {
+        words[index] = 0 as u64
+        index = index + (1 as usize)
+    }
+}
+
+function vmm_entry_present(entry: u64): bool {
+    return (entry % (2 as u64)) == (1 as u64)
+}
+
+function vmm_entry_large(entry: u64): bool {
+    return ((entry / (128 as u64)) % (2 as u64)) == (1 as u64)
+}
+
+function vmm_entry_user(entry: u64): bool {
+    return ((entry / (4 as u64)) % (2 as u64)) == (1 as u64)
+}
+
+function vmm_entry_writable(entry: u64): bool {
+    return ((entry / (2 as u64)) % (2 as u64)) == (1 as u64)
+}
+
+function vmm_entry_address(entry: u64): usize {
+    return ((entry / (4096 as u64)) * (4096 as u64)) as usize
+}
+
+function vmm_pml4_index(address: usize): usize {
+    return (address / (549755813888 as usize)) % (512 as usize)
+}
+
+function vmm_pdpt_index(address: usize): usize {
+    return (address / (1073741824 as usize)) % (512 as usize)
+}
+
+function vmm_pd_index(address: usize): usize {
+    return (address / (2097152 as usize)) % (512 as usize)
+}
+
+function vmm_pt_index(address: usize): usize {
+    return (address / (4096 as usize)) % (512 as usize)
+}
+
+function vmm_make_table_entry(physical: usize, user: bool): u64 {
+    let value: u64 = physical as u64
+    value = value + (3 as u64)
+    if user { value = value + (4 as u64) }
+    return value
+}
+
+function vmm_make_page_entry(physical: usize, writable: bool, user: bool): u64 {
+    let value: u64 = physical as u64
+    value = value + (1 as u64)
+    if writable { value = value + (2 as u64) }
+    if user { value = value + (4 as u64) }
+    return value
+}
+
+function vmm_ensure_next_table(table: *u64, index: usize, pmm: *PhysicalMemoryManager, user: bool): usize {
+    let entry: u64 = table[index]
+    if vmm_entry_present(entry) {
+        if vmm_entry_large(entry) { return 0 as usize }
+        if user && !vmm_entry_user(entry) {
+            table[index] = entry + (4 as u64)
+        }
+        return vmm_entry_address(table[index])
+    }
+
+    let page: usize = pmm_alloc_page(pmm)
+    if page == (0 as usize) { return 0 as usize }
+    vmm_zero_page(page)
+    table[index] = vmm_make_table_entry(page, user)
+    return page
+}
+
+function vmm_current_address_space(space: *AddressSpace): bool {
+    if space == null { return false }
+    let root: usize = arch_read_cr3() as usize
+    if root == (0 as usize) { return false }
+    space.rootPhysical = root
+    space.ownsRoot = 0 as u32
+    space.reserved = 0 as u32
+    return true
+}
+
+function vmm_create_address_space(pmm: *PhysicalMemoryManager, currentRoot: usize, space: *AddressSpace): bool {
+    if pmm == null || currentRoot == (0 as usize) || space == null { return false }
+    let rootPage: usize = pmm_alloc_page(pmm)
+    if rootPage == (0 as usize) { return false }
+    vmm_zero_page(rootPage)
+
+    // Transitional layout: share the bootstrap low identity branch so kernel code,
+    // stack and early devices remain reachable after CR3 switches. A higher-half
+    // supervisor-only kernel mapping will replace this compatibility branch.
+    let oldRoot: *u64 = currentRoot as *u64
+    let newRoot: *u64 = rootPage as *u64
+    newRoot[0] = oldRoot[0]
+
+    space.rootPhysical = rootPage
+    space.ownsRoot = 1 as u32
+    space.reserved = 0 as u32
+    return true
+}
+
+function vmm_map_page(space: *AddressSpace, pmm: *PhysicalMemoryManager, virtualAddress: usize, physicalAddress: usize, writable: bool, user: bool): isize {
+    if space == null || pmm == null || space.rootPhysical == (0 as usize) { return -1 as isize }
+    if virtualAddress % (4096 as usize) != (0 as usize) || (physicalAddress % (4096 as usize)) != (0 as usize) { return -2 as isize }
+
+    let pml4: *u64 = space.rootPhysical as *u64
+    let pdptPhysical: usize = vmm_ensure_next_table(pml4, vmm_pml4_index(virtualAddress), pmm, user)
+    if pdptPhysical == (0 as usize) { return -3 as isize }
+    let pdpt: *u64 = pdptPhysical as *u64
+
+    let pdPhysical: usize = vmm_ensure_next_table(pdpt, vmm_pdpt_index(virtualAddress), pmm, user)
+    if pdPhysical == (0 as usize) { return -4 as isize }
+    let pd: *u64 = pdPhysical as *u64
+
+    let pdIndex: usize = vmm_pd_index(virtualAddress)
+    if vmm_entry_present(pd[pdIndex]) && vmm_entry_large(pd[pdIndex]) { return -5 as isize }
+    let ptPhysical: usize = vmm_ensure_next_table(pd, pdIndex, pmm, user)
+    if ptPhysical == (0 as usize) { return -6 as isize }
+    let pt: *u64 = ptPhysical as *u64
+
+    let ptIndex: usize = vmm_pt_index(virtualAddress)
+    if vmm_entry_present(pt[ptIndex]) { return -7 as isize }
+    pt[ptIndex] = vmm_make_page_entry(physicalAddress, writable, user)
+    arch_invlpg(virtualAddress)
+    return 0 as isize
+}
+
+function vmm_walk_pte(space: *AddressSpace, virtualAddress: usize): *u64 {
+    if space == null || space.rootPhysical == (0 as usize) { return null }
+    let pml4: *u64 = space.rootPhysical as *u64
+    let pml4Entry: u64 = pml4[vmm_pml4_index(virtualAddress)]
+    if !vmm_entry_present(pml4Entry) || vmm_entry_large(pml4Entry) { return null }
+
+    let pdpt: *u64 = vmm_entry_address(pml4Entry) as *u64
+    let pdptEntry: u64 = pdpt[vmm_pdpt_index(virtualAddress)]
+    if !vmm_entry_present(pdptEntry) || vmm_entry_large(pdptEntry) { return null }
+
+    let pd: *u64 = vmm_entry_address(pdptEntry) as *u64
+    let pdEntry: u64 = pd[vmm_pd_index(virtualAddress)]
+    if !vmm_entry_present(pdEntry) || vmm_entry_large(pdEntry) { return null }
+
+    let pt: *u64 = vmm_entry_address(pdEntry) as *u64
+    return &(pt[vmm_pt_index(virtualAddress)])
+}
+
+function vmm_unmap_page(space: *AddressSpace, virtualAddress: usize): usize {
+    if virtualAddress % (4096 as usize) != (0 as usize) { return 0 as usize }
+    let pte: *u64 = vmm_walk_pte(space, virtualAddress)
+    if pte == null || !vmm_entry_present(pte[0]) { return 0 as usize }
+    let physical: usize = vmm_entry_address(pte[0])
+    pte[0] = 0 as u64
+    arch_invlpg(virtualAddress)
+    return physical
+}
+
+function vmm_protect_page(space: *AddressSpace, virtualAddress: usize, writable: bool, user: bool): bool {
+    let pte: *u64 = vmm_walk_pte(space, virtualAddress)
+    if pte == null || !vmm_entry_present(pte[0]) { return false }
+    let physical: usize = vmm_entry_address(pte[0])
+    pte[0] = vmm_make_page_entry(physical, writable, user)
+    arch_invlpg(virtualAddress)
+    return true
+}
+
+function vmm_page_writable(space: *AddressSpace, virtualAddress: usize): bool {
+    let pte: *u64 = vmm_walk_pte(space, virtualAddress)
+    if pte == null || !vmm_entry_present(pte[0]) { return false }
+    return vmm_entry_writable(pte[0])
+}
+
+function vmm_translate(space: *AddressSpace, virtualAddress: usize): usize {
+    if space == null || space.rootPhysical == (0 as usize) { return 0 as usize }
+    let pml4: *u64 = space.rootPhysical as *u64
+    let pml4Entry: u64 = pml4[vmm_pml4_index(virtualAddress)]
+    if !vmm_entry_present(pml4Entry) { return 0 as usize }
+
+    let pdpt: *u64 = vmm_entry_address(pml4Entry) as *u64
+    let pdptEntry: u64 = pdpt[vmm_pdpt_index(virtualAddress)]
+    if !vmm_entry_present(pdptEntry) { return 0 as usize }
+    if vmm_entry_large(pdptEntry) {
+        let base: usize = ((pdptEntry / (1073741824 as u64)) * (1073741824 as u64)) as usize
+        return base + (virtualAddress % (1073741824 as usize))
+    }
+
+    let pd: *u64 = vmm_entry_address(pdptEntry) as *u64
+    let pdEntry: u64 = pd[vmm_pd_index(virtualAddress)]
+    if !vmm_entry_present(pdEntry) { return 0 as usize }
+    if vmm_entry_large(pdEntry) {
+        let base: usize = ((pdEntry / (2097152 as u64)) * (2097152 as u64)) as usize
+        return base + (virtualAddress % (2097152 as usize))
+    }
+
+    let pt: *u64 = vmm_entry_address(pdEntry) as *u64
+    let ptEntry: u64 = pt[vmm_pt_index(virtualAddress)]
+    if !vmm_entry_present(ptEntry) { return 0 as usize }
+    return vmm_entry_address(ptEntry) + (virtualAddress % (4096 as usize))
+}
+
+function vmm_release_single_mapping_branch(space: *AddressSpace, pmm: *PhysicalMemoryManager, virtualAddress: usize): void {
+    if space == null || pmm == null || space.rootPhysical == (0 as usize) { return }
+    let pml4: *u64 = space.rootPhysical as *u64
+    let pml4Index: usize = vmm_pml4_index(virtualAddress)
+    let pml4Entry: u64 = pml4[pml4Index]
+    if !vmm_entry_present(pml4Entry) || vmm_entry_large(pml4Entry) { return }
+    let pdptPhysical: usize = vmm_entry_address(pml4Entry)
+    let pdpt: *u64 = pdptPhysical as *u64
+    let pdptEntry: u64 = pdpt[vmm_pdpt_index(virtualAddress)]
+    if !vmm_entry_present(pdptEntry) || vmm_entry_large(pdptEntry) { return }
+    let pdPhysical: usize = vmm_entry_address(pdptEntry)
+    let pd: *u64 = pdPhysical as *u64
+    let pdEntry: u64 = pd[vmm_pd_index(virtualAddress)]
+    if !vmm_entry_present(pdEntry) || vmm_entry_large(pdEntry) { return }
+    let ptPhysical: usize = vmm_entry_address(pdEntry)
+
+    pml4[pml4Index] = 0 as u64
+    arch_invlpg(virtualAddress)
+    pmm_free_page(pmm, ptPhysical)
+    pmm_free_page(pmm, pdPhysical)
+    pmm_free_page(pmm, pdptPhysical)
+}
+
+function vmm_destroy_address_space(pmm: *PhysicalMemoryManager, space: *AddressSpace): bool {
+    if pmm == null || space == null || space.ownsRoot != (1 as u32) || space.rootPhysical == (0 as usize) { return false }
+    let root: *u64 = space.rootPhysical as *u64
+    root[0] = 0 as u64
+    let physical: usize = space.rootPhysical
+    space.rootPhysical = 0 as usize
+    space.ownsRoot = 0 as u32
+    return pmm_free_page(pmm, physical)
+}
+
+function vmm_self_test(pmm: *PhysicalMemoryManager): bool {
+    if pmm == null { return false }
+    let currentRoot: usize = arch_read_cr3() as usize
+    if currentRoot == (0 as usize) { return false }
+
+    let spaceStorage: usize = pmm_alloc_page(pmm)
+    let dataPage: usize = pmm_alloc_page(pmm)
+    if spaceStorage == (0 as usize) || dataPage == (0 as usize) { return false }
+    let space: *AddressSpace = spaceStorage as *AddressSpace
+    space.rootPhysical = 0 as usize
+    space.ownsRoot = 0 as u32
+    space.reserved = 0 as u32
+
+    let success: bool = vmm_create_address_space(pmm, currentRoot, space)
+    let testVirtual: usize = 549755813888 as usize
+    let mapped: bool = false
+
+    if success {
+        let mapStatus: isize = vmm_map_page(space, pmm, testVirtual, dataPage, true, false)
+        if mapStatus == (0 as isize) {
+            mapped = true
+        } else {
+            success = false
+        }
+    }
+
+    if success {
+        let physicalView: *volatile u64 = dataPage as *volatile u64
+        physicalView[0] = 1229801703532086340 as u64
+        arch_write_cr3(space.rootPhysical as u64)
+        let virtualView: *volatile u64 = testVirtual as *volatile u64
+        virtualView[0] = 6148933456521300104 as u64
+        let observed: u64 = virtualView[0]
+        arch_write_cr3(currentRoot as u64)
+        if observed != (6148933456521300104 as u64) || physicalView[0] != (6148933456521300104 as u64) {
+            success = false
+        }
+    }
+
+    if success && vmm_translate(space, testVirtual) != dataPage { success = false }
+    if success && !vmm_protect_page(space, testVirtual, false, false) { success = false }
+    if success && vmm_page_writable(space, testVirtual) { success = false }
+
+    if mapped {
+        let unmapped: usize = vmm_unmap_page(space, testVirtual)
+        if unmapped != dataPage { success = false }
+        vmm_release_single_mapping_branch(space, pmm, testVirtual)
+    } else if space.rootPhysical != (0 as usize) {
+        vmm_release_single_mapping_branch(space, pmm, testVirtual)
+    }
+
+    if space.rootPhysical != (0 as usize) && !vmm_destroy_address_space(pmm, space) { success = false }
+    if !pmm_free_page(pmm, dataPage) { success = false }
+    if !pmm_free_page(pmm, spaceStorage) { success = false }
+    arch_write_cr3(currentRoot as u64)
+    return success
+}
