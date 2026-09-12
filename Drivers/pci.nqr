@@ -1,5 +1,7 @@
 module os.drivers.pci
 
+extern function arch_out16(port: u16, value: u16): void;
+extern function arch_in16(port: u16): u16;
 extern function arch_out32(port: u16, value: u32): void;
 extern function arch_in32(port: u16): u32;
 
@@ -16,6 +18,18 @@ function pci_read32(bus: u32, slot: u32, fn: u32, offset: u32): u32 {
 function pci_write32(bus: u32, slot: u32, fn: u32, offset: u32, value: u32): void {
     arch_out32(3320 as u16, pci_config_address(bus, slot, fn, offset))
     arch_out32(3324 as u16, value)
+}
+
+function pci_read16(bus: u32, slot: u32, fn: u32, offset: u32): u16 {
+    arch_out32(3320 as u16, pci_config_address(bus, slot, fn, offset))
+    let port: u16 = (3324 + (offset % (4 as u32))) as u16
+    return arch_in16(port)
+}
+
+function pci_write16(bus: u32, slot: u32, fn: u32, offset: u32, value: u16): void {
+    arch_out32(3320 as u16, pci_config_address(bus, slot, fn, offset))
+    let port: u16 = (3324 + (offset % (4 as u32))) as u16
+    arch_out16(port, value)
 }
 
 function pci_read8(bus: u32, slot: u32, fn: u32, offset: u32): u8 {
@@ -49,6 +63,17 @@ function pci_vendor_id(bus: u32, slot: u32, fn: u32): u16 {
 function pci_device_id(bus: u32, slot: u32, fn: u32): u16 {
     let value: u32 = pci_read32(bus, slot, fn, 0 as u32)
     return (value / (65536 as u32)) as u16
+}
+
+function pci_enable_device(location: u32): void {
+    let bus: u32 = pci_location_bus(location)
+    let slot: u32 = pci_location_slot(location)
+    let fn: u32 = pci_location_fn(location)
+    let command: u16 = pci_read16(bus, slot, fn, 4 as u32)
+    if (command % (2 as u16)) == (0 as u16) { command = command + (1 as u16) }
+    if ((command / (2 as u16)) % (2 as u16)) == (0 as u16) { command = command + (2 as u16) }
+    if ((command / (4 as u16)) % (2 as u16)) == (0 as u16) { command = command + (4 as u16) }
+    pci_write16(bus, slot, fn, 4 as u32, command)
 }
 
 function pci_count_devices(): usize {
