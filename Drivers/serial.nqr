@@ -1,0 +1,18 @@
+module os.drivers.serial
+
+extern function arch_out8(port: u16, value: u8): void;
+extern function arch_serial_write(text: string): void;
+
+function serial_init(): void {
+    arch_out8(1017 as u16, 0 as u8)
+    arch_out8(1019 as u16, 128 as u8)
+    arch_out8(1016 as u16, 3 as u8)
+    arch_out8(1017 as u16, 0 as u8)
+    arch_out8(1019 as u16, 3 as u8)
+    arch_out8(1018 as u16, 199 as u8)
+    arch_out8(1020 as u16, 11 as u8)
+}
+
+function serial_write(text: string): void {
+    arch_serial_write(text)
+}
