@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/build"
 LOG="$OUT/qemu-serial.log"
+DISK="$OUT/virtio-test.img"
 
 bash "$ROOT/build.sh"
 
@@ -16,13 +17,18 @@ if ! command -v qemu-system-x86_64 >/dev/null 2>&1; then
     exit 0
 fi
 
+truncate -s 1M "$DISK"
+printf 'NQOS' | dd of="$DISK" conv=notrunc status=none
+
 rm -f "$LOG"
 set +e
 timeout 8s qemu-system-x86_64 \
     -machine q35 \
     -m 256M \
     -cdrom "$OUT/noqerios.iso" \
-    -device virtio-rng-pci \
+    -device virtio-rng-pci,disable-legacy=on \
+    -drive if=none,format=raw,file="$DISK",id=noqerios-test-disk \
+    -device virtio-blk-pci,drive=noqerios-test-disk,disable-legacy=on \
     -serial file:"$LOG" \
     -display none \
     -no-reboot \
@@ -41,10 +47,12 @@ grep -q "NoqeriOS: serial driver online" "$LOG"
 grep -q "NoqeriOS: physical memory map accepted" "$LOG"
 grep -q "NoqeriOS: physical page allocation succeeded" "$LOG"
 grep -q "NoqeriOS: PCI configuration space enumerated" "$LOG"
-grep -q "NoqeriOS: VirtIO PCI device detected" "$LOG"
+grep -q "NoqeriOS: VirtIO RNG PCI device detected" "$LOG"
 grep -q "NoqeriOS: modern VirtIO PCI transport capabilities detected" "$LOG"
 grep -q "NoqeriOS: VirtIO common-config status handshake succeeded" "$LOG"
 grep -q "NoqeriOS: VirtIO RNG DMA request completed" "$LOG"
+grep -q "NoqeriOS: VirtIO block device detected" "$LOG"
+grep -q "NoqeriOS: VirtIO block sector read succeeded" "$LOG"
 grep -q "NoqeriOS: IDT and PIT timer interrupts active" "$LOG"
 grep -q "NoqeriOS: ring-3 transition and syscall gate active" "$LOG"
 grep -q "NoqeriOS: bootstrap milestone complete" "$LOG"
