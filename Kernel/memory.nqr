@@ -41,7 +41,7 @@ function usable_region_start(info: usize, kernelEnd: usize): usize {
     let tag: *Mb2MmapTag = tagAddress as *Mb2MmapTag
     let cursor: usize = tagAddress + 16
     let tagEnd: usize = tagAddress + (tag.size as usize)
-    let identityLimit: usize = 1073741824
+    let identityLimit: usize = 1073741824 as usize
 
     while cursor < tagEnd {
         let entry: *Mb2MmapEntry = cursor as *Mb2MmapEntry
@@ -74,7 +74,7 @@ function usable_region_end(info: usize, kernelEnd: usize): usize {
     let tag: *Mb2MmapTag = tagAddress as *Mb2MmapTag
     let cursor: usize = tagAddress + 16
     let tagEnd: usize = tagAddress + (tag.size as usize)
-    let identityLimit: usize = 1073741824
+    let identityLimit: usize = 1073741824 as usize
 
     while cursor < tagEnd {
         let entry: *Mb2MmapEntry = cursor as *Mb2MmapEntry
