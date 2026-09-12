@@ -130,7 +130,10 @@ function thread_initialize_record(thread: *KernelThread, tid: usize, apicId: u32
 function thread_create_bootstrap(system: *SchedulerSystem, queue: *CpuRunQueue): *KernelThread {
     if system == null || queue == null { return null }
     let storage: usize = pmm_alloc_page(system.pmm)
-    if storage == (0 as usize) { return null }
+    if storage == (0 as usize) {
+        arch_serial_write("NoqeriOS: bootstrap thread record allocation failed\n")
+        return null
+    }
     let thread: *KernelThread = storage as *KernelThread
     let tid: usize = system.nextTid
     system.nextTid = system.nextTid + (1 as usize)
@@ -143,9 +146,13 @@ function thread_create_bootstrap(system: *SchedulerSystem, queue: *CpuRunQueue):
 function thread_create_kernel(system: *SchedulerSystem, queue: *CpuRunQueue, entryKind: u32): *KernelThread {
     if system == null || queue == null { return null }
     let storage: usize = pmm_alloc_page(system.pmm)
-    if storage == (0 as usize) { return null }
+    if storage == (0 as usize) {
+        arch_serial_write("NoqeriOS: worker thread record allocation failed\n")
+        return null
+    }
     let stackBase: usize = pmm_alloc_contiguous(system.pmm, 4 as usize)
     if stackBase == (0 as usize) {
+        arch_serial_write("NoqeriOS: worker thread stack allocation failed\n")
         pmm_free_page(system.pmm, storage)
         return null
     }
@@ -159,15 +166,27 @@ function thread_create_kernel(system: *SchedulerSystem, queue: *CpuRunQueue, ent
     thread.kernelStackTop = stackBase + (16384 as usize)
     thread.argument = storage
     thread.savedRsp = arch_prepare_kernel_thread(thread.kernelStackTop, tid, storage)
-    if thread.savedRsp == (0 as usize) { return null }
-    if !thread_enqueue(queue, thread) { return null }
+    if thread.savedRsp == (0 as usize) {
+        arch_serial_write("NoqeriOS: worker synthetic interrupt frame creation failed\n")
+        return null
+    }
+    if !thread_enqueue(queue, thread) {
+        arch_serial_write("NoqeriOS: worker run-queue enqueue failed\n")
+        return null
+    }
     return thread
 }
 
 function thread_system_start(system: *SchedulerSystem, bspApicId: u32): *KernelThread {
-    if system == null { return null }
+    if system == null {
+        arch_serial_write("NoqeriOS: BSP scheduler system pointer is null\n")
+        return null
+    }
     let queue: *CpuRunQueue = thread_queue_for_apic(system, bspApicId)
-    if queue == null { return null }
+    if queue == null {
+        arch_serial_write("NoqeriOS: BSP APIC ID missing from MADT run queues\n")
+        return null
+    }
     queue.online = 1 as u32
     let bootstrap: *KernelThread = thread_create_bootstrap(system, queue)
     if bootstrap == null { return null }
