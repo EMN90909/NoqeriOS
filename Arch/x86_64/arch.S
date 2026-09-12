@@ -24,6 +24,21 @@ arch_in8:
     in %dx, %al
     ret
 
+.global arch_out32
+.type arch_out32, @function
+arch_out32:
+    mov %di, %dx
+    mov %esi, %eax
+    out %eax, %dx
+    ret
+
+.global arch_in32
+.type arch_in32, @function
+arch_in32:
+    mov %di, %dx
+    in %dx, %eax
+    ret
+
 .global arch_cli
 .type arch_cli, @function
 arch_cli:
