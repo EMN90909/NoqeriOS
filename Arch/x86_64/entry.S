@@ -17,7 +17,7 @@ pml4_table:
 pdpt_table:
     .skip 4096
 pd_table:
-    .skip 4096
+    .skip 16384
 
 .align 16
 stack_bottom:
@@ -47,9 +47,9 @@ _start:
     /* Preserve Multiboot2 info address across the mode switch. */
     mov %ebx, %edi
 
-    /* Build an identity map for the first GiB using 2 MiB pages. The upper
-       paging levels permit user traversal, while individual PDEs decide which
-       2 MiB windows are actually user accessible. */
+    /* Identity-map the first 4 GiB with 2 MiB pages. This covers the early
+       RAM allocator plus conventional PCI/APIC MMIO while the VMM grows a
+       higher-half/direct-map layout. User access is still controlled at PDEs. */
     mov $pdpt_table, %eax
     or $0x7, %eax
     mov %eax, pml4_table
@@ -57,6 +57,15 @@ _start:
     mov $pd_table, %eax
     or $0x7, %eax
     mov %eax, pdpt_table
+    mov $pd_table+4096, %eax
+    or $0x7, %eax
+    mov %eax, pdpt_table+8
+    mov $pd_table+8192, %eax
+    or $0x7, %eax
+    mov %eax, pdpt_table+16
+    mov $pd_table+12288, %eax
+    or $0x7, %eax
+    mov %eax, pdpt_table+24
 
     xor %ecx, %ecx
     mov $0x83, %eax
@@ -65,29 +74,25 @@ _start:
     movl $0, pd_table+4(,%ecx,8)
     add $0x200000, %eax
     inc %ecx
-    cmp $512, %ecx
+    cmp $2048, %ecx
     jne 1b
 
     /* Dedicated bootstrap user text (4-6 MiB) and user stack (6-8 MiB). */
     orl $0x4, pd_table+16
     orl $0x4, pd_table+24
 
-    /* Enable PAE. */
     mov %cr4, %eax
     or $(1 << 5), %eax
     mov %eax, %cr4
 
-    /* Install the PML4. */
     mov $pml4_table, %eax
     mov %eax, %cr3
 
-    /* Enable long mode in EFER. */
     mov $0xc0000080, %ecx
     rdmsr
     or $(1 << 8), %eax
     wrmsr
 
-    /* Enable paging. */
     mov %cr0, %eax
     or $(1 << 31), %eax
     mov %eax, %cr0
