@@ -32,6 +32,7 @@ gdt_userspace_ptr:
 
 .section .text
 .code64
+.extern kernel_syscall_dispatch
 
 .global arch_userspace_init
 .type arch_userspace_init, @function
@@ -93,7 +94,22 @@ arch_enter_user_test:
 .global isr_user_test_syscall
 .type isr_user_test_syscall, @function
 isr_user_test_syscall:
-    movq $1, user_test_seen(%rip)
+    # Enter the Noqeri kernel's native syscall dispatcher with SysV arguments:
+    # rdi = syscall number, rsi/rdx = bootstrap arguments.
+    mov %eax, %edi
+    xor %esi, %esi
+    xor %edx, %edx
+    sub $8, %rsp
+    call kernel_syscall_dispatch
+    add $8, %rsp
+
+    cmp $1, %rax
+    sete %al
+    movzbq %al, %rax
+    mov %rax, user_test_seen(%rip)
+
+    # The bootstrap probe intentionally returns to the kernel caller rather than
+    # resuming userspace. The real process return path will use iretq/sysret.
     mov user_test_return_rsp(%rip), %rsp
     mov $1, %eax
     ret
