@@ -1,7 +1,6 @@
 module os.drivers.serial
 
-extern function arch_out8(port: u16, value: u8): void;
-extern function arch_serial_write(text: string): void;
+import "../Arch/x86_64/api.nqr"
 
 function serial_init(): void {
     arch_out8(1017 as u16, 0 as u8)
