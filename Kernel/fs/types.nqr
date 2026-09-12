@@ -1,0 +1,39 @@
+module os.kernel.fs.types
+
+record VfsMount {
+    driverKind: u32;
+    blockLocation: u32;
+    sectorSize: u32;
+    mounted: u32;
+    rootDirectorySector: u64;
+    rootEntryCount: u32;
+    reserved: u32;
+}
+
+record VfsNode {
+    mount: *VfsMount;
+    key: u64;
+    size: u64;
+    firstSector: u64;
+    flags: u32;
+    reserved: u32;
+}
+
+function vfs_mount_clear(mount: *VfsMount): void {
+    mount.driverKind = 0 as u32
+    mount.blockLocation = 0 as u32
+    mount.sectorSize = 512 as u32
+    mount.mounted = 0 as u32
+    mount.rootDirectorySector = 0 as u64
+    mount.rootEntryCount = 0 as u32
+    mount.reserved = 0 as u32
+}
+
+function vfs_node_clear(node: *VfsNode): void {
+    node.mount = null
+    node.key = 0 as u64
+    node.size = 0 as u64
+    node.firstSector = 0 as u64
+    node.flags = 0 as u32
+    node.reserved = 0 as u32
+}
