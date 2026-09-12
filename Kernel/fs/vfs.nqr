@@ -41,7 +41,9 @@ function vfs_boot_file_test(blockLocation: u32): isize {
     let mount: *VfsMount = mountPage as *VfsMount
     let node: *VfsNode = nodePage as *VfsNode
     if !vfs_mount_noqfs(blockLocation, mount) { return -2 }
-    if !vfs_open_root_key(mount, 1 as u64, node) { return -3 }
+
+    let lookupStatus: isize = noqfs_open_root_key_status(mount, 1 as u64, node)
+    if lookupStatus != (1 as isize) { return lookupStatus }
 
     let bytesRead: usize = vfs_read(node, 0 as usize, 16 as usize, dataPage)
     if bytesRead < (4 as usize) { return -4 }
