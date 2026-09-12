@@ -1,0 +1,98 @@
+module os.kernel.apic
+
+import "../Arch/x86_64/api.nqr"
+import "acpi.nqr"
+
+function apic_mmio_read32(address: usize): u32 {
+    let p: *volatile u32 = address as *volatile u32
+    return p[0]
+}
+
+function apic_mmio_write32(address: usize, value: u32): void {
+    let p: *volatile u32 = address as *volatile u32
+    p[0] = value
+}
+
+function lapic_id(base: usize): u32 {
+    return apic_mmio_read32(base + (32 as usize)) / (16777216 as u32)
+}
+
+function lapic_enable(base: usize): bool {
+    if base == (0 as usize) { return false }
+    let value: u64 = arch_read_msr(27 as u32)
+    let enabled: bool = ((value / (2048 as u64)) % (2 as u64)) == (1 as u64)
+    if !enabled { arch_write_msr(27 as u32, value + (2048 as u64)) }
+    apic_mmio_write32(base + (240 as usize), 511 as u32)
+    arch_set_lapic_base(base)
+    return true
+}
+
+function lapic_eoi(base: usize): void {
+    apic_mmio_write32(base + (176 as usize), 0 as u32)
+}
+
+function ioapic_read(base: usize, register: u32): u32 {
+    apic_mmio_write32(base, register)
+    return apic_mmio_read32(base + (16 as usize))
+}
+
+function ioapic_write(base: usize, register: u32, value: u32): void {
+    apic_mmio_write32(base, register)
+    apic_mmio_write32(base + (16 as usize), value)
+}
+
+function ioapic_max_redirection(base: usize): u32 {
+    let version: u32 = ioapic_read(base, 1 as u32)
+    return (version / (65536 as u32)) % (256 as u32)
+}
+
+function ioapic_route(base: usize, gsiBase: u32, gsi: u32, vector: u8, destinationApicId: u32, flags: u16, masked: bool): bool {
+    if base == (0 as usize) || gsi < gsiBase { return false }
+    let index: u32 = gsi - gsiBase
+    if index > ioapic_max_redirection(base) { return false }
+
+    let low: u32 = vector as u32
+    let polarity: u16 = flags % (4 as u16)
+    let trigger: u16 = (flags / (4 as u16)) % (4 as u16)
+    if polarity == (3 as u16) { low = low + (8192 as u32) }
+    if trigger == (3 as u16) { low = low + (32768 as u32) }
+    if masked { low = low + (65536 as u32) }
+    let high: u32 = destinationApicId * (16777216 as u32)
+
+    let register: u32 = (16 as u32) + (index * (2 as u32))
+    ioapic_write(base, register + (1 as u32), high)
+    ioapic_write(base, register, low)
+    return true
+}
+
+function ioapic_mask_all(base: usize): void {
+    if base == (0 as usize) { return }
+    let maxEntry: u32 = ioapic_max_redirection(base)
+    let index: u32 = 0 as u32
+    while index <= maxEntry {
+        let register: u32 = (16 as u32) + (index * (2 as u32))
+        let low: u32 = ioapic_read(base, register)
+        if ((low / (65536 as u32)) % (2 as u32)) == (0 as u32) {
+            ioapic_write(base, register, low + (65536 as u32))
+        }
+        index = index + (1 as u32)
+    }
+}
+
+function apic_platform_initialize(platform: *AcpiPlatform): bool {
+    if platform == null || platform.lapicAddress == (0 as usize) || platform.ioapicAddress == (0 as usize) { return false }
+    arch_pic_mask_all()
+    if !lapic_enable(platform.lapicAddress) { return false }
+    ioapic_mask_all(platform.ioapicAddress)
+
+    let destination: u32 = lapic_id(platform.lapicAddress)
+    if !ioapic_route(platform.ioapicAddress, platform.ioapicGsiBase, platform.timerGsi, 48 as u8, destination, platform.timerFlags, false) {
+        return false
+    }
+    return true
+}
+
+function apic_route_keyboard(platform: *AcpiPlatform): bool {
+    if platform == null { return false }
+    return ioapic_route(platform.ioapicAddress, platform.ioapicGsiBase, platform.keyboardGsi, 49 as u8, lapic_id(platform.lapicAddress), platform.keyboardFlags, false)
+}
