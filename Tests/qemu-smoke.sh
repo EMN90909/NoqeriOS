@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/build"
 LOG="$OUT/qemu-serial.log"
 DISK="$OUT/virtio-test.img"
+MEMORY="${NOQERIOS_MEMORY:-256M}"
 
 bash "$ROOT/build.sh" --no-bootstrap
 
@@ -36,9 +37,9 @@ printf 'HELO from NoqFS\n' | dd of="$DISK" bs=1 seek=1024 conv=notrunc status=no
 
 rm -f "$LOG"
 set +e
-timeout 8s qemu-system-x86_64 \
+timeout 12s qemu-system-x86_64 \
     -machine q35 \
-    -m 256M \
+    -m "$MEMORY" \
     -cdrom "$OUT/noqerios.iso" \
     -device virtio-rng-pci,disable-legacy=on \
     -drive if=none,format=raw,file="$DISK",id=noqerios-test-disk \
@@ -59,7 +60,12 @@ fi
 grep -q "NoqeriOS: entered 64-bit Noqeri kernel" "$LOG"
 grep -q "NoqeriOS: serial driver online" "$LOG"
 grep -q "NoqeriOS: physical memory map accepted" "$LOG"
+grep -q "NoqeriOS: bitmap physical memory manager online" "$LOG"
+grep -q "NoqeriOS: PMM alloc free reserve and contiguous tests passed" "$LOG"
 grep -q "NoqeriOS: physical page allocation succeeded" "$LOG"
+grep -q "NoqeriOS: VMM isolated CR3 map unmap protect test passed" "$LOG"
+grep -q "NoqeriOS: kernel heap alloc free reuse stress passed" "$LOG"
+grep -q "NoqeriOS: legacy page allocator rebased onto PMM-owned pool" "$LOG"
 grep -q "NoqeriOS: round-robin process scheduler core active" "$LOG"
 grep -q "NoqeriOS: PCI configuration space enumerated" "$LOG"
 grep -q "NoqeriOS: VirtIO RNG PCI device detected" "$LOG"
@@ -76,5 +82,5 @@ grep -q "NoqeriOS: ring-3 syscall reached Noqeri dispatcher" "$LOG"
 grep -q "NoqeriOS: modular monolith core services online" "$LOG"
 grep -q "NoqeriOS: bootstrap milestone complete" "$LOG"
 
-echo "NoqeriOS QEMU smoke test passed"
+echo "NoqeriOS QEMU smoke test passed with $MEMORY RAM"
 cat "$LOG"
