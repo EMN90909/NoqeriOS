@@ -6,6 +6,7 @@ import "../Drivers/framebuffer.nqr"
 import "../Drivers/pci.nqr"
 import "../Drivers/virtio.nqr"
 import "../Drivers/virtio_rng.nqr"
+import "../Drivers/virtio_block.nqr"
 import "memory.nqr"
 
 export function kernel_main(multibootInfo: usize): void {
@@ -36,24 +37,38 @@ export function kernel_main(multibootInfo: usize): void {
         serial_write("NoqeriOS: PCI enumeration found no devices\n")
     }
 
-    let virtioLocation: u32 = pci_find_vendor_location(6900 as u16)
-    if virtioLocation != (65536 as u32) {
-        serial_write("NoqeriOS: VirtIO PCI device detected\n")
-        if virtio_modern_transport_present(virtioLocation) {
+    let rngLocation: u32 = pci_find_device_location(6900 as u16, 4164 as u16)
+    if rngLocation != (65536 as u32) {
+        serial_write("NoqeriOS: VirtIO RNG PCI device detected\n")
+        if virtio_modern_transport_present(rngLocation) {
             serial_write("NoqeriOS: modern VirtIO PCI transport capabilities detected\n")
-            if virtio_status_handshake(virtioLocation) {
+            if virtio_status_handshake(rngLocation) {
                 serial_write("NoqeriOS: VirtIO common-config status handshake succeeded\n")
             } else {
                 serial_write("NoqeriOS: VirtIO common-config status handshake failed\n")
             }
-            if virtio_rng_dma_test(virtioLocation) {
+            if virtio_rng_dma_test(rngLocation) {
                 serial_write("NoqeriOS: VirtIO RNG DMA request completed\n")
             } else {
                 serial_write("NoqeriOS: VirtIO RNG DMA request failed\n")
             }
         } else {
-            serial_write("NoqeriOS: VirtIO device lacks required modern PCI capabilities\n")
+            serial_write("NoqeriOS: VirtIO RNG lacks required modern PCI capabilities\n")
         }
+    } else {
+        serial_write("NoqeriOS: VirtIO RNG device not found\n")
+    }
+
+    let blockLocation: u32 = pci_find_device_location(6900 as u16, 4162 as u16)
+    if blockLocation != (65536 as u32) {
+        serial_write("NoqeriOS: VirtIO block device detected\n")
+        if virtio_modern_transport_present(blockLocation) && virtio_block_read_smoke(blockLocation) {
+            serial_write("NoqeriOS: VirtIO block sector read succeeded\n")
+        } else {
+            serial_write("NoqeriOS: VirtIO block sector read failed\n")
+        }
+    } else {
+        serial_write("NoqeriOS: VirtIO block device not found\n")
     }
 
     arch_interrupts_init()
