@@ -1,23 +1,12 @@
 module os.kernel
 
+import "../Arch/x86_64/api.nqr"
 import "../Drivers/serial.nqr"
 import "../Drivers/framebuffer.nqr"
 import "../Drivers/pci.nqr"
 import "../Drivers/virtio.nqr"
 import "../Drivers/virtio_rng.nqr"
 import "memory.nqr"
-
-extern function arch_cli(): void;
-extern function arch_sti(): void;
-extern function arch_halt(): void;
-extern function arch_kernel_end(): usize;
-extern function arch_early_allocator_set(start: usize, end: usize): bool;
-extern function arch_alloc_page(): usize;
-extern function arch_interrupts_init(): void;
-extern function arch_timer_ticks(): usize;
-extern function arch_userspace_init(): bool;
-extern function arch_enter_user_test(): bool;
-extern function arch_user_test_seen(): bool;
 
 export function kernel_main(multibootInfo: usize): void {
     arch_cli()
