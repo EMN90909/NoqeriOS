@@ -82,10 +82,19 @@ export function kernel_main(multibootInfo: usize): void {
             serial_write("NoqeriOS: VirtIO block sector read succeeded\n")
             if vfs_probe_boot_volume(blockLocation) {
                 serial_write("NoqeriOS: NoqFS boot volume recognized by VFS\n")
-                if vfs_boot_file_test(blockLocation) {
+                let vfsTest: isize = vfs_boot_file_test(blockLocation)
+                if vfsTest == (1 as isize) {
                     serial_write("NoqeriOS: VFS opened and read a NoqFS file\n")
+                } else if vfsTest == (-2 as isize) {
+                    serial_write("NoqeriOS: VFS file test remount failed\n")
+                } else if vfsTest == (-3 as isize) {
+                    serial_write("NoqeriOS: VFS root entry lookup failed\n")
+                } else if vfsTest == (-4 as isize) {
+                    serial_write("NoqeriOS: VFS file payload read failed\n")
+                } else if vfsTest == (-5 as isize) {
+                    serial_write("NoqeriOS: VFS file payload marker mismatch\n")
                 } else {
-                    serial_write("NoqeriOS: VFS file read failed\n")
+                    serial_write("NoqeriOS: VFS file test allocation failed\n")
                 }
             } else {
                 serial_write("NoqeriOS: NoqFS boot volume probe failed\n")
