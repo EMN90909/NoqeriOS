@@ -206,12 +206,20 @@ export function kernel_main(multibootInfo: usize): void {
                             } else {
                                 serial_write("NoqeriOS: preemptive scheduler progress test failed\n")
                             }
+                        } else {
+                            serial_write("NoqeriOS: BSP kernel-thread creation failed\n")
                         }
+                    } else {
+                        serial_write("NoqeriOS: scheduler system initialization failed\n")
                     }
+                } else {
+                    serial_write("NoqeriOS: APIC platform initialization failed\n")
                 }
             } else {
                 serial_write("NoqeriOS: ACPI MADT discovery failed\n")
             }
+        } else {
+            serial_write("NoqeriOS: platform scheduler storage allocation failed\n")
         }
     }
 
