@@ -15,15 +15,10 @@ export function kernel_syscall_dispatch(number: usize, arg0: usize, arg1: usize)
         return arch_timer_ticks() as isize
     }
 
-    // Compatibility probe used by the first ring-3 trampoline.
+    // Compatibility probe used by the first ring-3 trampoline. arg0/arg1 are
+    // reserved for the first pointer-bearing file/process syscalls.
     if number == (1313817938 as usize) {
         return 1 as isize
-    }
-
-    // Keep arguments part of the stable dispatcher shape even before the first
-    // pointer-bearing userspace calls are enabled.
-    if arg0 == (18446744073709551615 as usize) && arg1 == (18446744073709551615 as usize) {
-        return -22
     }
 
     return syscall_not_supported()
