@@ -1,0 +1,103 @@
+module os.drivers.virtio_block
+
+import "virtio.nqr"
+
+function virtio_block_read_smoke(location: u32): bool {
+    if location == (65536 as u32) { return false }
+    if !virtio_begin_driver(location) { return false }
+
+    let descPage: usize = arch_alloc_page()
+    let availPage: usize = arch_alloc_page()
+    let usedPage: usize = arch_alloc_page()
+    let bufferPage: usize = arch_alloc_page()
+    let requestPage: usize = arch_alloc_page()
+    if descPage == 0 || availPage == 0 || usedPage == 0 || bufferPage == 0 || requestPage == 0 {
+        virtio_reset(location)
+        return false
+    }
+
+    let notifyOffset: u32 = virtio_queue_setup(location, 0 as u16, descPage, availPage, usedPage)
+    if notifyOffset == (4294967295 as u32) {
+        virtio_reset(location)
+        return false
+    }
+
+    // virtio_blk_req header: type=VIRTIO_BLK_T_IN, reserved=0, sector=0.
+    let requestType: *u32 = requestPage as *u32
+    let requestReserved: *u32 = (requestPage + 4) as *u32
+    let requestSector: *u64 = (requestPage + 8) as *u64
+    let requestStatus: *volatile u8 = (requestPage + 16) as *volatile u8
+    requestType[0] = 0 as u32
+    requestReserved[0] = 0 as u32
+    requestSector[0] = 0 as u64
+    requestStatus[0] = 255 as u8
+
+    // Descriptor 0: 16-byte request header, device-readable, chained to data.
+    let desc0Address: *u64 = descPage as *u64
+    let desc0Length: *u32 = (descPage + 8) as *u32
+    let desc0Flags: *u16 = (descPage + 12) as *u16
+    let desc0Next: *u16 = (descPage + 14) as *u16
+    desc0Address[0] = requestPage as u64
+    desc0Length[0] = 16 as u32
+    desc0Flags[0] = 1 as u16
+    desc0Next[0] = 1 as u16
+
+    // Descriptor 1: one 512-byte sector, device-writable, chained to status.
+    let desc1Address: *u64 = (descPage + 16) as *u64
+    let desc1Length: *u32 = (descPage + 24) as *u32
+    let desc1Flags: *u16 = (descPage + 28) as *u16
+    let desc1Next: *u16 = (descPage + 30) as *u16
+    desc1Address[0] = bufferPage as u64
+    desc1Length[0] = 512 as u32
+    desc1Flags[0] = 3 as u16
+    desc1Next[0] = 2 as u16
+
+    // Descriptor 2: one-byte device status, device-writable and chain terminator.
+    let desc2Address: *u64 = (descPage + 32) as *u64
+    let desc2Length: *u32 = (descPage + 40) as *u32
+    let desc2Flags: *u16 = (descPage + 44) as *u16
+    let desc2Next: *u16 = (descPage + 46) as *u16
+    desc2Address[0] = (requestPage + 16) as u64
+    desc2Length[0] = 1 as u32
+    desc2Flags[0] = 2 as u16
+    desc2Next[0] = 0 as u16
+
+    let availFlags: *u16 = availPage as *u16
+    let availIndex: *u16 = (availPage + 2) as *u16
+    let availRing0: *u16 = (availPage + 4) as *u16
+    availFlags[0] = 0 as u16
+    availIndex[0] = 0 as u16
+    availRing0[0] = 0 as u16
+
+    let usedFlags: *u16 = usedPage as *u16
+    let usedIndex: *volatile u16 = (usedPage + 2) as *volatile u16
+    usedFlags[0] = 0 as u16
+    usedIndex[0] = 0 as u16
+
+    if !virtio_driver_ok(location) {
+        virtio_reset(location)
+        return false
+    }
+
+    atomicFence()
+    availIndex[0] = 1 as u16
+    atomicFence()
+    if !virtio_notify_queue(location, 0 as u16, notifyOffset) {
+        virtio_reset(location)
+        return false
+    }
+
+    let spins: usize = 0 as usize
+    while usedIndex[0] == (0 as u16) && spins < (4000000 as usize) {
+        intrinsic("x86.pause")
+        spins = spins + (1 as usize)
+    }
+
+    atomicFence()
+    let marker: *volatile u32 = bufferPage as *volatile u32
+    let completed: bool = usedIndex[0] != (0 as u16)
+    let statusOk: bool = requestStatus[0] == (0 as u8)
+    let markerOk: bool = marker[0] == (1397707086 as u32)
+    virtio_reset(location)
+    return completed && statusOk && markerOk
+}
