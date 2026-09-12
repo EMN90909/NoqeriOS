@@ -3,7 +3,7 @@
 lapic_mmio_base:
     .quad 0
 smp_online_count:
-    .quad 1
+    .quad 0
 scheduler_system_ptr:
     .quad 0
 
