@@ -69,6 +69,9 @@ function thread_system_initialize(system: *SchedulerSystem, queueStorage: usize,
     system.started = 0 as u32
     system.reserved = 0 as u32
 
+    arch_serial_write("NoqeriOS: scheduler CPU count hex ")
+    arch_serial_hex_u32(system.cpuCount as u32)
+
     let index: usize = 0 as usize
     while index < system.cpuCount {
         let queue: *CpuRunQueue = &(system.queues[index])
@@ -80,6 +83,8 @@ function thread_system_initialize(system: *SchedulerSystem, queueStorage: usize,
         queue.readyCount = 0 as usize
         queue.tickCount = 0 as usize
         queue.switchCount = 0 as usize
+        arch_serial_write("NoqeriOS: scheduler queue APIC ID hex ")
+        arch_serial_hex_u32(queue.apicId)
         index = index + (1 as usize)
     }
     return true
@@ -182,6 +187,8 @@ function thread_system_start(system: *SchedulerSystem, bspApicId: u32): *KernelT
         arch_serial_write("NoqeriOS: BSP scheduler system pointer is null\n")
         return null
     }
+    arch_serial_write("NoqeriOS: scheduler lookup BSP APIC ID hex ")
+    arch_serial_hex_u32(bspApicId)
     let queue: *CpuRunQueue = thread_queue_for_apic(system, bspApicId)
     if queue == null {
         arch_serial_write("NoqeriOS: BSP APIC ID missing from MADT run queues\n")
