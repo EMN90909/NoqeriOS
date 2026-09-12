@@ -32,13 +32,15 @@ function noqfs_mount(blockLocation: u32, mount: *VfsMount): bool {
     return true
 }
 
-function noqfs_open_root_key(mount: *VfsMount, key: u64, node: *VfsNode): bool {
-    if mount == null || node == null { return false }
-    if mount.mounted != (1 as u32) || mount.driverKind != (1 as u32) { return false }
+function noqfs_open_root_key_status(mount: *VfsMount, key: u64, node: *VfsNode): isize {
+    if mount == null || node == null { return -10 }
+    if mount.mounted != (1 as u32) || mount.driverKind != (1 as u32) { return -11 }
+    if mount.rootEntryCount == (0 as u32) { return -12 }
+    if mount.rootDirectorySector == (0 as u64) { return -13 }
 
     vfs_node_clear(node)
     let directoryPage: usize = arch_alloc_page()
-    if directoryPage == 0 { return false }
+    if directoryPage == 0 { return -14 }
 
     let index: u32 = 0 as u32
     while index < mount.rootEntryCount {
@@ -46,7 +48,7 @@ function noqfs_open_root_key(mount: *VfsMount, key: u64, node: *VfsNode): bool {
         let sectorDelta: u64 = (index / entriesPerSector) as u64
         let entryInSector: usize = (index % entriesPerSector) as usize
         let directorySector: u64 = mount.rootDirectorySector + sectorDelta
-        if !virtio_block_read_sector(mount.blockLocation, directorySector, directoryPage) { return false }
+        if !virtio_block_read_sector(mount.blockLocation, directorySector, directoryPage) { return -15 }
 
         let entryOffset: usize = entryInSector * (32 as usize)
         let entryKey: *volatile u64 = (directoryPage + entryOffset) as *volatile u64
@@ -61,13 +63,17 @@ function noqfs_open_root_key(mount: *VfsMount, key: u64, node: *VfsNode): bool {
             node.firstSector = entryFirstSector[0]
             node.flags = entryFlags[0]
             node.reserved = 0 as u32
-            return true
+            return 1 as isize
         }
 
         index = index + (1 as u32)
     }
 
-    return false
+    return -16
+}
+
+function noqfs_open_root_key(mount: *VfsMount, key: u64, node: *VfsNode): bool {
+    return noqfs_open_root_key_status(mount, key, node) == (1 as isize)
 }
 
 function noqfs_read(node: *VfsNode, offset: usize, requested: usize, output: usize): usize {
