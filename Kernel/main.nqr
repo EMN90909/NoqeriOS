@@ -14,6 +14,9 @@ import "Memory/heap.nqr"
 import "scheduler.nqr"
 import "syscall.nqr"
 import "fs/vfs.nqr"
+import "acpi.nqr"
+import "apic.nqr"
+import "thread.nqr"
 
 export function kernel_main(multibootInfo: usize): void {
     arch_cli()
@@ -36,25 +39,19 @@ export function kernel_main(multibootInfo: usize): void {
 
         if metadataReady {
             metadataBase = arch_alloc_page()
-            if metadataBase == (0 as usize) {
-                metadataReady = false
-            }
+            if metadataBase == (0 as usize) { metadataReady = false }
         }
 
         let metadataIndex: usize = 1 as usize
         while metadataReady && metadataIndex < metadataPages {
             let metadataPage: usize = arch_alloc_page()
             let expectedPage: usize = metadataBase + (metadataIndex * (4096 as usize))
-            if metadataPage != expectedPage {
-                metadataReady = false
-            }
+            if metadataPage != expectedPage { metadataReady = false }
             metadataIndex = metadataIndex + (1 as usize)
         }
 
         let pmmStatePage: usize = 0 as usize
-        if metadataReady {
-            pmmStatePage = arch_alloc_page()
-        }
+        if metadataReady { pmmStatePage = arch_alloc_page() }
 
         if metadataReady && pmmStatePage != (0 as usize) {
             let pmm: *PhysicalMemoryManager = pmmStatePage as *PhysicalMemoryManager
@@ -109,9 +106,6 @@ export function kernel_main(multibootInfo: usize): void {
                 }
 
                 if memoryReady {
-                    // Existing bootstrap drivers still request pages through arch_alloc_page.
-                    // Back that compatibility interface with a PMM-owned 2 MiB pool so it
-                    // cannot collide with the new allocator while those drivers migrate.
                     let compatibilityPool: usize = pmm_alloc_contiguous(pmm, 512 as usize)
                     if compatibilityPool != (0 as usize) && arch_early_allocator_set(compatibilityPool, compatibilityPool + (2097152 as usize)) {
                         serial_write("NoqeriOS: legacy page allocator rebased onto PMM-owned pool\n")
@@ -131,9 +125,7 @@ export function kernel_main(multibootInfo: usize): void {
         serial_write("NoqeriOS: no usable physical memory region found\n")
     }
 
-    if pmmAddress == (0 as usize) {
-        serial_write("NoqeriOS: native memory core unavailable\n")
-    }
+    if pmmAddress == (0 as usize) { serial_write("NoqeriOS: native memory core unavailable\n") }
 
     if memoryReady {
         let schedulerPage: usize = arch_alloc_page()
@@ -143,6 +135,83 @@ export function kernel_main(multibootInfo: usize): void {
             serial_write("NoqeriOS: round-robin process scheduler core active\n")
         } else {
             serial_write("NoqeriOS: scheduler core self-test failed\n")
+        }
+    }
+
+    // Build the shared IDT before AP startup. The PIC stays masked; IRQ0 is
+    // routed through the IOAPIC after ACPI MADT discovery.
+    arch_interrupts_init()
+    let platformReady: bool = false
+    let schedulerSystemAddress: usize = 0 as usize
+    if memoryReady && pmmAddress != (0 as usize) {
+        let pmm: *PhysicalMemoryManager = pmmAddress as *PhysicalMemoryManager
+        let cpuStorage: usize = pmm_alloc_page(pmm)
+        let platformStorage: usize = pmm_alloc_page(pmm)
+        let schedulerStorage: usize = pmm_alloc_page(pmm)
+        let queueStorage: usize = pmm_alloc_page(pmm)
+        if cpuStorage != (0 as usize) && platformStorage != (0 as usize) && schedulerStorage != (0 as usize) && queueStorage != (0 as usize) {
+            let platform: *AcpiPlatform = platformStorage as *AcpiPlatform
+            if acpi_discover(multibootInfo, cpuStorage, 256 as usize, platform) {
+                serial_write("NoqeriOS: ACPI RSDP XSDT and MADT discovered\n")
+                serial_write("NoqeriOS: MADT CPU and IOAPIC topology parsed\n")
+                if apic_platform_initialize(platform) {
+                    serial_write("NoqeriOS: local APIC enabled and legacy PIC masked\n")
+                    serial_write("NoqeriOS: IOAPIC routes PIT IRQ0 to native vector 48\n")
+                    let system: *SchedulerSystem = schedulerStorage as *SchedulerSystem
+                    if thread_system_initialize(system, queueStorage, platform, pmm) {
+                        let bspApicId: u32 = lapic_id(platform.lapicAddress)
+                        let bspWorker: *KernelThread = thread_system_start(system, bspApicId)
+                        if bspWorker != null {
+                            schedulerSystemAddress = schedulerStorage
+                            arch_smp_reset_online()
+                            let smpReady: bool = true
+                            let expectedOnline: usize = 1 as usize
+                            let cpuIndex: usize = 0 as usize
+                            while cpuIndex < platform.cpuCount {
+                                let apicId: u32 = platform.cpuApicIds[cpuIndex]
+                                if apicId != bspApicId {
+                                    let apStack: usize = pmm_alloc_contiguous(pmm, 4 as usize)
+                                    if apStack == (0 as usize) || !arch_smp_start_ap(apicId, apStack + (16384 as usize), arch_read_cr3()) {
+                                        smpReady = false
+                                    } else {
+                                        expectedOnline = expectedOnline + (1 as usize)
+                                    }
+                                }
+                                cpuIndex = cpuIndex + (1 as usize)
+                            }
+
+                            if smpReady && arch_smp_online_count() == expectedOnline {
+                                serial_write("NoqeriOS: INIT SIPI application-processor startup succeeded\n")
+                            } else {
+                                serial_write("NoqeriOS: one or more application processors failed startup\n")
+                            }
+
+                            arch_sti()
+                            let startTicks: usize = arch_timer_ticks()
+                            let guard: usize = 0 as usize
+                            while guard < (1000 as usize) && (arch_timer_ticks() < startTicks + (6 as usize) || thread_worker_progress(bspWorker) < (100 as usize)) {
+                                arch_halt()
+                                guard = guard + (1 as usize)
+                            }
+                            arch_cli()
+
+                            if smpReady && thread_worker_progress(bspWorker) >= (100 as usize) && system.totalSwitches > (0 as usize) {
+                                serial_write("NoqeriOS: timer-preemptive kernel thread context switching active\n")
+                                if thread_online_cpu_count(system) == expectedOnline {
+                                    serial_write("NoqeriOS: SMP per-CPU run queues active on all discovered CPUs\n")
+                                    platformReady = true
+                                } else {
+                                    serial_write("NoqeriOS: SMP run queue online count mismatch\n")
+                                }
+                            } else {
+                                serial_write("NoqeriOS: preemptive scheduler progress test failed\n")
+                            }
+                        }
+                    }
+                }
+            } else {
+                serial_write("NoqeriOS: ACPI MADT discovery failed\n")
+            }
         }
     }
 
@@ -212,15 +281,18 @@ export function kernel_main(multibootInfo: usize): void {
         serial_write("NoqeriOS: VirtIO block device not found\n")
     }
 
-    arch_interrupts_init()
-    arch_sti()
-    let ticks: usize = arch_timer_ticks()
-    while ticks < 3 {
-        arch_halt()
-        ticks = arch_timer_ticks()
+    if platformReady {
+        arch_sti()
+        let ticks: usize = arch_timer_ticks()
+        while ticks < (arch_timer_ticks() + (0 as usize)) { arch_halt() }
+        let targetTicks: usize = ticks + (3 as usize)
+        while arch_timer_ticks() < targetTicks { arch_halt() }
+        arch_cli()
+        serial_write("NoqeriOS: IDT and PIT timer interrupts active\n")
+        serial_write("NoqeriOS: APIC IOAPIC interrupt delivery active\n")
+    } else {
+        serial_write("NoqeriOS: APIC platform core unavailable\n")
     }
-    arch_cli()
-    serial_write("NoqeriOS: IDT and PIT timer interrupts active\n")
 
     if arch_userspace_init() {
         if arch_enter_user_test() {
@@ -246,9 +318,11 @@ export function kernel_main(multibootInfo: usize): void {
         serial_write("NoqeriOS: no supported framebuffer; serial remains active\n")
     }
 
+    if schedulerSystemAddress != (0 as usize) {
+        serial_write("NoqeriOS: native scheduler state retained for system services\n")
+    }
     serial_write("NoqeriOS: modular monolith core services online\n")
     serial_write("NoqeriOS: bootstrap milestone complete\n")
-    while true {
-        arch_halt()
-    }
+    arch_sti()
+    while true { arch_halt() }
 }
