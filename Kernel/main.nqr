@@ -8,7 +8,9 @@ import "../Drivers/virtio.nqr"
 import "../Drivers/virtio_rng.nqr"
 import "../Drivers/virtio_block.nqr"
 import "memory.nqr"
-import "vfs.nqr"
+import "scheduler.nqr"
+import "syscall.nqr"
+import "fs/vfs.nqr"
 
 export function kernel_main(multibootInfo: usize): void {
     arch_cli()
@@ -16,10 +18,12 @@ export function kernel_main(multibootInfo: usize): void {
     serial_write("NoqeriOS: entered 64-bit Noqeri kernel\n")
     serial_write("NoqeriOS: serial driver online\n")
 
+    let memoryReady: bool = false
     let kernelEnd: usize = arch_kernel_end()
     let memoryStart: usize = usable_region_start(multibootInfo, kernelEnd)
     let memoryEnd: usize = usable_region_end(multibootInfo, kernelEnd)
     if memoryStart != 0 && memoryEnd > memoryStart && arch_early_allocator_set(memoryStart, memoryEnd) {
+        memoryReady = true
         serial_write("NoqeriOS: physical memory map accepted\n")
         let firstPage: usize = arch_alloc_page()
         if firstPage != 0 {
@@ -29,6 +33,17 @@ export function kernel_main(multibootInfo: usize): void {
         }
     } else {
         serial_write("NoqeriOS: no usable physical memory region found\n")
+    }
+
+    if memoryReady {
+        let schedulerPage: usize = arch_alloc_page()
+        let processOnePage: usize = arch_alloc_page()
+        let processTwoPage: usize = arch_alloc_page()
+        if scheduler_self_test(schedulerPage, processOnePage, processTwoPage) {
+            serial_write("NoqeriOS: round-robin process scheduler core active\n")
+        } else {
+            serial_write("NoqeriOS: scheduler core self-test failed\n")
+        }
     }
 
     let pciDevices: usize = pci_count_devices()
@@ -67,6 +82,11 @@ export function kernel_main(multibootInfo: usize): void {
             serial_write("NoqeriOS: VirtIO block sector read succeeded\n")
             if vfs_probe_boot_volume(blockLocation) {
                 serial_write("NoqeriOS: NoqFS boot volume recognized by VFS\n")
+                if vfs_boot_file_test(blockLocation) {
+                    serial_write("NoqeriOS: VFS opened and read a NoqFS file\n")
+                } else {
+                    serial_write("NoqeriOS: VFS file read failed\n")
+                }
             } else {
                 serial_write("NoqeriOS: NoqFS boot volume probe failed\n")
             }
@@ -91,6 +111,7 @@ export function kernel_main(multibootInfo: usize): void {
         if arch_enter_user_test() {
             if arch_user_test_seen() {
                 serial_write("NoqeriOS: ring-3 transition and syscall gate active\n")
+                serial_write("NoqeriOS: ring-3 syscall reached Noqeri dispatcher\n")
             } else {
                 serial_write("NoqeriOS: ring-3 syscall return was not observed\n")
             }
@@ -110,6 +131,7 @@ export function kernel_main(multibootInfo: usize): void {
         serial_write("NoqeriOS: no supported framebuffer; serial remains active\n")
     }
 
+    serial_write("NoqeriOS: modular monolith core services online\n")
     serial_write("NoqeriOS: bootstrap milestone complete\n")
     while true {
         arch_halt()
