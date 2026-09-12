@@ -1,0 +1,306 @@
+module os.kernel.thread
+
+import "../Arch/x86_64/api.nqr"
+import "Memory/pmm.nqr"
+import "acpi.nqr"
+import "apic.nqr"
+
+record KernelThread {
+    tid: usize;
+    state: u32;
+    privilege: u32;
+    cpuApicId: u32;
+    entryKind: u32;
+    savedRsp: usize;
+    cr3: usize;
+    kernelStackBase: usize;
+    kernelStackTop: usize;
+    argument: usize;
+    workCounter: usize;
+    quantumTicks: usize;
+    remainingTicks: usize;
+    next: *KernelThread;
+}
+
+record CpuRunQueue {
+    apicId: u32;
+    online: u32;
+    current: *KernelThread;
+    readyHead: *KernelThread;
+    readyTail: *KernelThread;
+    readyCount: usize;
+    tickCount: usize;
+    switchCount: usize;
+}
+
+record SchedulerSystem {
+    pmm: *PhysicalMemoryManager;
+    queues: *CpuRunQueue;
+    cpuCount: usize;
+    nextTid: usize;
+    totalSwitches: usize;
+    started: u32;
+    reserved: u32;
+}
+
+function thread_queue_at(system: *SchedulerSystem, index: usize): *CpuRunQueue {
+    if system == null || index >= system.cpuCount { return null }
+    return &(system.queues[index])
+}
+
+function thread_queue_for_apic(system: *SchedulerSystem, apicId: u32): *CpuRunQueue {
+    if system == null { return null }
+    let index: usize = 0 as usize
+    while index < system.cpuCount {
+        let queue: *CpuRunQueue = &(system.queues[index])
+        if queue.apicId == apicId { return queue }
+        index = index + (1 as usize)
+    }
+    return null
+}
+
+function thread_system_initialize(system: *SchedulerSystem, queueStorage: usize, platform: *AcpiPlatform, pmm: *PhysicalMemoryManager): bool {
+    if system == null || queueStorage == (0 as usize) || platform == null || pmm == null || platform.cpuCount == (0 as usize) { return false }
+    system.pmm = pmm
+    system.queues = queueStorage as *CpuRunQueue
+    system.cpuCount = platform.cpuCount
+    system.nextTid = 1 as usize
+    system.totalSwitches = 0 as usize
+    system.started = 0 as u32
+    system.reserved = 0 as u32
+
+    let index: usize = 0 as usize
+    while index < system.cpuCount {
+        let queue: *CpuRunQueue = &(system.queues[index])
+        queue.apicId = platform.cpuApicIds[index]
+        queue.online = 0 as u32
+        queue.current = null
+        queue.readyHead = null
+        queue.readyTail = null
+        queue.readyCount = 0 as usize
+        queue.tickCount = 0 as usize
+        queue.switchCount = 0 as usize
+        index = index + (1 as usize)
+    }
+    return true
+}
+
+function thread_enqueue(queue: *CpuRunQueue, thread: *KernelThread): bool {
+    if queue == null || thread == null { return false }
+    thread.state = 1 as u32
+    thread.next = null
+    if queue.readyTail == null {
+        queue.readyHead = thread
+        queue.readyTail = thread
+    } else {
+        queue.readyTail.next = thread
+        queue.readyTail = thread
+    }
+    queue.readyCount = queue.readyCount + (1 as usize)
+    return true
+}
+
+function thread_dequeue(queue: *CpuRunQueue): *KernelThread {
+    if queue == null || queue.readyHead == null { return null }
+    let thread: *KernelThread = queue.readyHead
+    queue.readyHead = thread.next
+    if queue.readyHead == null { queue.readyTail = null }
+    thread.next = null
+    if queue.readyCount > (0 as usize) { queue.readyCount = queue.readyCount - (1 as usize) }
+    return thread
+}
+
+function thread_initialize_record(thread: *KernelThread, tid: usize, apicId: u32): void {
+    thread.tid = tid
+    thread.state = 1 as u32
+    thread.privilege = 0 as u32
+    thread.cpuApicId = apicId
+    thread.entryKind = 0 as u32
+    thread.savedRsp = 0 as usize
+    thread.cr3 = arch_read_cr3() as usize
+    thread.kernelStackBase = 0 as usize
+    thread.kernelStackTop = 0 as usize
+    thread.argument = 0 as usize
+    thread.workCounter = 0 as usize
+    thread.quantumTicks = 4 as usize
+    thread.remainingTicks = 4 as usize
+    thread.next = null
+}
+
+function thread_create_bootstrap(system: *SchedulerSystem, queue: *CpuRunQueue): *KernelThread {
+    if system == null || queue == null { return null }
+    let storage: usize = pmm_alloc_page(system.pmm)
+    if storage == (0 as usize) { return null }
+    let thread: *KernelThread = storage as *KernelThread
+    let tid: usize = system.nextTid
+    system.nextTid = system.nextTid + (1 as usize)
+    thread_initialize_record(thread, tid, queue.apicId)
+    thread.state = 2 as u32
+    queue.current = thread
+    return thread
+}
+
+function thread_create_kernel(system: *SchedulerSystem, queue: *CpuRunQueue, entryKind: u32): *KernelThread {
+    if system == null || queue == null { return null }
+    let storage: usize = pmm_alloc_page(system.pmm)
+    if storage == (0 as usize) { return null }
+    let stackBase: usize = pmm_alloc_contiguous(system.pmm, 4 as usize)
+    if stackBase == (0 as usize) {
+        pmm_free_page(system.pmm, storage)
+        return null
+    }
+
+    let thread: *KernelThread = storage as *KernelThread
+    let tid: usize = system.nextTid
+    system.nextTid = system.nextTid + (1 as usize)
+    thread_initialize_record(thread, tid, queue.apicId)
+    thread.entryKind = entryKind
+    thread.kernelStackBase = stackBase
+    thread.kernelStackTop = stackBase + (16384 as usize)
+    thread.argument = storage
+    thread.savedRsp = arch_prepare_kernel_thread(thread.kernelStackTop, tid, storage)
+    if thread.savedRsp == (0 as usize) {
+        return null
+    }
+    if !thread_enqueue(queue, thread) { return null }
+    return thread
+}
+
+function thread_system_start(system: *SchedulerSystem, bspApicId: u32): *KernelThread {
+    if system == null { return null }
+    let queue: *CpuRunQueue = thread_queue_for_apic(system, bspApicId)
+    if queue == null { return null }
+    queue.online = 1 as u32
+    let bootstrap: *KernelThread = thread_create_bootstrap(system, queue)
+    if bootstrap == null { return null }
+    let worker: *KernelThread = thread_create_kernel(system, queue, 1 as u32)
+    if worker == null { return null }
+    system.started = 1 as u32
+    arch_scheduler_bind(system as usize)
+    return worker
+}
+
+function thread_schedule_tick(system: *SchedulerSystem, apicId: u32, frameRsp: usize): usize {
+    if system == null || system.started != (1 as u32) || frameRsp == (0 as usize) { return frameRsp }
+    let queue: *CpuRunQueue = thread_queue_for_apic(system, apicId)
+    if queue == null || queue.online != (1 as u32) { return frameRsp }
+    queue.tickCount = queue.tickCount + (1 as usize)
+
+    let current: *KernelThread = queue.current
+    if current == null {
+        let first: *KernelThread = thread_dequeue(queue)
+        if first == null { return frameRsp }
+        first.state = 2 as u32
+        first.remainingTicks = first.quantumTicks
+        queue.current = first
+        return first.savedRsp
+    }
+
+    current.savedRsp = frameRsp
+    if current.remainingTicks > (1 as usize) {
+        current.remainingTicks = current.remainingTicks - (1 as usize)
+        return frameRsp
+    }
+
+    current.remainingTicks = current.quantumTicks
+    if current.state == (2 as u32) {
+        thread_enqueue(queue, current)
+    }
+
+    let next: *KernelThread = thread_dequeue(queue)
+    if next == null {
+        current.state = 2 as u32
+        queue.current = current
+        return frameRsp
+    }
+
+    next.state = 2 as u32
+    next.remainingTicks = next.quantumTicks
+    queue.current = next
+    queue.switchCount = queue.switchCount + (1 as usize)
+    system.totalSwitches = system.totalSwitches + (1 as usize)
+
+    if next.cr3 != (arch_read_cr3() as usize) {
+        arch_write_cr3(next.cr3 as u64)
+    }
+    if next.kernelStackTop != (0 as usize) {
+        arch_set_tss_rsp0(next.kernelStackTop)
+    }
+    return next.savedRsp
+}
+
+export function kernel_timer_interrupt(frameRsp: usize, apicId: u32): usize {
+    let address: usize = arch_scheduler_system()
+    if address == (0 as usize) { return frameRsp }
+    return thread_schedule_tick(address as *SchedulerSystem, apicId, frameRsp)
+}
+
+export function kernel_thread_entry(tid: usize, argument: usize): void {
+    let thread: *KernelThread = argument as *KernelThread
+    if thread == null || thread.tid != tid {
+        while true { arch_halt() }
+    }
+
+    if thread.entryKind == (1 as u32) {
+        while true {
+            thread.workCounter = thread.workCounter + (1 as usize)
+            arch_pause()
+        }
+    }
+
+    while true { arch_halt() }
+}
+
+export function kernel_thread_finished(): void {
+    while true { arch_halt() }
+}
+
+export function kernel_ap_main(apicId: u32): void {
+    let systemAddress: usize = arch_scheduler_system()
+    if systemAddress == (0 as usize) {
+        arch_smp_mark_online()
+        while true { arch_halt() }
+    }
+
+    let system: *SchedulerSystem = systemAddress as *SchedulerSystem
+    let queue: *CpuRunQueue = thread_queue_for_apic(system, apicId)
+    if queue == null {
+        arch_smp_mark_online()
+        while true { arch_halt() }
+    }
+
+    if !lapic_enable(arch_get_lapic_base()) {
+        arch_smp_mark_online()
+        while true { arch_halt() }
+    }
+
+    let bootstrap: *KernelThread = thread_create_bootstrap(system, queue)
+    let worker: *KernelThread = null
+    if bootstrap != null {
+        worker = thread_create_kernel(system, queue, 1 as u32)
+    }
+    if bootstrap != null && worker != null {
+        queue.online = 1 as u32
+        lapic_timer_start(arch_get_lapic_base(), 5000000 as u32)
+    }
+
+    arch_smp_mark_online()
+    arch_sti()
+    while true { arch_halt() }
+}
+
+function thread_worker_progress(thread: *KernelThread): usize {
+    if thread == null { return 0 as usize }
+    return thread.workCounter
+}
+
+function thread_online_cpu_count(system: *SchedulerSystem): usize {
+    if system == null { return 0 as usize }
+    let count: usize = 0 as usize
+    let index: usize = 0 as usize
+    while index < system.cpuCount {
+        if system.queues[index].online == (1 as u32) { count = count + (1 as usize) }
+        index = index + (1 as usize)
+    }
+    return count
+}
