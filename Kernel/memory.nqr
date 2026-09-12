@@ -26,7 +26,7 @@ function mb2_find_memory_map(info: usize): usize {
             return 0
         }
         let size: usize = (*sizePtr) as usize
-        let padding: usize = (8 - (size % 8)) % 8
+        let padding: usize = ((8 as usize) - (size % (8 as usize))) % (8 as usize)
         cursor = cursor + size + padding
     }
     return 0
