@@ -2,16 +2,15 @@ module os.drivers.virtio_block
 
 import "virtio.nqr"
 
-function virtio_block_read_smoke(location: u32): bool {
-    if location == (65536 as u32) { return false }
+function virtio_block_read_sector(location: u32, sector: u64, bufferPage: usize): bool {
+    if location == (65536 as u32) || bufferPage == 0 { return false }
     if !virtio_begin_driver(location) { return false }
 
     let descPage: usize = arch_alloc_page()
     let availPage: usize = arch_alloc_page()
     let usedPage: usize = arch_alloc_page()
-    let bufferPage: usize = arch_alloc_page()
     let requestPage: usize = arch_alloc_page()
-    if descPage == 0 || availPage == 0 || usedPage == 0 || bufferPage == 0 || requestPage == 0 {
+    if descPage == 0 || availPage == 0 || usedPage == 0 || requestPage == 0 {
         virtio_reset(location)
         return false
     }
@@ -22,14 +21,14 @@ function virtio_block_read_smoke(location: u32): bool {
         return false
     }
 
-    // virtio_blk_req header: type=VIRTIO_BLK_T_IN, reserved=0, sector=0.
+    // virtio_blk_req header: type=VIRTIO_BLK_T_IN, reserved=0, requested sector.
     let requestType: *u32 = requestPage as *u32
     let requestReserved: *u32 = (requestPage + 4) as *u32
     let requestSector: *u64 = (requestPage + 8) as *u64
     let requestStatus: *volatile u8 = (requestPage + 16) as *volatile u8
     requestType[0] = 0 as u32
     requestReserved[0] = 0 as u32
-    requestSector[0] = 0 as u64
+    requestSector[0] = sector
     requestStatus[0] = 255 as u8
 
     // Descriptor 0: 16-byte request header, device-readable, chained to data.
@@ -94,10 +93,16 @@ function virtio_block_read_smoke(location: u32): bool {
     }
 
     atomicFence()
-    let marker: *volatile u32 = bufferPage as *volatile u32
     let completed: bool = usedIndex[0] != (0 as u16)
     let statusOk: bool = requestStatus[0] == (0 as u8)
-    let markerOk: bool = marker[0] == (1397707086 as u32)
     virtio_reset(location)
-    return completed && statusOk && markerOk
+    return completed && statusOk
+}
+
+function virtio_block_read_smoke(location: u32): bool {
+    let bufferPage: usize = arch_alloc_page()
+    if bufferPage == 0 { return false }
+    if !virtio_block_read_sector(location, 0 as u64, bufferPage) { return false }
+    let marker: *volatile u32 = bufferPage as *volatile u32
+    return marker[0] == (1397117262 as u32)
 }
