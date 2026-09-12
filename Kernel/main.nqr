@@ -3,6 +3,7 @@ module os.kernel
 import "../Drivers/serial.nqr"
 import "../Drivers/framebuffer.nqr"
 import "../Drivers/pci.nqr"
+import "../Drivers/virtio.nqr"
 import "memory.nqr"
 
 extern function arch_cli(): void;
@@ -44,8 +45,15 @@ export function kernel_main(multibootInfo: usize): void {
     } else {
         serial_write("NoqeriOS: PCI enumeration found no devices\n")
     }
-    if pci_has_vendor(6900 as u16) {
+
+    let virtioLocation: u32 = pci_find_vendor_location(6900 as u16)
+    if virtioLocation != (65536 as u32) {
         serial_write("NoqeriOS: VirtIO PCI device detected\n")
+        if virtio_modern_transport_present(virtioLocation) {
+            serial_write("NoqeriOS: modern VirtIO PCI transport capabilities detected\n")
+        } else {
+            serial_write("NoqeriOS: VirtIO device lacks required modern PCI capabilities\n")
+        }
     }
 
     arch_interrupts_init()
