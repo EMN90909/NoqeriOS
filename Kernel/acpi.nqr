@@ -130,7 +130,7 @@ function acpi_parse_madt(platform: *AcpiPlatform): bool {
         if kind == (0 as u8) && itemLength >= (8 as usize) {
             let apicId: u32 = acpi_read_u8(cursor + (3 as usize)) as u32
             let flags: u32 = acpi_read_u32(cursor + (4 as usize))
-            if (flags % (2 as u32)) == (1 as u32) && platform.cpuCount < platform.cpuCapacity {
+            if flags % (2 as u32) == (1 as u32) && platform.cpuCount < platform.cpuCapacity {
                 platform.cpuApicIds[platform.cpuCount] = apicId
                 platform.cpuCount = platform.cpuCount + (1 as usize)
             }
