@@ -1,0 +1,86 @@
+module os.kernel.scheduler
+
+import "process.nqr"
+
+record KernelScheduler {
+    readyHead: *KernelProcess;
+    readyTail: *KernelProcess;
+    current: *KernelProcess;
+    nextPid: usize;
+    runnableCount: usize;
+    quantumTicks: usize;
+}
+
+function scheduler_initialize(scheduler: *KernelScheduler): void {
+    scheduler.readyHead = null
+    scheduler.readyTail = null
+    scheduler.current = null
+    scheduler.nextPid = 1 as usize
+    scheduler.runnableCount = 0 as usize
+    scheduler.quantumTicks = 5 as usize
+}
+
+function scheduler_enqueue(scheduler: *KernelScheduler, process: *KernelProcess): bool {
+    if process == null { return false }
+    process_mark_ready(process)
+    process.next = null
+
+    if scheduler.readyTail == null {
+        scheduler.readyHead = process
+        scheduler.readyTail = process
+    } else {
+        scheduler.readyTail.next = process
+        scheduler.readyTail = process
+    }
+
+    scheduler.runnableCount = scheduler.runnableCount + (1 as usize)
+    return true
+}
+
+function scheduler_create_process(scheduler: *KernelScheduler, storage: usize, privilege: u32): *KernelProcess {
+    if storage == 0 { return null }
+    let process: *KernelProcess = storage as *KernelProcess
+    let pid: usize = scheduler.nextPid
+    scheduler.nextPid = scheduler.nextPid + (1 as usize)
+    process_initialize(process, pid, privilege)
+    if !scheduler_enqueue(scheduler, process) { return null }
+    return process
+}
+
+function scheduler_pick_next(scheduler: *KernelScheduler): *KernelProcess {
+    if scheduler.readyHead == null { return null }
+
+    let selected: *KernelProcess = scheduler.readyHead
+    if scheduler.readyHead == scheduler.readyTail {
+        scheduler.current = selected
+        process_mark_running(selected)
+        return selected
+    }
+
+    scheduler.readyHead = selected.next
+    selected.next = null
+    scheduler.readyTail.next = selected
+    scheduler.readyTail = selected
+    scheduler.current = selected
+    process_mark_running(selected)
+    return selected
+}
+
+function scheduler_self_test(schedulerStorage: usize, firstProcessStorage: usize, secondProcessStorage: usize): bool {
+    if schedulerStorage == 0 || firstProcessStorage == 0 || secondProcessStorage == 0 { return false }
+
+    let scheduler: *KernelScheduler = schedulerStorage as *KernelScheduler
+    scheduler_initialize(scheduler)
+
+    let first: *KernelProcess = scheduler_create_process(scheduler, firstProcessStorage, 0 as u32)
+    let second: *KernelProcess = scheduler_create_process(scheduler, secondProcessStorage, 3 as u32)
+    if first == null || second == null { return false }
+    if scheduler.runnableCount != (2 as usize) { return false }
+
+    let pickedFirst: *KernelProcess = scheduler_pick_next(scheduler)
+    let pickedSecond: *KernelProcess = scheduler_pick_next(scheduler)
+    let pickedAgain: *KernelProcess = scheduler_pick_next(scheduler)
+
+    if pickedFirst == null || pickedSecond == null || pickedAgain == null { return false }
+    return pickedFirst.pid == (1 as usize) && pickedSecond.pid == (2 as usize) && pickedAgain.pid == (1 as usize)
+}
