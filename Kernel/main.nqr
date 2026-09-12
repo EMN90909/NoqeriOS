@@ -4,6 +4,7 @@ import "../Drivers/serial.nqr"
 import "../Drivers/framebuffer.nqr"
 import "../Drivers/pci.nqr"
 import "../Drivers/virtio.nqr"
+import "../Drivers/virtio_rng.nqr"
 import "memory.nqr"
 
 extern function arch_cli(): void;
@@ -55,6 +56,11 @@ export function kernel_main(multibootInfo: usize): void {
                 serial_write("NoqeriOS: VirtIO common-config status handshake succeeded\n")
             } else {
                 serial_write("NoqeriOS: VirtIO common-config status handshake failed\n")
+            }
+            if virtio_rng_dma_test(virtioLocation) {
+                serial_write("NoqeriOS: VirtIO RNG DMA request completed\n")
+            } else {
+                serial_write("NoqeriOS: VirtIO RNG DMA request failed\n")
             }
         } else {
             serial_write("NoqeriOS: VirtIO device lacks required modern PCI capabilities\n")
