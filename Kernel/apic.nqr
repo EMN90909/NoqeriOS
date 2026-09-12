@@ -65,7 +65,7 @@ function ioapic_max_redirection(base: usize): u32 {
     return (version / (65536 as u32)) % (256 as u32)
 }
 
-function ioapic_route(base: usize, gsiBase: u32, gsi: u32, vector: u8, destinationApicId: u32, flags: u16, masked: bool): bool {
+function ioapic_route(base: usize, gsiBase: u32, gsi: u32, vector: u8, destinationApicId: u32, flags: u16): bool {
     if base == (0 as usize) || gsi < gsiBase { return false }
     let index: u32 = gsi - gsiBase
     if index > ioapic_max_redirection(base) { return false }
@@ -75,7 +75,6 @@ function ioapic_route(base: usize, gsiBase: u32, gsi: u32, vector: u8, destinati
     let trigger: u16 = (flags / (4 as u16)) % (4 as u16)
     if polarity == (3 as u16) { low = low + (8192 as u32) }
     if trigger == (3 as u16) { low = low + (32768 as u32) }
-    if masked { low = low + (65536 as u32) }
     let high: u32 = destinationApicId * (16777216 as u32)
 
     let register: u32 = (16 as u32) + (index * (2 as u32))
@@ -106,7 +105,7 @@ function apic_platform_initialize(platform: *AcpiPlatform): bool {
     ioapic_mask_all(platform.ioapicAddress)
 
     let destination: u32 = lapic_id(platform.lapicAddress)
-    if !ioapic_route(platform.ioapicAddress, platform.ioapicGsiBase, platform.timerGsi, 48 as u8, destination, platform.timerFlags, false) {
+    if !ioapic_route(platform.ioapicAddress, platform.ioapicGsiBase, platform.timerGsi, 48 as u8, destination, platform.timerFlags) {
         return false
     }
     return true
@@ -114,5 +113,5 @@ function apic_platform_initialize(platform: *AcpiPlatform): bool {
 
 function apic_route_keyboard(platform: *AcpiPlatform): bool {
     if platform == null { return false }
-    return ioapic_route(platform.ioapicAddress, platform.ioapicGsiBase, platform.keyboardGsi, 49 as u8, lapic_id(platform.lapicAddress), platform.keyboardFlags, false)
+    return ioapic_route(platform.ioapicAddress, platform.ioapicGsiBase, platform.keyboardGsi, 49 as u8, lapic_id(platform.lapicAddress), platform.keyboardFlags)
 }
