@@ -22,6 +22,7 @@ extern function arch_set_lapic_base(base: usize): void;
 extern function arch_get_lapic_base(): usize;
 extern function arch_current_apic_id(): u32;
 extern function arch_lapic_eoi(): void;
+extern function arch_serial_hex_u32(value: u32): void;
 
 extern function arch_smp_reset_online(): void;
 extern function arch_smp_online_count(): usize;
