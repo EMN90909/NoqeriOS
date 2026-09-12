@@ -32,20 +32,21 @@ function vfs_probe_boot_volume(blockLocation: u32): bool {
     return vfs_mount_noqfs(blockLocation, mount)
 }
 
-function vfs_boot_file_test(blockLocation: u32): bool {
+function vfs_boot_file_test(blockLocation: u32): isize {
     let mountPage: usize = arch_alloc_page()
     let nodePage: usize = arch_alloc_page()
     let dataPage: usize = arch_alloc_page()
-    if mountPage == 0 || nodePage == 0 || dataPage == 0 { return false }
+    if mountPage == 0 || nodePage == 0 || dataPage == 0 { return -1 }
 
     let mount: *VfsMount = mountPage as *VfsMount
     let node: *VfsNode = nodePage as *VfsNode
-    if !vfs_mount_noqfs(blockLocation, mount) { return false }
-    if !vfs_open_root_key(mount, 1 as u64, node) { return false }
+    if !vfs_mount_noqfs(blockLocation, mount) { return -2 }
+    if !vfs_open_root_key(mount, 1 as u64, node) { return -3 }
 
     let bytesRead: usize = vfs_read(node, 0 as usize, 16 as usize, dataPage)
-    if bytesRead < (4 as usize) { return false }
+    if bytesRead < (4 as usize) { return -4 }
 
     let contentMagic: *u32 = dataPage as *u32
-    return contentMagic[0] == (1330398536 as u32)
+    if contentMagic[0] != (1330398536 as u32) { return -5 }
+    return 1 as isize
 }
