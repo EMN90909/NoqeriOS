@@ -8,7 +8,7 @@ function virtio_find_capability(location: u32, wantedType: u8): u32 {
     let slot: u32 = pci_location_slot(location)
     let fn: u32 = pci_location_fn(location)
     let capability: u32 = (pci_read8(bus, slot, fn, 52 as u32)) as u32
-    let walked: usize = 0
+    let walked: usize = 0 as usize
     while capability != (0 as u32) && walked < 48 {
         let capabilityId: u8 = pci_read8(bus, slot, fn, capability)
         let nextCapability: u32 = (pci_read8(bus, slot, fn, capability + (1 as u32))) as u32
