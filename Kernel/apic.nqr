@@ -31,6 +31,24 @@ function lapic_eoi(base: usize): void {
     apic_mmio_write32(base + (176 as usize), 0 as u32)
 }
 
+function lapic_timer_start(base: usize, initialCount: u32): bool {
+    if base == (0 as usize) || initialCount == (0 as u32) { return false }
+    // Divide by 16, vector 48, periodic mode (bit 17).
+    apic_mmio_write32(base + (992 as usize), 3 as u32)
+    apic_mmio_write32(base + (800 as usize), 131120 as u32)
+    apic_mmio_write32(base + (896 as usize), initialCount)
+    return true
+}
+
+function lapic_timer_stop(base: usize): void {
+    if base == (0 as usize) { return }
+    let value: u32 = apic_mmio_read32(base + (800 as usize))
+    if ((value / (65536 as u32)) % (2 as u32)) == (0 as u32) {
+        apic_mmio_write32(base + (800 as usize), value + (65536 as u32))
+    }
+    apic_mmio_write32(base + (896 as usize), 0 as u32)
+}
+
 function ioapic_read(base: usize, register: u32): u32 {
     apic_mmio_write32(base, register)
     return apic_mmio_read32(base + (16 as usize))
