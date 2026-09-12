@@ -18,7 +18,8 @@ if ! command -v qemu-system-x86_64 >/dev/null 2>&1; then
 fi
 
 truncate -s 1M "$DISK"
-printf 'NQOS' | dd of="$DISK" conv=notrunc status=none
+printf 'NQFS' | dd of="$DISK" conv=notrunc status=none
+printf '\x01\x00\x00\x00' | dd of="$DISK" bs=1 seek=4 conv=notrunc status=none
 
 rm -f "$LOG"
 set +e
@@ -53,6 +54,7 @@ grep -q "NoqeriOS: VirtIO common-config status handshake succeeded" "$LOG"
 grep -q "NoqeriOS: VirtIO RNG DMA request completed" "$LOG"
 grep -q "NoqeriOS: VirtIO block device detected" "$LOG"
 grep -q "NoqeriOS: VirtIO block sector read succeeded" "$LOG"
+grep -q "NoqeriOS: NoqFS boot volume recognized by VFS" "$LOG"
 grep -q "NoqeriOS: IDT and PIT timer interrupts active" "$LOG"
 grep -q "NoqeriOS: ring-3 transition and syscall gate active" "$LOG"
 grep -q "NoqeriOS: bootstrap milestone complete" "$LOG"
