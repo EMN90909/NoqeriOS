@@ -3,23 +3,23 @@ module os.drivers.pci
 extern function arch_out32(port: u16, value: u32): void;
 extern function arch_in32(port: u16): u32;
 
-function pci_config_address(bus: u32, slot: u32, function: u32, offset: u32): u32 {
+function pci_config_address(bus: u32, slot: u32, fn: u32, offset: u32): u32 {
     let aligned: u32 = offset - (offset % (4 as u32))
-    return (2147483648 as u32) + (bus * (65536 as u32)) + (slot * (2048 as u32)) + (function * (256 as u32)) + aligned
+    return (2147483648 as u32) + (bus * (65536 as u32)) + (slot * (2048 as u32)) + (fn * (256 as u32)) + aligned
 }
 
-function pci_read32(bus: u32, slot: u32, function: u32, offset: u32): u32 {
-    arch_out32(3320 as u16, pci_config_address(bus, slot, function, offset))
+function pci_read32(bus: u32, slot: u32, fn: u32, offset: u32): u32 {
+    arch_out32(3320 as u16, pci_config_address(bus, slot, fn, offset))
     return arch_in32(3324 as u16)
 }
 
-function pci_vendor_id(bus: u32, slot: u32, function: u32): u16 {
-    let value: u32 = pci_read32(bus, slot, function, 0 as u32)
+function pci_vendor_id(bus: u32, slot: u32, fn: u32): u16 {
+    let value: u32 = pci_read32(bus, slot, fn, 0 as u32)
     return (value % (65536 as u32)) as u16
 }
 
-function pci_device_id(bus: u32, slot: u32, function: u32): u16 {
-    let value: u32 = pci_read32(bus, slot, function, 0 as u32)
+function pci_device_id(bus: u32, slot: u32, fn: u32): u16 {
+    let value: u32 = pci_read32(bus, slot, fn, 0 as u32)
     return (value / (65536 as u32)) as u16
 }
 
@@ -29,13 +29,13 @@ function pci_count_devices(): usize {
     while bus < (256 as u32) {
         let slot: u32 = 0 as u32
         while slot < (32 as u32) {
-            let function: u32 = 0 as u32
-            while function < (8 as u32) {
-                let vendor: u16 = pci_vendor_id(bus, slot, function)
+            let fn: u32 = 0 as u32
+            while fn < (8 as u32) {
+                let vendor: u16 = pci_vendor_id(bus, slot, fn)
                 if vendor != (65535 as u16) {
                     count = count + 1
                 }
-                function = function + (1 as u32)
+                fn = fn + (1 as u32)
             }
             slot = slot + (1 as u32)
         }
@@ -49,13 +49,13 @@ function pci_has_vendor(vendorWanted: u16): bool {
     while bus < (256 as u32) {
         let slot: u32 = 0 as u32
         while slot < (32 as u32) {
-            let function: u32 = 0 as u32
-            while function < (8 as u32) {
-                let vendor: u16 = pci_vendor_id(bus, slot, function)
+            let fn: u32 = 0 as u32
+            while fn < (8 as u32) {
+                let vendor: u16 = pci_vendor_id(bus, slot, fn)
                 if vendor == vendorWanted {
                     return true
                 }
-                function = function + (1 as u32)
+                fn = fn + (1 as u32)
             }
             slot = slot + (1 as u32)
         }
@@ -69,13 +69,13 @@ function pci_has_device(vendorWanted: u16, deviceWanted: u16): bool {
     while bus < (256 as u32) {
         let slot: u32 = 0 as u32
         while slot < (32 as u32) {
-            let function: u32 = 0 as u32
-            while function < (8 as u32) {
-                let vendor: u16 = pci_vendor_id(bus, slot, function)
-                if vendor == vendorWanted && pci_device_id(bus, slot, function) == deviceWanted {
+            let fn: u32 = 0 as u32
+            while fn < (8 as u32) {
+                let vendor: u16 = pci_vendor_id(bus, slot, fn)
+                if vendor == vendorWanted && pci_device_id(bus, slot, fn) == deviceWanted {
                     return true
                 }
-                function = function + (1 as u32)
+                fn = fn + (1 as u32)
             }
             slot = slot + (1 as u32)
         }
