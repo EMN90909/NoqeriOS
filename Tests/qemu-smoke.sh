@@ -22,6 +22,7 @@ timeout 8s qemu-system-x86_64 \
     -machine q35 \
     -m 256M \
     -cdrom "$OUT/noqerios.iso" \
+    -device virtio-rng-pci \
     -serial file:"$LOG" \
     -display none \
     -no-reboot \
@@ -39,6 +40,8 @@ grep -q "NoqeriOS: entered 64-bit Noqeri kernel" "$LOG"
 grep -q "NoqeriOS: serial driver online" "$LOG"
 grep -q "NoqeriOS: physical memory map accepted" "$LOG"
 grep -q "NoqeriOS: physical page allocation succeeded" "$LOG"
+grep -q "NoqeriOS: PCI configuration space enumerated" "$LOG"
+grep -q "NoqeriOS: VirtIO PCI device detected" "$LOG"
 grep -q "NoqeriOS: IDT and PIT timer interrupts active" "$LOG"
 grep -q "NoqeriOS: ring-3 transition and syscall gate active" "$LOG"
 grep -q "NoqeriOS: bootstrap milestone complete" "$LOG"
