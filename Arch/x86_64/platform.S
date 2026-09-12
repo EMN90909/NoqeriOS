@@ -57,14 +57,14 @@ arch_get_lapic_base:
 .global arch_current_apic_id
 .type arch_current_apic_id, @function
 arch_current_apic_id:
-    mov lapic_mmio_base(%rip), %rdx
-    test %rdx, %rdx
-    jz 1f
-    mov 0x20(%rdx), %eax
+    # CPUID.1:EBX[31:24] is the initial xAPIC ID. Preserve RBX because it is
+    # callee-saved in the Noqeri x86-64 ABI.
+    push %rbx
+    mov $1, %eax
+    cpuid
+    mov %ebx, %eax
     shr $24, %eax
-    ret
-1:
-    xor %eax, %eax
+    pop %rbx
     ret
 
 .global arch_lapic_eoi
