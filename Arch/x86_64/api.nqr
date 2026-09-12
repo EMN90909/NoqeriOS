@@ -15,6 +15,23 @@ extern function arch_read_cr2(): u64;
 extern function arch_read_cr3(): u64;
 extern function arch_write_cr3(value: u64): void;
 extern function arch_invlpg(address: usize): void;
+extern function arch_read_msr(index: u32): u64;
+extern function arch_write_msr(index: u32, value: u64): void;
+extern function arch_pic_mask_all(): void;
+extern function arch_set_lapic_base(base: usize): void;
+extern function arch_get_lapic_base(): usize;
+extern function arch_current_apic_id(): u32;
+extern function arch_lapic_eoi(): void;
+
+extern function arch_smp_reset_online(): void;
+extern function arch_smp_online_count(): usize;
+extern function arch_smp_mark_online(): void;
+extern function arch_smp_start_ap(apicId: u32, stackTop: usize, cr3: u64): bool;
+
+extern function arch_scheduler_bind(system: usize): void;
+extern function arch_scheduler_system(): usize;
+extern function arch_prepare_kernel_thread(stackTop: usize, threadId: usize, argument: usize): usize;
+extern function arch_prepare_user_thread(kernelStackTop: usize, userRip: usize, userRsp: usize, arg0: usize): usize;
 
 extern function arch_kernel_start(): usize;
 extern function arch_kernel_end(): usize;
@@ -27,3 +44,4 @@ extern function arch_timer_ticks(): usize;
 extern function arch_userspace_init(): bool;
 extern function arch_enter_user_test(): bool;
 extern function arch_user_test_seen(): bool;
+extern function arch_set_tss_rsp0(stackTop: usize): void;
