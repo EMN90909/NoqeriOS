@@ -1,0 +1,25 @@
+module os.kernel.syscall
+
+import "../Arch/x86_64/api.nqr"
+
+function syscall_not_supported(): isize {
+    return -38
+}
+
+export function kernel_syscall_dispatch(number: usize, arg0: usize, arg1: usize): isize {
+    // Bootstrap NABI calls. 0 is a ping, 1 returns the monotonic PIT tick count.
+    if number == (0 as usize) {
+        return 0 as isize
+    }
+    if number == (1 as usize) {
+        return arch_timer_ticks() as isize
+    }
+
+    // Compatibility probe used by the first ring-3 trampoline. arg0/arg1 are
+    // reserved for the first pointer-bearing file/process syscalls.
+    if number == (1313817938 as usize) {
+        return 1 as isize
+    }
+
+    return syscall_not_supported()
+}

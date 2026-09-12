@@ -1,0 +1,42 @@
+module os.kernel.process
+
+record KernelProcess {
+    pid: usize;
+    state: u32;
+    privilege: u32;
+    exitCode: isize;
+    kernelStack: usize;
+    addressSpace: usize;
+    next: *KernelProcess;
+}
+
+function process_initialize(process: *KernelProcess, pid: usize, privilege: u32): void {
+    process.pid = pid
+    process.state = 1 as u32
+    process.privilege = privilege
+    process.exitCode = 0 as isize
+    process.kernelStack = 0 as usize
+    process.addressSpace = 0 as usize
+    process.next = null
+}
+
+function process_mark_running(process: *KernelProcess): void {
+    process.state = 2 as u32
+}
+
+function process_mark_ready(process: *KernelProcess): void {
+    process.state = 1 as u32
+}
+
+function process_mark_blocked(process: *KernelProcess): void {
+    process.state = 3 as u32
+}
+
+function process_mark_exited(process: *KernelProcess, exitCode: isize): void {
+    process.state = 4 as u32
+    process.exitCode = exitCode
+}
+
+function process_is_runnable(process: *KernelProcess): bool {
+    return process != null && (process.state == (1 as u32) || process.state == (2 as u32))
+}

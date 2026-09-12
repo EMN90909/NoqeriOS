@@ -1,0 +1,57 @@
+module os.kernel.fs.vfs
+
+import "../../Arch/x86_64/api.nqr"
+import "types.nqr"
+import "noqfs.nqr"
+
+function vfs_mount_noqfs(blockLocation: u32, mount: *VfsMount): bool {
+    return noqfs_mount(blockLocation, mount)
+}
+
+function vfs_open_root_key(mount: *VfsMount, key: u64, node: *VfsNode): bool {
+    if mount == null { return false }
+    if mount.driverKind == (1 as u32) {
+        return noqfs_open_root_key(mount, key, node)
+    }
+    return false
+}
+
+function vfs_read(node: *VfsNode, offset: usize, requested: usize, output: usize): usize {
+    if node == null || node.mount == null { return 0 as usize }
+    let mount: *VfsMount = node.mount
+    if mount.driverKind == (1 as u32) {
+        return noqfs_read(node, offset, requested, output)
+    }
+    return 0 as usize
+}
+
+function vfs_probe_boot_volume(blockLocation: u32): bool {
+    let mountPage: usize = arch_alloc_page()
+    if mountPage == 0 { return false }
+    let mount: *VfsMount = mountPage as *VfsMount
+    return vfs_mount_noqfs(blockLocation, mount)
+}
+
+function vfs_boot_file_test(blockLocation: u32): isize {
+    let mountPage: usize = arch_alloc_page()
+    let nodePage: usize = arch_alloc_page()
+    let dataPage: usize = arch_alloc_page()
+    if mountPage == 0 || nodePage == 0 || dataPage == 0 { return -1 }
+
+    let mount: *VfsMount = mountPage as *VfsMount
+    let node: *VfsNode = nodePage as *VfsNode
+    if !vfs_mount_noqfs(blockLocation, mount) { return -2 }
+
+    if !vfs_open_root_key(mount, 1 as u64, node) {
+        let lookupStatus: isize = noqfs_open_root_key_status(mount, 1 as u64, node)
+        if lookupStatus == (1 as isize) { return -17 }
+        return lookupStatus
+    }
+
+    let bytesRead: usize = vfs_read(node, 0 as usize, 16 as usize, dataPage)
+    if bytesRead < (4 as usize) { return -4 }
+
+    let contentMagic: *u32 = dataPage as *u32
+    if contentMagic[0] != (1330398536 as u32) { return -5 }
+    return 1 as isize
+}

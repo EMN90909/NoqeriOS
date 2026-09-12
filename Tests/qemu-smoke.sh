@@ -6,20 +6,33 @@ OUT="$ROOT/build"
 LOG="$OUT/qemu-serial.log"
 DISK="$OUT/virtio-test.img"
 
-bash "$ROOT/build.sh"
+bash "$ROOT/build.sh" --no-bootstrap
 
 if [[ ! -f "$OUT/noqerios.iso" ]]; then
-    echo "SKIP: noqerios.iso was not produced (grub-mkrescue unavailable)"
-    exit 0
+    echo "ERROR: noqerios.iso was not produced" >&2
+    exit 1
 fi
 if ! command -v qemu-system-x86_64 >/dev/null 2>&1; then
-    echo "SKIP: qemu-system-x86_64 unavailable"
-    exit 0
+    echo "ERROR: qemu-system-x86_64 unavailable" >&2
+    exit 1
 fi
 
+# NoqFS v1 test image.
+# sector 0: superblock { magic, version, root dir sector, entry count, sector size }
+# sector 1: one 32-byte root directory entry { key, first sector, byte length, flags }
+# sector 2: file payload beginning with the HELO marker.
 truncate -s 1M "$DISK"
-printf 'NQFS' | dd of="$DISK" conv=notrunc status=none
+printf 'NQFS' | dd of="$DISK" bs=1 seek=0 conv=notrunc status=none
 printf '\x01\x00\x00\x00' | dd of="$DISK" bs=1 seek=4 conv=notrunc status=none
+printf '\x01\x00\x00\x00\x00\x00\x00\x00' | dd of="$DISK" bs=1 seek=8 conv=notrunc status=none
+printf '\x01\x00\x00\x00' | dd of="$DISK" bs=1 seek=16 conv=notrunc status=none
+printf '\x00\x02\x00\x00' | dd of="$DISK" bs=1 seek=20 conv=notrunc status=none
+
+printf '\x01\x00\x00\x00\x00\x00\x00\x00' | dd of="$DISK" bs=1 seek=512 conv=notrunc status=none
+printf '\x02\x00\x00\x00\x00\x00\x00\x00' | dd of="$DISK" bs=1 seek=520 conv=notrunc status=none
+printf '\x10\x00\x00\x00\x00\x00\x00\x00' | dd of="$DISK" bs=1 seek=528 conv=notrunc status=none
+printf '\x01\x00\x00\x00' | dd of="$DISK" bs=1 seek=536 conv=notrunc status=none
+printf 'HELO from NoqFS\n' | dd of="$DISK" bs=1 seek=1024 conv=notrunc status=none
 
 rm -f "$LOG"
 set +e
@@ -47,6 +60,7 @@ grep -q "NoqeriOS: entered 64-bit Noqeri kernel" "$LOG"
 grep -q "NoqeriOS: serial driver online" "$LOG"
 grep -q "NoqeriOS: physical memory map accepted" "$LOG"
 grep -q "NoqeriOS: physical page allocation succeeded" "$LOG"
+grep -q "NoqeriOS: round-robin process scheduler core active" "$LOG"
 grep -q "NoqeriOS: PCI configuration space enumerated" "$LOG"
 grep -q "NoqeriOS: VirtIO RNG PCI device detected" "$LOG"
 grep -q "NoqeriOS: modern VirtIO PCI transport capabilities detected" "$LOG"
@@ -55,8 +69,11 @@ grep -q "NoqeriOS: VirtIO RNG DMA request completed" "$LOG"
 grep -q "NoqeriOS: VirtIO block device detected" "$LOG"
 grep -q "NoqeriOS: VirtIO block sector read succeeded" "$LOG"
 grep -q "NoqeriOS: NoqFS boot volume recognized by VFS" "$LOG"
+grep -q "NoqeriOS: VFS opened and read a NoqFS file" "$LOG"
 grep -q "NoqeriOS: IDT and PIT timer interrupts active" "$LOG"
 grep -q "NoqeriOS: ring-3 transition and syscall gate active" "$LOG"
+grep -q "NoqeriOS: ring-3 syscall reached Noqeri dispatcher" "$LOG"
+grep -q "NoqeriOS: modular monolith core services online" "$LOG"
 grep -q "NoqeriOS: bootstrap milestone complete" "$LOG"
 
 echo "NoqeriOS QEMU smoke test passed"

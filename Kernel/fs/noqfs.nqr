@@ -1,0 +1,120 @@
+module os.kernel.fs.noqfs
+
+import "../../Arch/x86_64/api.nqr"
+import "../../Drivers/virtio_block.nqr"
+import "types.nqr"
+
+function noqfs_mount(blockLocation: u32, mount: *VfsMount): bool {
+    if mount == null { return false }
+    vfs_mount_clear(mount)
+
+    let sectorPage: usize = arch_alloc_page()
+    if sectorPage == 0 { return false }
+    if !virtio_block_read_sector(blockLocation, 0 as u64, sectorPage) { return false }
+
+    let magic: *volatile u32 = sectorPage as *volatile u32
+    let version: *volatile u32 = (sectorPage + (4 as usize)) as *volatile u32
+    let rootSector: *volatile u64 = (sectorPage + (8 as usize)) as *volatile u64
+    let rootEntries: *volatile u32 = (sectorPage + (16 as usize)) as *volatile u32
+    let sectorSize: *volatile u32 = (sectorPage + (20 as usize)) as *volatile u32
+
+    if magic[0] != (1397117262 as u32) { return false }
+    if version[0] != (1 as u32) { return false }
+    if sectorSize[0] != (512 as u32) { return false }
+    if rootSector[0] == (0 as u64) { return false }
+
+    mount.driverKind = 1 as u32
+    mount.blockLocation = blockLocation
+    mount.sectorSize = sectorSize[0]
+    mount.mounted = 1 as u32
+    mount.rootDirectorySector = rootSector[0]
+    mount.rootEntryCount = rootEntries[0]
+    return true
+}
+
+function noqfs_open_root_key_status(mount: *VfsMount, key: u64, node: *VfsNode): isize {
+    if mount == null || node == null { return -10 }
+    if mount.mounted != (1 as u32) || mount.driverKind != (1 as u32) { return -11 }
+    if mount.rootEntryCount == (0 as u32) { return -12 }
+    if mount.rootDirectorySector == (0 as u64) { return -13 }
+
+    vfs_node_clear(node)
+    let directoryPage: usize = arch_alloc_page()
+    if directoryPage == 0 { return -14 }
+
+    let index: u32 = 0 as u32
+    while index < mount.rootEntryCount {
+        let entriesPerSector: u32 = 16 as u32
+        let sectorDelta: u64 = (index / entriesPerSector) as u64
+        let entryInSector: usize = (index % entriesPerSector) as usize
+        let directorySector: u64 = mount.rootDirectorySector + sectorDelta
+        if !virtio_block_read_sector(mount.blockLocation, directorySector, directoryPage) { return -15 }
+
+        let entryOffset: usize = entryInSector * (32 as usize)
+        let entryKey: *volatile u64 = (directoryPage + entryOffset) as *volatile u64
+        let entryFirstSector: *volatile u64 = (directoryPage + entryOffset + (8 as usize)) as *volatile u64
+        let entrySize: *volatile u64 = (directoryPage + entryOffset + (16 as usize)) as *volatile u64
+        let entryFlags: *volatile u32 = (directoryPage + entryOffset + (24 as usize)) as *volatile u32
+
+        if entryKey[0] == key {
+            node.mount = mount
+            node.key = entryKey[0]
+            node.size = entrySize[0]
+            node.firstSector = entryFirstSector[0]
+            node.flags = entryFlags[0]
+            node.reserved = 0 as u32
+            return 1 as isize
+        }
+
+        index = index + (1 as u32)
+    }
+
+    return -16
+}
+
+function noqfs_open_root_key(mount: *VfsMount, key: u64, node: *VfsNode): bool {
+    return noqfs_open_root_key_status(mount, key, node) == (1 as isize)
+}
+
+function noqfs_read(node: *VfsNode, offset: usize, requested: usize, output: usize): usize {
+    if node == null || node.mount == null || output == 0 { return 0 as usize }
+    if node.flags != (1 as u32) { return 0 as usize }
+
+    let fileSize: usize = node.size as usize
+    if offset >= fileSize || requested == 0 { return 0 as usize }
+
+    let total: usize = requested
+    let available: usize = fileSize - offset
+    if total > available { total = available }
+
+    let scratchPage: usize = arch_alloc_page()
+    if scratchPage == 0 { return 0 as usize }
+
+    let mount: *VfsMount = node.mount
+    let source: *u8 = scratchPage as *u8
+    let destination: *u8 = output as *u8
+    let written: usize = 0 as usize
+
+    while written < total {
+        let absoluteOffset: usize = offset + written
+        let sectorDelta: usize = absoluteOffset / (512 as usize)
+        let sectorOffset: usize = absoluteOffset % (512 as usize)
+        let sector: u64 = node.firstSector + (sectorDelta as u64)
+
+        if !virtio_block_read_sector(mount.blockLocation, sector, scratchPage) { return written }
+
+        let chunk: usize = (512 as usize) - sectorOffset
+        let remaining: usize = total - written
+        if chunk > remaining { chunk = remaining }
+
+        let copied: usize = 0 as usize
+        while copied < chunk {
+            destination[written + copied] = source[sectorOffset + copied]
+            copied = copied + (1 as usize)
+        }
+
+        written = written + chunk
+    }
+
+    return written
+}
