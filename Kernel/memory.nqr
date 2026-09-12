@@ -1,0 +1,99 @@
+module os.kernel.memory
+
+record Mb2MmapTag {
+    kind: u32;
+    size: u32;
+    entrySize: u32;
+    entryVersion: u32;
+}
+
+record Mb2MmapEntry {
+    baseAddress: u64;
+    length: u64;
+    kind: u32;
+    reserved: u32;
+}
+
+function mb2_find_memory_map(info: usize): usize {
+    let cursor: usize = info + 8
+    while true {
+        let kind: *u32 = cursor as *u32
+        let sizePtr: *u32 = (cursor + 4) as *u32
+        if *kind == (6 as u32) {
+            return cursor
+        }
+        if *kind == (0 as u32) {
+            return 0
+        }
+        let size: usize = (*sizePtr) as usize
+        let padding: usize = (8 - (size % 8)) % 8
+        cursor = cursor + size + padding
+    }
+    return 0
+}
+
+function usable_region_start(info: usize, kernelEnd: usize): usize {
+    let tagAddress: usize = mb2_find_memory_map(info)
+    if tagAddress == 0 {
+        return 0
+    }
+
+    let tag: *Mb2MmapTag = tagAddress as *Mb2MmapTag
+    let cursor: usize = tagAddress + 16
+    let tagEnd: usize = tagAddress + (tag.size as usize)
+    let identityLimit: usize = 1073741824
+
+    while cursor < tagEnd {
+        let entry: *Mb2MmapEntry = cursor as *Mb2MmapEntry
+        if entry.kind == (1 as u32) {
+            let start: usize = entry.baseAddress as usize
+            let end: usize = (entry.baseAddress + entry.length) as usize
+
+            if start < kernelEnd {
+                start = kernelEnd
+            }
+            if end > identityLimit {
+                end = identityLimit
+            }
+
+            if start < end && (end - start) >= 4096 {
+                return start
+            }
+        }
+        cursor = cursor + (tag.entrySize as usize)
+    }
+    return 0
+}
+
+function usable_region_end(info: usize, kernelEnd: usize): usize {
+    let tagAddress: usize = mb2_find_memory_map(info)
+    if tagAddress == 0 {
+        return 0
+    }
+
+    let tag: *Mb2MmapTag = tagAddress as *Mb2MmapTag
+    let cursor: usize = tagAddress + 16
+    let tagEnd: usize = tagAddress + (tag.size as usize)
+    let identityLimit: usize = 1073741824
+
+    while cursor < tagEnd {
+        let entry: *Mb2MmapEntry = cursor as *Mb2MmapEntry
+        if entry.kind == (1 as u32) {
+            let start: usize = entry.baseAddress as usize
+            let end: usize = (entry.baseAddress + entry.length) as usize
+
+            if start < kernelEnd {
+                start = kernelEnd
+            }
+            if end > identityLimit {
+                end = identityLimit
+            }
+
+            if start < end && (end - start) >= 4096 {
+                return end
+            }
+        }
+        cursor = cursor + (tag.entrySize as usize)
+    }
+    return 0
+}
