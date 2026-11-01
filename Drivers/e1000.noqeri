@@ -34,6 +34,19 @@ function e1000_reg_write(dev: *E1000, offset: u32, value: u32): void {
     arch_out32(dev.ioPort, offset)
     arch_out32((dev.ioPort + (4 as u16)) as u16, value)
 }
+function e1000_eeprom_word(dev: *E1000, offset: u32): u32 {
+    e1000_reg_write(dev, 0x0014 as u32, 1 as u32 + offset * (256 as u32))
+    let spins: usize = 0 as usize
+    while spins < (100000 as usize) {
+        let value: u32 = e1000_reg_read(dev, 0x0014 as u32)
+        if ((value / (16 as u32)) % (2 as u32)) == (1 as u32) {
+            return (value / (65536 as u32)) % (65536 as u32)
+        }
+        spins = spins + (1 as usize)
+        arch_pause()
+    }
+    return 4294967295 as u32
+}
 function e1000_clear(address: usize, length: usize): void {
     let data: *u8 = address as *u8
     let i: usize = 0 as usize
@@ -116,8 +129,21 @@ function e1000_open(location: u32, dev: *E1000): bool {
     let low: u32 = e1000_reg_read(dev, 0x5400 as u32)
     let high: u32 = e1000_reg_read(dev, 0x5404 as u32)
     if (low == (0 as u32) && (high % (65536 as u32)) == (0 as u32)) {
-        arch_out8(233 as u16, 53 as u8)
-        return false
+        // E1000 82540EM may leave RAL/RAH unloaded after PCI enumeration.
+        // Fetch the factory 48-bit address from EEPROM words 0..2.
+        let first: u32 = e1000_eeprom_word(dev, 0 as u32)
+        let second: u32 = e1000_eeprom_word(dev, 1 as u32)
+        let third: u32 = e1000_eeprom_word(dev, 2 as u32)
+        if first == (4294967295 as u32) || second == (4294967295 as u32) ||
+           third == (4294967295 as u32) { 
+            arch_out8(233 as u16, 53 as u8)
+            return false
+        }
+        low = first + second * (65536 as u32)
+        high = third
+        // Mark the receive address valid; no promiscuous-mode fallback.
+        e1000_reg_write(dev, 0x5400 as u32, low)
+        e1000_reg_write(dev, 0x5404 as u32, high + (2147483648 as u32))
     }
     let i: usize = 0 as usize
     while i < (4 as usize) {
