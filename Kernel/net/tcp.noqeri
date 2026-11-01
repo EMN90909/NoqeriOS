@@ -2,17 +2,19 @@ module os.kernel.net.tcp
 
 import "ipv4.noqeri"
 
-// Experimental single-connection TCP client for a local QEMU test fixture.
-// This is NOT a production TCP stack: fixed test source port/initial sequence,
-// no congestion control, window scaling, retransmission timer, reassembly,
-// multiplexing, TCP sockets or cryptographically secure sequence numbers.
+// Reusable bounded connection state for a local QEMU TCP regression fixture.
+// Supports initial SYN retries, contiguous receive-stream assembly and
+// duplicate/out-of-order ACKs. NOT production TCP: fixed fixture port/ISN,
+// no timer-driven RTO, flow/congestion control, multiplexer or sockets.
 // Never use against untrusted/public servers.
 record TcpProbe {
-     remote: u32;
+    remote: u32;
     remoteMac: usize;
     port: u16;
     sequence: u32;
     acknowledgement: u32;
+    rxBytes: usize;
+    connected: bool;
 }
 
 function tcp_checksum(n: *Network, tcpLength: usize): u16 {
@@ -68,6 +70,10 @@ function tcp_receive_valid(n: *Network, t: *TcpProbe, bytes: usize): usize {
        network_read16(n.rx, 36 as usize) != (49152 as u16) {
         return 0 as usize
     }
+    // Reject corrupt IPv4 header checksums before trusting TCP metadata.
+    if network_checksum(n.rx, 14 as usize, 20 as usize) != (0 as u16) {
+        return 0 as usize
+    }
     let ipLength: usize = network_read16(n.rx, 16 as usize) as usize
     if ipLength < (40 as usize) || ipLength > bytes - (14 as usize) ||
        network_read16(n.rx, 20 as usize) % (8192 as u16) != (0 as u16) {
@@ -107,41 +113,110 @@ function tcp_poll(n: *Network, t: *TcpProbe, tries: usize): usize {
     }
     return 0 as usize
 }
-function tcp_fixture_request(n: *Network): bool {
-    if n == null || !n.online { return false }
-    let remote: u32 = 0x0a000202 as u32
-    // Narrow scope: local host gateway of QEMU user-mode networking only.
+// Caller owns the network and the connection record. No pointer to the
+// caller's stack escapes, matching Noqeri's lifetime checker semantics.
+// Only a fixed local fixture is admitted until secure source-port/ISN
+// generation and a general TCP manager exist.
+function tcp_fixture_open(n: *Network, t: *TcpProbe, dropFirstSyn: bool): bool {
+    if n == null || !n.online || t == null { return false }
     if n.gateway != (0x0a000202 as u32) { return false }
     let mac: usize = n.frame + (2048 as usize)
-    if !network_route_mac(n, remote, mac) { return false }
-    let state: usize = arch_alloc_page()
-    if state == (0 as usize) { return false }
-    let t: *TcpProbe = state as *TcpProbe
-         t.remote = remote
+    if !network_route_mac(n, 0x0a000202 as u32, mac) { return false }
+    t.remote = 0x0a000202 as u32
     t.remoteMac = mac
     t.port = 18080 as u16
     t.sequence = 0x4e515043 as u32
     t.acknowledgement = 0 as u32
+    t.rxBytes = 0 as usize
+    t.connected = false
 
-    // SYN to the test-only host service, allow bounded retries.
+    // Fault-injection mode deliberately suppresses attempt 1 to exercise
+    // bounded SYN retry without exposing the fixture to an external network.
     let attempt: usize = 0 as usize
-    let established: bool = false
-    while attempt < (3 as usize) && !established {
-        if !tcp_emit(n, t, 2 as u8, 0 as usize) { return false }
-        let offset: usize = tcp_poll(n, t, 64 as usize)
-        if offset != (0 as usize) {
-            let flags: u8 = network_byte(n.rx, 47 as usize)
-            if (flags as u32) % (4 as u32) == (2 as u32) &&
-               ((flags as u32) / (16 as u32)) % (2 as u32) == (1 as u32) &&
-               network_read32(n.rx, 42 as usize) == (t.sequence + (1 as u32)) {
-                t.acknowledgement = network_read32(n.rx, 38 as usize) + (1 as u32)
-                t.sequence = t.sequence + (1 as u32)
-                established = true
+    while attempt < (3 as usize) && !t.connected {
+        if !dropFirstSyn || attempt != (0 as usize) {
+            if !tcp_emit(n, t, 2 as u8, 0 as usize) { return false }
+            let offset: usize = tcp_poll(n, t, 64 as usize)
+            if offset != (0 as usize) {
+                let flags: u8 = network_byte(n.rx, 47 as usize)
+                if ((flags as u32) / (4 as u32)) % (2 as u32) == (0 as u32) &&
+                   ((flags as u32) / (2 as u32)) % (2 as u32) == (1 as u32) &&
+                   ((flags as u32) / (16 as u32)) % (2 as u32) == (1 as u32) &&
+                   network_read32(n.rx, 42 as usize) == t.sequence + (1 as u32) {
+                    t.acknowledgement = network_read32(n.rx, 38 as usize) + (1 as u32)
+                    t.sequence = t.sequence + (1 as u32)
+                    t.connected = true
+                }
             }
         }
         attempt = attempt + (1 as usize)
     }
-    if !established || !tcp_emit(n, t, 16 as u8, 0 as usize) { return false }
+    if !t.connected { return false }
+    return tcp_emit(n, t, 16 as u8, 0 as usize)
+}
+
+// Accept only contiguous response bytes in a 1024-byte bounded receive
+// scratchpad, on the second half of the network RX page. Duplicate and
+// out-of-order segments trigger duplicate ACKs without corrupting the stream.
+function tcp_fixture_accept(n: *Network, t: *TcpProbe, offset: usize): bool {
+    let ipTotal: usize = network_read16(n.rx, 16 as usize) as usize
+    let end: usize = (14 as usize) + ipTotal
+    if end < offset || end > (1514 as usize) { return false }
+    let flags: u8 = network_byte(n.rx, 47 as usize)
+    if ((flags as u32) / (4 as u32)) % (2 as u32) == (1 as u32) {
+        return false // peer RST; never trust a payload with it
+    }
+    if ((flags as u32) / (16 as u32)) % (2 as u32) == (0 as u32) {
+        return false // no ACK
+    }
+    if network_read32(n.rx, 42 as usize) != t.sequence { return false }
+    let dataLength: usize = end - offset
+    let peerSeq: u32 = network_read32(n.rx, 38 as usize)
+    if dataLength > (0 as usize) {
+        if peerSeq == t.acknowledgement &&
+           dataLength <= (1024 as usize) - t.rxBytes {
+            network_copy(n.rx + (2048 as usize), t.rxBytes,
+                         n.rx, offset, dataLength)
+            t.rxBytes = t.rxBytes + dataLength
+            t.acknowledgement = t.acknowledgement + (dataLength as u32)
+        }
+        // An ACK for an out-of-order or repeated segment advertises
+        // only bytes actually accepted in the contiguous receive window.
+        tcp_emit(n, t, 16 as u8, 0 as usize)
+    }
+    // The marker may span several TCP segments. Search the assembled
+    // stream only, not the Ethernet payload/header or unrelated packets.
+    let cursor: usize = 0 as usize
+    let scratch: usize = n.rx + (2048 as usize)
+    while cursor + (13 as usize) <= t.rxBytes {
+        if network_byte(scratch, cursor) == (78 as u8) &&
+           network_byte(scratch, cursor + (1 as usize)) == (79 as u8) &&
+           network_byte(scratch, cursor + (2 as usize)) == (81 as u8) &&
+           network_byte(scratch, cursor + (3 as usize)) == (69 as u8) &&
+           network_byte(scratch, cursor + (4 as usize)) == (82 as u8) &&
+           network_byte(scratch, cursor + (5 as usize)) == (73 as u8) &&
+           network_byte(scratch, cursor + (6 as usize)) == (95 as u8) &&
+           network_byte(scratch, cursor + (7 as usize)) == (78 as u8) &&
+           network_byte(scratch, cursor + (8 as usize)) == (69 as u8) &&
+           network_byte(scratch, cursor + (9 as usize)) == (84 as u8) &&
+           network_byte(scratch, cursor + (10 as usize)) == (95 as u8) &&
+           network_byte(scratch, cursor + (11 as usize)) == (79 as u8) &&
+           network_byte(scratch, cursor + (12 as usize)) == (75 as u8) {
+            return true
+        }
+        cursor = cursor + (1 as usize)
+    }
+    return false
+}
+
+function tcp_fixture_request(n: *Network, dropFirstSyn: bool): bool {
+    if n == null || !n.online { return false }
+    // The outgoing frame page is 4 KiB, and L2 packets occupy at most 1514
+    // bytes. Reuse reserved scratch bytes to avoid leaking a physical page
+    // on every terminal probe. Do not let this address escape the command.
+    let t: *TcpProbe = (n.frame + (3072 as usize)) as *TcpProbe
+    if !tcp_fixture_open(n, t, dropFirstSyn) { return false }
+    network_fill(n.rx + (2048 as usize), 0 as usize, 1024 as usize, 0 as u8)
 
     // GET / HTTP/1.0, no hostname resolution or TLS. Local test only.
     // The payload is deliberately constructed from bounded bytes rather
@@ -173,34 +248,8 @@ function tcp_fixture_request(n: *Network): bool {
     while polls < (128 as usize) && !response {
         let length: usize = network_receive(n, n.rx, 2048 as usize, 150000 as usize)
         let offset: usize = tcp_receive_valid(n, t, length)
-        if offset != (0 as usize) &&
-           network_read32(n.rx, 38 as usize) == t.acknowledgement {
-            let ipTotal: usize = network_read16(n.rx, 16 as usize) as usize
-            let end: usize = (14 as usize) + ipTotal
-            let cursor: usize = offset
-            while cursor + (13 as usize) <= end && !response {
-                // Check the unique fixture marker NOQERI_NET_OK
-                if network_byte(n.rx, cursor) == (78 as u8) &&
-                   network_byte(n.rx, cursor + (1 as usize)) == (79 as u8) &&
-                   network_byte(n.rx, cursor + (2 as usize)) == (81 as u8) &&
-                   network_byte(n.rx, cursor + (3 as usize)) == (69 as u8) &&
-                   network_byte(n.rx, cursor + (4 as usize)) == (82 as u8) &&
-                   network_byte(n.rx, cursor + (5 as usize)) == (73 as u8) &&
-                   network_byte(n.rx, cursor + (6 as usize)) == (95 as u8) &&
-                   network_byte(n.rx, cursor + (7 as usize)) == (78 as u8) &&
-                   network_byte(n.rx, cursor + (8 as usize)) == (69 as u8) &&
-                   network_byte(n.rx, cursor + (9 as usize)) == (84 as u8) &&
-                   network_byte(n.rx, cursor + (10 as usize)) == (95 as u8) &&
-                   network_byte(n.rx, cursor + (11 as usize)) == (79 as u8) &&
-                   network_byte(n.rx, cursor + (12 as usize)) == (75 as u8) {
-                    response = true
-                }
-                cursor = cursor + (1 as usize)
-            }
-            if end > offset {
-                t.acknowledgement = t.acknowledgement + ((end - offset) as u32)
-                tcp_emit(n, t, 16 as u8, 0 as usize)
-            }
+        if offset != (0 as usize) {
+            response = tcp_fixture_accept(n, t, offset)
         }
         polls = polls + (1 as usize)
     }
