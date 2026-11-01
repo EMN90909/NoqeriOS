@@ -3,12 +3,12 @@ module os.drivers.e1000
 import "pci.noqeri"
 import "../Arch/x86_64/api.noqeri"
 
-// Intel 82540EM (8086:100e) register interface, via PCI BAR1 I/O ports.
+// Intel 82540EM (8086:100e) register interface, via PCI BAR0 MMIO.
 // Do not treat other e1000/e1000e/igc device IDs as compatible without
 // model-specific initialization. DMA remains below the bootstrap 1 GiB map.
 record E1000 {
     location: u32;
-    ioPort: u16;
+    mmio: usize;
     rxDescriptors: usize;
     txDescriptors: usize;
     txBuffer: usize;
@@ -26,13 +26,54 @@ record E1000 {
     ready: bool;
 }
 
+// Transitional x86-64 kernel: identity-map a single 2 MiB physical
+// MMIO window beyond bootstrap low 1 GiB, with cache disabled.
+// No IOMMU or arbitrary MMIO mapping; only BAR0 < 4 GiB and aligned PDEs.
+function e1000_map_mmio(base: usize): bool {
+    if base < (1073741824 as usize) ||
+       base >= (4294836224 as usize) { return false }
+    let pml4: *u64 = (arch_read_cr3() as usize) as *u64
+    let entry: u64 = pml4[0]
+    if entry % (2 as u64) != (1 as u64) { return false }
+    let pdptPhysical: usize = ((entry / (4096 as u64)) * (4096 as u64)) as usize
+    let pdpt: *u64 = pdptPhysical as *u64
+    let pdptIndex: usize = base / (1073741824 as usize)
+    let pdPhysical: usize = 0 as usize
+    if pdpt[pdptIndex] % (2 as u64) == (0 as u64) {
+        pdPhysical = arch_alloc_page()
+        if pdPhysical == (0 as usize) { return false }
+        let words: *u64 = pdPhysical as *u64
+        let i: usize = 0 as usize
+        while i < (512 as usize) {
+            words[i] = 0 as u64
+            i = i + (1 as usize)
+        }
+        pdpt[pdptIndex] = (pdPhysical as u64) + (3 as u64)
+    } else {
+        let old: u64 = pdpt[pdptIndex]
+        if (old / (128 as u64)) % (2 as u64) == (1 as u64) { return false }
+        pdPhysical = ((old / (4096 as u64)) * (4096 as u64)) as usize
+    }
+    let pd: *u64 = pdPhysical as *u64
+    let rounded: usize = (base / (2097152 as usize)) * (2097152 as usize)
+    let first: usize = (rounded / (2097152 as usize)) % (512 as usize)
+    let existing: u64 = pd[first]
+    if existing % (2 as u64) == (1 as u64) &&
+       existing != ((rounded as u64) + (155 as u64)) {
+        return false
+    }
+    // Present | RW | write-through | cache-disable | 2MiB page.
+    pd[first] = (rounded as u64) + (155 as u64)
+    arch_invlpg(base)
+    return true
+}
 function e1000_reg_read(dev: *E1000, offset: u32): u32 {
-    arch_out32(dev.ioPort, offset)
-    return arch_in32((dev.ioPort + (4 as u16)) as u16)
+    let reg: *volatile u32 = (dev.mmio + (offset as usize)) as *volatile u32
+    return reg[0]
 }
 function e1000_reg_write(dev: *E1000, offset: u32, value: u32): void {
-    arch_out32(dev.ioPort, offset)
-    arch_out32((dev.ioPort + (4 as u16)) as u16, value)
+    let reg: *volatile u32 = (dev.mmio + (offset as usize)) as *volatile u32
+    reg[0] = value
 }
 function e1000_eeprom_word(dev: *E1000, offset: u32): u32 {
     e1000_reg_write(dev, 0x0014 as u32, 1 as u32 + offset * (256 as u32))
@@ -74,20 +115,21 @@ function e1000_open(location: u32, dev: *E1000): bool {
     let bus: u32 = pci_location_bus(location)
     let slot: u32 = pci_location_slot(location)
     let fn: u32 = pci_location_fn(location)
-    let bar1: u32 = pci_read32(bus, slot, fn, 20 as u32)
-    // For this Intel model BAR1 is its 64-byte I/O window.
-    if bar1 == (0 as u32) || bar1 == (4294967295 as u32) ||
-       (bar1 % (2 as u32)) != (1 as u32) {
+    let bar0: u32 = pci_read32(bus, slot, fn, 16 as u32)
+    // 32-bit, non-prefetchable PCI MMIO BAR; reject unknown layouts.
+    if bar0 == (0 as u32) || bar0 == (4294967295 as u32) ||
+       (bar0 % (2 as u32)) != (0 as u32) ||
+       ((bar0 / (2 as u32)) % (4 as u32)) != (0 as u32) {
         arch_out8(233 as u16, 50 as u8)
         return false
     }
-    let port: u32 = (bar1 / (4 as u32)) * (4 as u32)
-    if port == (0 as u32) || port > (65472 as u32) {
+    let base: usize = ((bar0 / (16 as u32)) * (16 as u32)) as usize
+    if !e1000_map_mmio(base) {
         arch_out8(233 as u16, 51 as u8)
         return false
     }
     dev.ready = false
-    dev.ioPort = port as u16
+    dev.mmio = base
     dev.location = location
     pci_enable_device(location)
 
