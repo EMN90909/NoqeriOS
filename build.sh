@@ -30,10 +30,10 @@ if (( ${#missing[@]} > 0 )); then
     command -v apt-get >/dev/null || { echo "Automatic install requires apt-get." >&2; exit 3; }
     if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
         apt-get update
-        DEBIAN_FRONTEND=noninteractive apt-get install -y git cmake g++ binutils xorriso python3 qemu-system-x86 gnu-efi mtools ovmf gnu-efi mtools ovmf
+        DEBIAN_FRONTEND=noninteractive apt-get install -y git cmake g++ binutils xorriso python3 qemu-system-x86 gnu-efi mtools ovmf
     else
         sudo apt-get update
-        sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y git cmake g++ binutils xorriso python3 qemu-system-x86
+        sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y git cmake g++ binutils xorriso python3 qemu-system-x86 gnu-efi mtools ovmf
     fi
 fi
 mkdir -p "$OUT"
@@ -87,6 +87,7 @@ cp "$OUT/native-boot/noqerios-native.img" "$ISO_ROOT/boot/noqerios-native.img"
 cp "$OUT/kernel.elf" "$ISO_ROOT/boot/kernel.elf"
 if (( UEFI == 1 )); then
     bash "$ROOT/Bootloader/uefi/build.sh"
+    python3 "$ROOT/Bootloader/uefi/make_usb.py" "$OUT/uefi/esp.img" "$OUT/noqerios-uefi-usb.img"
     mkdir -p "$ISO_ROOT/boot/uefi"
     cp "$OUT/uefi/esp.img" "$ISO_ROOT/boot/uefi/esp.img"
 fi
@@ -106,6 +107,7 @@ fi
 echo "NoqeriOS custom BIOS image: $OUT/native-boot/noqerios-native.img"
 if (( UEFI == 1 )); then
     echo "NoqeriOS BIOS + UEFI El Torito ISO: $OUT/noqerios.iso"
+    echo "NoqeriOS UEFI removable-media GPT image: $OUT/noqerios-uefi-usb.img"
 else
     echo "NoqeriOS bootable BIOS ISO: $OUT/noqerios.iso"
 fi
