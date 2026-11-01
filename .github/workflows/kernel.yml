@@ -96,9 +96,12 @@ jobs:
           NOQERIOS_MEMORY: 256M
         run: bash Tests/qemu-smoke.sh
 
-      - name: Verify outbound TCP and HTTP against local host fixture
+      - name: Verify outbound TCP/HTTP on all three Ethernet adapters
         if: matrix.memory == '256M'
-        run: python3 Tests/tcp-http-smoke.py
+        run: |
+          for nic in virtio e1000 rtl8139; do
+            python3 Tests/tcp-http-smoke.py --nic "$nic"
+          done
 
       - name: Verify interactive NoqeriOS terminal
         if: matrix.memory == '256M'
