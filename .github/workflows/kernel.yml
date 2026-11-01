@@ -30,7 +30,7 @@ jobs:
       - name: Install kernel test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y binutils grub-common grub-pc-bin xorriso mtools qemu-system-x86 cmake g++
+          sudo apt-get install -y binutils xorriso qemu-system-x86 cmake g++ make git curl
 
       - name: Build Noqeri compiler
         run: |
@@ -42,11 +42,16 @@ jobs:
           test -f Kernel/main.noqeri
           test -z "$(find Arch Drivers Kernel -type f -name '*.nqr' -print -quit)"
           bash -n build.sh Tests/qemu-smoke.sh
-          test -f Bootloader/grub.cfg
+          test -f Bootloader/limine.conf
           test -f Bootloader/handoff.noqeri
           test -f Bootloader/README.md
           grep -q -- '--unsafe' build.sh
           grep -q '0x36d76289' Arch/x86_64/entry.S
+
+      - name: Prepare Limine bootloader
+        run: |
+          git clone --depth 1 --branch v12.x https://github.com/limine-bootloader/limine.git .deps/limine
+          make -C .deps/limine -j2
 
       - name: Compile and boot NoqeriOS
         env:
