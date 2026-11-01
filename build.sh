@@ -131,13 +131,16 @@ ld -nostdlib -z max-page-size=0x1000 \
    -o "$OUT/kernel.elf" \
    "$OUT/entry.o" "$OUT/arch.o" "$OUT/interrupts.o" "$OUT/userspace.o" "$OUT/kernel_noqeri.o"
 
-grub-file --is-x86-multiboot2 "$OUT/kernel.elf"\nif command -v nm >/dev/null 2>&1; then\n    nm "$OUT/kernel.elf" | grep -Eq "[[:space:]]T[[:space:]]kernel_main$" || { echo "Missing Noqeri kernel_main symbol" >&2; exit 5; }\nfi
+grub-file --is-x86-multiboot2 "$OUT/kernel.elf"
+if command -v nm >/dev/null 2>&1; then
+    nm "$OUT/kernel.elf" | grep -Eq "[[:space:]]T[[:space:]]kernel_main$" || { echo "Missing Noqeri kernel_main symbol" >&2; exit 5; }
+fi
 
 ISO_ROOT="$OUT/iso-root"
 rm -rf "$ISO_ROOT"
 mkdir -p "$ISO_ROOT/boot/grub"
 cp "$OUT/kernel.elf" "$ISO_ROOT/boot/kernel.elf"
-cp "$ROOT/grub.cfg" "$ISO_ROOT/boot/grub/grub.cfg"
+cp "$ROOT/Bootloader/grub.cfg" "$ISO_ROOT/boot/grub/grub.cfg"
 rm -f "$OUT/noqerios.iso"
 grub-mkrescue -o "$OUT/noqerios.iso" "$ISO_ROOT" >/dev/null
 

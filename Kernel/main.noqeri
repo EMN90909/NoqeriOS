@@ -1,6 +1,7 @@
 module os.kernel
 
 import "../Arch/x86_64/api.noqeri"
+import "../Bootloader/handoff.noqeri"
 import "../Drivers/serial.noqeri"
 import "../Drivers/framebuffer.noqeri"
 import "../Drivers/pci.noqeri"
@@ -18,6 +19,10 @@ import "fs/vfs.noqeri"
 export function kernel_main(multibootInfo: usize): void {
     arch_cli()
     serial_init()
+    if !boot_info_valid(multibootInfo) {
+        serial_write("NoqeriOS: invalid Multiboot2 handoff\\n")
+        while true { arch_halt() }
+    }
     serial_write("NoqeriOS: entered 64-bit Noqeri kernel\n")
     serial_write("NoqeriOS: serial driver online\n")
 

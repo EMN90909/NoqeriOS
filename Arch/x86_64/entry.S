@@ -40,7 +40,14 @@ gdt64_ptr:
 .code32
 .global _start
 .extern kernel_main
-_start:\n    cli\n    /* Multiboot2 passes EAX=0x36d76289, EBX=boot information. */\n    cmpl $0x36d76289, %eax\n    jne boot_invalid\n    testl %ebx, %ebx\n    jz boot_invalid\n    mov $stack_top, %esp
+_start:
+    cli
+    /* Multiboot2 passes EAX=0x36d76289, EBX=boot information. */
+    cmpl $0x36d76289, %eax
+    jne boot_invalid
+    testl %ebx, %ebx
+    jz boot_invalid
+    mov $stack_top, %esp
 
     /* Preserve Multiboot2 info address across the mode switch. */
     mov %ebx, %edi

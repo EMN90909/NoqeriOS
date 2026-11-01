@@ -42,6 +42,9 @@ jobs:
           test -f Kernel/main.noqeri
           test -z "$(find Arch Drivers Kernel -type f -name '*.nqr' -print -quit)"
           bash -n build.sh Tests/qemu-smoke.sh
+          test -f Bootloader/grub.cfg
+          test -f Bootloader/handoff.noqeri
+          test -f Bootloader/README.md
           grep -q -- '--unsafe' build.sh
           grep -q '0x36d76289' Arch/x86_64/entry.S
 
