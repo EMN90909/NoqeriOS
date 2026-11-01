@@ -22,7 +22,9 @@ used for a remotely accessible TCP connection.
 
 ```sh
 NOQERIOS_NETWORK=virtio bash Tests/qemu-smoke.sh
-python3 Tests/tcp-http-smoke.py
+for nic in virtio e1000 rtl8139; do
+  python3 Tests/tcp-http-smoke.py --nic "$nic"
+done
 ```
 
 The kernel's COM1 terminal also provides `t` to run the fixture test when
@@ -50,3 +52,7 @@ number of polls and the shell remains available.
 This is strictly an experimental local transport milestone, not a hardened
 internet service. Do not connect experimental NoqeriOS devices directly to
 untrusted networks.
+
+The CI matrix exercises the TCP/HTTP probe on the existing virtual VirtIO,
+Intel 82540EM and Realtek RTL8139 adapters. Emulator success is not proof of
+compatibility on any untested physical Ethernet device.
