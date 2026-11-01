@@ -47,6 +47,12 @@ printf '\x10\x00\x00\x00\x00\x00\x00\x00' | dd of="$DISK" bs=1 seek=528 conv=not
 printf '\x01\x00\x00\x00' | dd of="$DISK" bs=1 seek=536 conv=notrunc status=none
 printf 'HELO from NoqFS\n' | dd of="$DISK" bs=1 seek=1024 conv=notrunc status=none
 
+# Network tests use slirp's isolated virtual LAN, without forwarding ports
+# or exposing the experimental kernel as a service to the host network.
+NETWORK_ARGS=()
+if [[ "${NOQERIOS_NETWORK:-0}" == 1 ]]; then
+    NETWORK_ARGS=(-netdev user,id=noqnet,restrict=on -device virtio-net-pci,netdev=noqnet,disable-legacy=on,mac=52:54:00:12:34:56)
+fi
 rm -f "$LOG" "$DEBUG_LOG"
 set +e
 timeout 20s qemu-system-x86_64 \
@@ -55,6 +61,7 @@ timeout 20s qemu-system-x86_64 \
     -boot order=d \
     -cdrom "$OUT/noqerios.iso" \
     -device virtio-rng-pci,disable-legacy=on \
+    "${NETWORK_ARGS[@]}" \
     -drive if=none,format=raw,file="$DISK",id=noqerios-test-disk \
     -device virtio-blk-pci,drive=noqerios-test-disk,disable-legacy=on \
     -serial file:"$LOG" \
@@ -100,6 +107,12 @@ grep -q "NoqeriOS: ring-3 syscall reached Noqeri dispatcher" "$LOG"
 grep -q "NoqeriOS: modular monolith core services online" "$LOG"
 grep -q "NoqeriOS: bootstrap milestone complete" "$LOG"
 grep -q "NoqeriOS serial terminal ready" "$LOG"
+
+if [[ "${NOQERIOS_NETWORK:-0}" == 1 ]]; then
+    grep -q "NoqeriOS: VirtIO Ethernet DMA RX/TX queues online" "$LOG"
+    grep -q "NoqeriOS: DHCP IPv4 lease acquired" "$LOG"
+    grep -q "NoqeriOS: IPv4 gateway ARP resolved (Ethernet connected)" "$LOG"
+fi
 
 echo "NoqeriOS custom BIOS ISO QEMU smoke test passed with $MEMORY RAM"
 cat "$LOG"
