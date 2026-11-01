@@ -150,20 +150,31 @@ desktop usability.
 
 To verify the UEFI GPT removable-media image through virtual USB xHCI, run `bash Tests/uefi-usb-smoke.sh` after building with `--uefi`. Actual machine firmware, xHCI, NVMe, graphics and keyboard support still require device-specific validation. Never erase your system disk when preparing boot media.
 
-## Experimental VirtIO Ethernet and IPv4 boot networking
+## Experimental network adapters and IPv4 services
 
-A Noqeri-native modern VirtIO NIC driver and minimal Ethernet/ARP/IPv4/UDP/
-DHCP/ICMP bootstrap are available on the networking feature branch. The kernel
-tries to obtain an IPv4 lease and resolve its gateway when an emulated VirtIO
-network adapter is present; otherwise it boots offline.
+NoqeriOS includes a Noqeri-native shared Ethernet/IPv4 network path. QEMU
+integration tests exercise modern VirtIO PCI Ethernet and two exact legacy
+hardware-controller models: Intel 82540EM (`8086:100e`) and Realtek RTL8139
+(`10ec:8139`). Each must pass a real DHCP lease and gateway ARP exchange
+before its test is considered successful.
 
 ```bash
-NOQERIOS_NETWORK=1 bash Tests/qemu-smoke.sh
+NOQERIOS_NETWORK=virtio bash Tests/qemu-smoke.sh
+NOQERIOS_NETWORK=e1000 bash Tests/qemu-smoke.sh
+NOQERIOS_NETWORK=rtl8139 bash Tests/qemu-smoke.sh
 ```
 
-This uses QEMU user-mode NAT without forwarded host ports. The test only
-contacts the virtual gateway, not public internet hosts. The project
-does **not** yet provide general browser connectivity, TCP, DNS resolution,
-TLS, real Wi-Fi, mobile hotspot tethering, Bluetooth PAN, USB Ethernet or
-cellular modem drivers. Do not attach this experimental stack to untrusted
-networks. See [Networking feature/status matrix](Docs/NETWORKING.md).
+The kernel can display its assigned IPv4 configuration (`n`), probe the
+gateway with ICMP (`g`), and attempt a bounded DNS A-record lookup of
+`example.com` (`d`) from its serial terminal. The DNS parser also has a
+deterministic offline regression test. A cooperative packet pump responds to
+ARP and ICMP requests while the serial terminal waits for input.
+
+**These are experimental QEMU tests, not physical hardware certification.**
+The kernel still lacks a full TCP implementation, DHCP lease renewal,
+general socket API, TLS/HTTPS, modern Realtek RTL8111/r8169 and Intel e1000e/
+igc drivers, native Wi-Fi/WPA2/WPA3, USB tethering, Bluetooth PAN, and cellular
+modem interfaces. Do not put the prototype on an untrusted network.
+
+See [networking architecture and current feature matrix](Docs/NETWORK_MILESTONE_2.md)
+and [original IPv4 bootstrap notes](Docs/NETWORKING.md).

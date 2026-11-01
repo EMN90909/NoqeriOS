@@ -1,0 +1,174 @@
+module os.drivers.rtl8139
+
+import "pci.noqeri"
+import "../Arch/x86_64/api.noqeri"
+
+// Legacy Realtek RTL8139 (10ec:8139), QEMU and selected physical 8139 cards.
+// NOT an r8169 / RTL8111 / modern PCIe Realtek driver. Uses a 16 KiB
+// contiguous DMA buffer, four TX slots and bounded polling; no interrupts.
+record Rtl8139 {
+    location: u32;
+    port: u16;
+    mac: *u8;
+    rxRing: usize;
+    rxOffset: usize;
+    tx0: usize;
+    tx1: usize;
+    tx2: usize;
+    tx3: usize;
+    txIndex: usize;
+    ready: bool;
+}
+function rtl_txbuf(nic: *Rtl8139, i: usize): usize {
+    if i == (0 as usize) { return nic.tx0 }
+    if i == (1 as usize) { return nic.tx1 }
+    if i == (2 as usize) { return nic.tx2 }
+    return nic.tx3
+}
+function rtl_port(nic: *Rtl8139, offset: u16): u16 {
+    return (nic.port + offset) as u16
+}
+function rtl8139_open(location: u32, nic: *Rtl8139): bool {
+    if nic == null || location == (65536 as u32) { return false }
+    let bus: u32 = pci_location_bus(location)
+    let slot: u32 = pci_location_slot(location)
+    let fn: u32 = pci_location_fn(location)
+    if pci_device_id(bus, slot, fn) != (33081 as u16) { return false }
+    let bar: u32 = pci_read32(bus, slot, fn, 16 as u32)
+    if (bar % (2 as u32)) != (1 as u32) || bar == (4294967295 as u32) {
+        return false
+    }
+    let base: u32 = (bar / (4 as u32)) * (4 as u32)
+    if base == (0 as u32) || base > (65344 as u32) { return false }
+    nic.port = base as u16
+    nic.location = location
+    nic.ready = false
+    pci_enable_device(location)
+    arch_out8(rtl_port(nic, 0x52 as u16), 0 as u8)
+    arch_out8(rtl_port(nic, 0x37 as u16), 0x10 as u8)
+    let resetSpins: usize = 0 as usize
+    while ((arch_in8(rtl_port(nic, 0x37 as u16)) as usize) /
+           (16 as usize)) % (2 as usize) != (0 as usize) &&
+          resetSpins < (4000000 as usize) {
+        arch_pause()
+        resetSpins = resetSpins + (1 as usize)
+    }
+    if resetSpins == (4000000 as usize) { return false }
+
+    let macPage: usize = arch_alloc_page()
+    let first: usize = arch_alloc_page()
+    let second: usize = arch_alloc_page()
+    let third: usize = arch_alloc_page()
+    let fourth: usize = arch_alloc_page()
+    nic.tx0 = arch_alloc_page()
+    nic.tx1 = arch_alloc_page()
+    nic.tx2 = arch_alloc_page()
+    nic.tx3 = arch_alloc_page()
+    if macPage == 0 || first == 0 || second == 0 || third == 0 || fourth == 0 ||
+       nic.tx0 == 0 || nic.tx1 == 0 || nic.tx2 == 0 || nic.tx3 == 0 ||
+       second != first + (4096 as usize) ||
+       third != first + (8192 as usize) ||
+       fourth != first + (12288 as usize) {
+        return false
+    }
+    nic.mac = macPage as *u8
+    let i: usize = 0 as usize
+    while i < (6 as usize) {
+        nic.mac[i] = arch_in8(rtl_port(nic, i as u16))
+        i = i + (1 as usize)
+    }
+    nic.rxRing = first
+    nic.rxOffset = 0 as usize
+    nic.txIndex = 0 as usize
+    let data: *u8 = first as *u8
+    i = 0 as usize
+    while i < (16384 as usize) {
+        data[i] = 0 as u8
+        i = i + (1 as usize)
+    }
+    arch_out16(rtl_port(nic, 0x3c as u16), 0 as u16) // no IRQs
+    arch_out32(rtl_port(nic, 0x30 as u16), first as u32)
+    arch_out16(rtl_port(nic, 0x38 as u16), 0xfff0 as u16)
+    // 8KiB ring, physical+multicast+broadcast filtering; receive DMA and wrap.
+    arch_out32(rtl_port(nic, 0x44 as u16), 0xe78e as u32)
+    arch_out32(rtl_port(nic, 0x40 as u16), 0x03000700 as u32)
+    arch_out16(rtl_port(nic, 0x3e as u16), 65535 as u16) // clear pending IRQ
+    arch_out8(rtl_port(nic, 0x37 as u16), 0x0c as u8) // RX | TX enabled
+    nic.ready = true
+    return true
+}
+function rtl8139_send(nic: *Rtl8139, frame: usize, length: usize): bool {
+    if nic == null || !nic.ready || frame == 0 ||
+       length < (14 as usize) || length > (1514 as usize) { return false }
+    let slot: usize = nic.txIndex
+    let target: usize = rtl_txbuf(nic, slot)
+    let src: *u8 = frame as *u8
+    let dst: *u8 = target as *u8
+    let i: usize = 0 as usize
+    while i < length {
+        dst[i] = src[i]
+        i = i + (1 as usize)
+    }
+    arch_out32(rtl_port(nic, (0x20 as usize + slot * (4 as usize)) as u16), target as u32)
+    atomicFence()
+    arch_out32(rtl_port(nic, (0x10 as usize + slot * (4 as usize)) as u16), length as u32)
+    nic.txIndex = (slot + (1 as usize)) % (4 as usize)
+    let spins: usize = 0 as usize
+    let status: u32 = 0 as u32
+    while spins < (4000000 as usize) {
+        status = arch_in32(rtl_port(nic, (0x10 as usize + slot * (4 as usize)) as u16))
+        if ((status / (32768 as u32)) % (2 as u32)) == (1 as u32) {
+            return true
+        }
+        if ((status / (1073741824 as u32)) % (2 as u32)) == (1 as u32) { return false }
+        arch_pause()
+        spins = spins + (1 as usize)
+    }
+    return false
+}
+function rtl8139_receive(nic: *Rtl8139, target: usize, capacity: usize, timeout: usize): usize {
+    if nic == null || !nic.ready || target == 0 { return 0 as usize }
+    let spins: usize = 0 as usize
+    while ((arch_in8(rtl_port(nic, 0x37 as u16)) as usize) % (2 as usize)) == (1 as usize) &&
+          spins < timeout {
+        arch_pause()
+        spins = spins + (1 as usize)
+    }
+    if ((arch_in8(rtl_port(nic, 0x37 as u16)) as usize) % (2 as usize)) == (1 as usize) {
+        return 0 as usize
+    }
+    let cursor: usize = nic.rxRing + nic.rxOffset
+    let header: *u16 = cursor as *u16
+    let flags: u16 = header[0]
+    let wireLength: usize = header[1] as usize
+    if wireLength < (18 as usize) || wireLength > (1522 as usize) {
+        return 0 as usize
+    }
+    let result: usize = 0 as usize
+    let length: usize = wireLength - (4 as usize) // NIC retains 4-byte FCS
+    if (flags % (2 as u16)) == (1 as u16) &&
+       (flags / (2 as u16)) % (2 as u16) == (0 as u16) &&
+       length <= capacity {
+        let src: *u8 = (cursor + (4 as usize)) as *u8
+        let dst: *u8 = target as *u8
+        let i: usize = 0 as usize
+        while i < length {
+            dst[i] = src[i]
+            i = i + (1 as usize)
+        }
+        result = length
+    }
+    nic.rxOffset = (((nic.rxOffset + wireLength + (7 as usize)) / (4 as usize)) *
+                    (4 as usize)) % (8192 as usize)
+    atomicFence()
+    arch_out16(rtl_port(nic, 0x38 as u16),
+               ((nic.rxOffset + (65536 as usize) - (16 as usize)) %
+                (65536 as usize)) as u16)
+    return result
+}
+function rtl8139_close(nic: *Rtl8139): void {
+    if nic != null && nic.ready {
+        arch_out8(rtl_port(nic, 0x37 as u16), 0 as u8)
+        nic.ready = false
+    }
+}

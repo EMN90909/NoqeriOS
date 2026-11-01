@@ -1,6 +1,8 @@
 module os.kernel.net.ipv4
 
 import "../../Drivers/virtio_net.noqeri"
+import "../../Drivers/e1000.noqeri"
+import "../../Drivers/rtl8139.noqeri"
 import "../../Drivers/serial.noqeri"
 import "../../Drivers/pci.noqeri"
 import "../../Arch/x86_64/api.noqeri"
@@ -9,6 +11,10 @@ import "../../Arch/x86_64/api.noqeri"
 // Single polling NIC; no TCP, IPv6, DNS resolver, TLS or fragmentation.
 record Network {
     nic: *VirtioNet;
+    intel: *E1000;
+    realtek: *Rtl8139;
+    mac: *u8;
+    adapterKind: u32;
     frame: usize;
     rx: usize;
     payload: usize;
@@ -21,6 +27,28 @@ record Network {
     server: u32;
     dhcpType: u8;
     online: bool;
+}
+
+// The IPv4 stack uses a transport-neutral L2 interface. v1=VirtIO-net,
+// v2=Intel 82540EM e1000. Keep buffers stable for DMA and never reinitialize
+// a device while a packet is outstanding.
+function network_send(n: *Network, frame: usize, length: usize): bool {
+    if n.adapterKind == (1 as u32) { return virtio_net_send(n.nic, frame, length) }
+    if n.adapterKind == (2 as u32) { return e1000_send(n.intel, frame, length) }
+    if n.adapterKind == (3 as u32) { return rtl8139_send(n.realtek, frame, length) }
+    return false
+}
+function network_receive(n: *Network, output: usize, capacity: usize, timeout: usize): usize {
+    if n.adapterKind == (1 as u32) { return virtio_net_receive(n.nic, output, capacity, timeout) }
+    if n.adapterKind == (2 as u32) { return e1000_receive(n.intel, output, capacity, timeout) }
+    if n.adapterKind == (3 as u32) { return rtl8139_receive(n.realtek, output, capacity, timeout) }
+    return 0 as usize
+}
+function network_close(n: *Network): void {
+    if n.adapterKind == (1 as u32) { virtio_net_close(n.nic) }
+    if n.adapterKind == (2 as u32) { e1000_close(n.intel) }
+    if n.adapterKind == (3 as u32) { rtl8139_close(n.realtek) }
+    n.online = false
 }
 
 // QEMU port 0xe9 diagnostic: fixed-width hexadecimal fields, avoiding
@@ -103,7 +131,7 @@ function network_checksum(base: usize, start: usize, count: usize): u16 {
 }
 function network_ethernet(n: *Network, targetMac: usize, etherType: u16): void {
     network_copy(n.frame, 0 as usize, targetMac, 0 as usize, 6 as usize)
-    network_copy(n.frame, 6 as usize, n.nic.mac as usize, 0 as usize, 6 as usize)
+    network_copy(n.frame, 6 as usize, n.mac as usize, 0 as usize, 6 as usize)
     network_write16(n.frame, 12 as usize, etherType)
 }
 function network_ipv4(n: *Network, targetMac: usize, src: u32, dst: u32, protocol: u8,
@@ -134,7 +162,7 @@ function network_udp_send(n: *Network, targetMac: usize, dstIp: u32,
     network_write16(n.frame, 38 as usize, (payloadSize + (8 as usize)) as u16)
     network_write16(n.frame, 40 as usize, 0 as u16) // UDP checksum optional for IPv4
     network_copy(n.frame, 42 as usize, n.payload, 0 as usize, payloadSize)
-    return virtio_net_send(n.nic, n.frame, payloadSize + (42 as usize))
+    return network_send(n, n.frame, payloadSize + (42 as usize))
 }
 function network_dhcp_send(n: *Network, kind: u8): bool {
     network_fill(n.payload, 0 as usize, 320 as usize, 0 as u8)
@@ -143,7 +171,7 @@ function network_dhcp_send(n: *Network, kind: u8): bool {
     network_put(n.payload, 2 as usize, 6 as u8)
     network_write32(n.payload, 4 as usize, 0x4e4f5145 as u32) // transaction ID
     network_write16(n.payload, 10 as usize, 32768 as u16) // broadcast flag
-    network_copy(n.payload, 28 as usize, n.nic.mac as usize, 0 as usize, 6 as usize)
+    network_copy(n.payload, 28 as usize, n.mac as usize, 0 as usize, 6 as usize)
     network_write32(n.payload, 236 as usize, 0x63825363 as u32) // magic cookie
     network_put(n.payload, 240 as usize, 53 as u8)
     network_put(n.payload, 241 as usize, 1 as u8)
@@ -189,7 +217,7 @@ function network_is_dhcp(n: *Network, bytes: usize): bool {
        network_read32(n.rx, dhcp + (236 as usize)) != (0x63825363 as u32) { return false }
     let i: usize = 0 as usize
     while i < (6 as usize) {
-        if network_byte(n.rx, dhcp + (28 as usize) + i) != n.nic.mac[i] { return false }
+        if network_byte(n.rx, dhcp + (28 as usize) + i) != n.mac[i] { return false }
         i = i + (1 as usize)
     }
     let offered: u32 = network_read32(n.rx, dhcp + (16 as usize))
@@ -243,7 +271,7 @@ function network_dhcp(n: *Network): bool {
         if network_dhcp_send(n, 1 as u8) {
             let rxCount: usize = 0 as usize
             while rxCount < (24 as usize) {
-                let length: usize = virtio_net_receive(n.nic, n.rx, 2048 as usize, 200000 as usize)
+                let length: usize = network_receive(n, n.rx, 2048 as usize, 200000 as usize)
                 if length != (0 as usize) && network_is_dhcp(n, length) &&
                    n.dhcpType == (2 as u8) { break }
                 rxCount = rxCount + (1 as usize)
@@ -251,7 +279,7 @@ function network_dhcp(n: *Network): bool {
             if n.dhcpType == (2 as u8) && network_dhcp_send(n, 3 as u8) {
                 let ackCount: usize = 0 as usize
                 while ackCount < (32 as usize) {
-                    let length: usize = virtio_net_receive(n.nic, n.rx, 2048 as usize, 200000 as usize)
+                    let length: usize = network_receive(n, n.rx, 2048 as usize, 200000 as usize)
                     if length != (0 as usize) && network_is_dhcp(n, length) &&
                        n.dhcpType == (5 as u8) && n.ip != (0 as u32) { return true }
                     ackCount = ackCount + (1 as usize)
@@ -262,13 +290,8 @@ function network_dhcp(n: *Network): bool {
     }
     return false
 }
-function network_arp_request(n: *Network): bool {
-    arch_out8(233 as u16, 73 as u8) // 'I' leased IPv4
-    network_trace_hex(n.ip)
-    arch_out8(233 as u16, 71 as u8) // 'G' gateway IPv4
-    network_trace_hex(n.gateway)
-    if n.gateway == (0 as u32) || n.ip == (0 as u32) {
-        serial_write("NoqeriOS: DHCP did not supply an IPv4 router\n")
+function network_arp_resolve(n: *Network, address: u32, destinationMac: usize): bool {
+    if address == (0 as u32) || n.ip == (0 as u32) || destinationMac == (0 as usize) {
         return false
     }
     network_fill(n.frame, 0 as usize, 6 as usize, 255 as u8)
@@ -278,16 +301,16 @@ function network_arp_request(n: *Network): bool {
     network_put(n.frame, 18 as usize, 6 as u8)
     network_put(n.frame, 19 as usize, 4 as u8)
     network_write16(n.frame, 20 as usize, 1 as u16) // ARP request
-    network_copy(n.frame, 22 as usize, n.nic.mac as usize, 0 as usize, 6 as usize)
+    network_copy(n.frame, 22 as usize, n.mac as usize, 0 as usize, 6 as usize)
     network_write32(n.frame, 28 as usize, n.ip)
     network_fill(n.frame, 32 as usize, 6 as usize, 0 as u8)
-    network_write32(n.frame, 38 as usize, n.gateway)
+    network_write32(n.frame, 38 as usize, address)
     let tries: usize = 0 as usize
     while tries < (3 as usize) {
-        if !virtio_net_send(n.nic, n.frame, 60 as usize) { return false }
+        if !network_send(n, n.frame, 60 as usize) { return false }
         let polls: usize = 0 as usize
         while polls < (32 as usize) {
-            let length: usize = virtio_net_receive(n.nic, n.rx, 2048 as usize, 200000 as usize)
+            let length: usize = network_receive(n, n.rx, 2048 as usize, 200000 as usize)
             if length >= (42 as usize) &&
                network_read16(n.rx, 12 as usize) == (2054 as u16) {
                 arch_out8(233 as u16, 65 as u8) // 'A' ARP packet
@@ -298,9 +321,9 @@ function network_arp_request(n: *Network): bool {
             if length >= (42 as usize) &&
                network_read16(n.rx, 12 as usize) == (2054 as u16) &&
                network_read16(n.rx, 20 as usize) == (2 as u16) &&
-               network_read32(n.rx, 28 as usize) == n.gateway &&
+               network_read32(n.rx, 28 as usize) == address &&
                network_read32(n.rx, 38 as usize) == n.ip {
-                network_copy(n.routerMac as usize, 0 as usize, n.rx, 22 as usize, 6 as usize)
+                network_copy(destinationMac, 0 as usize, n.rx, 22 as usize, 6 as usize)
                 return true
             }
             polls = polls + (1 as usize)
@@ -308,6 +331,41 @@ function network_arp_request(n: *Network): bool {
         tries = tries + (1 as usize)
     }
     return false
+}
+function network_arp_request(n: *Network): bool {
+    arch_out8(233 as u16, 73 as u8)
+    network_trace_hex(n.ip)
+    arch_out8(233 as u16, 71 as u8)
+    network_trace_hex(n.gateway)
+    return network_arp_resolve(n, n.gateway, n.routerMac as usize)
+}
+// Logical bitwise AND using arithmetic, until Stage-2 bit operators
+// are guaranteed on every supported Noqeri native compiler.
+function network_ip_mask(value: u32, mask: u32): u32 {
+    let left: u32 = value
+    let right: u32 = mask
+    let result: u32 = 0 as u32
+    let bit: u32 = 1 as u32
+    let index: usize = 0 as usize
+    while index < (32 as usize) {
+        if left % (2 as u32) == (1 as u32) &&
+           right % (2 as u32) == (1 as u32) {
+            result = result + bit
+        }
+        left = left / (2 as u32)
+        right = right / (2 as u32)
+        bit = bit * (2 as u32)
+        index = index + (1 as usize)
+    }
+    return result
+}
+function network_route_mac(n: *Network, destination: u32, output: usize): bool {
+    if n == null || !n.online || output == (0 as usize) { return false }
+    if network_ip_mask(destination, n.mask) == network_ip_mask(n.ip, n.mask) {
+        return network_arp_resolve(n, destination, output)
+    }
+    network_copy(output, 0 as usize, n.routerMac as usize, 0 as usize, 6 as usize)
+    return true
 }
 function network_icmp_echo(n: *Network): bool {
     if !n.online || n.gateway == (0 as u32) { return false }
@@ -320,10 +378,10 @@ function network_icmp_echo(n: *Network): bool {
     network_write32(n.frame, 42 as usize, 0x4e4f5145 as u32)
     network_write32(n.frame, 46 as usize, 0x52494f53 as u32)
     network_write16(n.frame, 36 as usize, network_checksum(n.frame, 34 as usize, 16 as usize))
-    if !virtio_net_send(n.nic, n.frame, 50 as usize) { return false }
+    if !network_send(n, n.frame, 50 as usize) { return false }
     let polls: usize = 0 as usize
     while polls < (64 as usize) {
-        let length: usize = virtio_net_receive(n.nic, n.rx, 2048 as usize, 200000 as usize)
+        let length: usize = network_receive(n, n.rx, 2048 as usize, 200000 as usize)
         if length >= (50 as usize) &&
            network_read16(n.rx, 12 as usize) == (2048 as u16) &&
            network_byte(n.rx, 23 as usize) == (1 as u8) &&
@@ -374,7 +432,13 @@ function network_console_status(n: *Network): void {
         serial_write("Network: no configured Ethernet interface\n")
         return
     }
-    serial_write("Network: VirtIO Ethernet linked (IPv4)\nIP: ")
+    if n.adapterKind == (2 as u32) {
+        serial_write("Network: Intel 82540EM Ethernet linked (IPv4)\nIP: ")
+    } else if n.adapterKind == (3 as u32) {
+        serial_write("Network: Realtek RTL8139 Ethernet linked (IPv4)\nIP: ")
+    } else {
+        serial_write("Network: VirtIO Ethernet linked (IPv4)\nIP: ")
+    }
     network_console_ip(n.ip)
     serial_write("\nMask: ")
     network_console_ip(n.mask)
@@ -385,44 +449,128 @@ function network_console_status(n: *Network): void {
     serial_write("\n")
 }
 
+// Cooperative packet pump. Responds to correctly addressed ARP requests and
+// IPv4 ICMP echo while the single-core serial terminal is idle. No socket
+// demultiplexer, DHCP renewal timer, background network thread, or firewall.
+function network_service_poll(n: *Network): void {
+    if n == null || !n.online { return }
+    let size: usize = network_receive(n, n.rx, 2048 as usize, 0 as usize)
+    if size < (42 as usize) { return }
+    if network_read16(n.rx, 12 as usize) == (2054 as u16) &&
+       network_read16(n.rx, 14 as usize) == (1 as u16) &&
+       network_read16(n.rx, 16 as usize) == (2048 as u16) &&
+       network_byte(n.rx, 18 as usize) == (6 as u8) &&
+       network_byte(n.rx, 19 as usize) == (4 as u8) &&
+       network_read16(n.rx, 20 as usize) == (1 as u16) &&
+       network_read32(n.rx, 38 as usize) == n.ip {
+        network_ethernet(n, n.rx + (22 as usize), 2054 as u16)
+        network_write16(n.frame, 14 as usize, 1 as u16)
+        network_write16(n.frame, 16 as usize, 2048 as u16)
+        network_put(n.frame, 18 as usize, 6 as u8)
+        network_put(n.frame, 19 as usize, 4 as u8)
+        network_write16(n.frame, 20 as usize, 2 as u16)
+        network_copy(n.frame, 22 as usize, n.mac as usize, 0 as usize, 6 as usize)
+        network_write32(n.frame, 28 as usize, n.ip)
+        network_copy(n.frame, 32 as usize, n.rx, 22 as usize, 6 as usize)
+        network_write32(n.frame, 38 as usize, network_read32(n.rx, 28 as usize))
+        network_fill(n.frame, 42 as usize, 18 as usize, 0 as u8)
+        network_send(n, n.frame, 60 as usize)
+        return
+    }
+    if network_read16(n.rx, 12 as usize) != (2048 as u16) ||
+       network_byte(n.rx, 14 as usize) != (69 as u8) ||
+       network_byte(n.rx, 23 as usize) != (1 as u8) ||
+       network_read32(n.rx, 30 as usize) != n.ip { return }
+    let total: usize = network_read16(n.rx, 16 as usize) as usize
+    if total < (28 as usize) || total > size - (14 as usize) ||
+       total > (1500 as usize) ||
+       network_read16(n.rx, 20 as usize) % (8192 as u16) != (0 as u16) {
+        return
+    }
+    let payload: usize = total - (20 as usize)
+    if network_byte(n.rx, 34 as usize) != (8 as u8) ||
+       network_byte(n.rx, 35 as usize) != (0 as u8) ||
+       network_checksum(n.rx, 34 as usize, payload) != (0 as u16) {
+        return
+    }
+    if !network_ipv4(n, n.rx + (6 as usize), n.ip,
+                     network_read32(n.rx, 26 as usize), 1 as u8, payload) { return }
+    network_copy(n.frame, 34 as usize, n.rx, 34 as usize, payload)
+    network_put(n.frame, 34 as usize, 0 as u8)
+    network_write16(n.frame, 36 as usize, 0 as u16)
+    network_write16(n.frame, 36 as usize,
+                    network_checksum(n.frame, 34 as usize, payload))
+    network_send(n, n.frame, 34 as usize + payload)
+}
+
 function network_boot_probe(): *Network {
-    let location: u32 = pci_find_device_location(6900 as u16, 4161 as u16)
-    if location == (65536 as u32) {
-        serial_write("NoqeriOS: no supported VirtIO Ethernet NIC; network offline\n")
+    let virtioLocation: u32 = pci_find_device_location(6900 as u16, 4161 as u16)
+    let intelLocation: u32 = pci_find_device_location(32902 as u16, 4110 as u16)
+    let realtekLocation: u32 = pci_find_device_location(4332 as u16, 33081 as u16)
+    if virtioLocation == (65536 as u32) && intelLocation == (65536 as u32) &&
+       realtekLocation == (65536 as u32) {
+        serial_write("NoqeriOS: no supported Ethernet NIC; network offline\n")
         return null
     }
     let statePage: usize = arch_alloc_page()
-    let nicPage: usize = arch_alloc_page()
+    let driverPage: usize = arch_alloc_page()
     let framePage: usize = arch_alloc_page()
     let receivePage: usize = arch_alloc_page()
     let payloadPage: usize = arch_alloc_page()
     let macPage: usize = arch_alloc_page()
-    if statePage == 0 || nicPage == 0 || framePage == 0 ||
+    if statePage == 0 || driverPage == 0 || framePage == 0 ||
        receivePage == 0 || payloadPage == 0 || macPage == 0 {
         serial_write("NoqeriOS: network DMA allocation failed\n")
         return null
     }
     network_fill(statePage, 0 as usize, 4096 as usize, 0 as u8)
     let network: *Network = statePage as *Network
-    network.nic = nicPage as *VirtioNet
     network.frame = framePage
     network.rx = receivePage
     network.payload = payloadPage
     network.routerMac = macPage as *u8
-    if !virtio_net_open(location, network.nic) {
-        serial_write("NoqeriOS: VirtIO Ethernet initialization failed\n")
+    let opened: bool = false
+    if virtioLocation != (65536 as u32) {
+        network.nic = driverPage as *VirtioNet
+        opened = virtio_net_open(virtioLocation, network.nic)
+        if opened {
+            network.adapterKind = 1 as u32
+            network.mac = network.nic.mac
+            serial_write("NoqeriOS: VirtIO Ethernet DMA RX/TX queues online\n")
+        }
+    }
+    if !opened && intelLocation != (65536 as u32) {
+        network.intel = driverPage as *E1000
+        opened = e1000_open(intelLocation, network.intel)
+        if opened {
+            network.adapterKind = 2 as u32
+            network.mac = network.intel.mac
+            serial_write("NoqeriOS: Intel 82540EM Ethernet DMA RX/TX queues online\n")
+        }
+    }
+    if !opened && realtekLocation != (65536 as u32) {
+        network.realtek = driverPage as *Rtl8139
+        opened = rtl8139_open(realtekLocation, network.realtek)
+        if opened {
+            network.adapterKind = 3 as u32
+            network.mac = network.realtek.mac
+            serial_write("NoqeriOS: Realtek RTL8139 Ethernet DMA RX/TX online\n")
+        }
+    }
+    if !opened {
+        serial_write("NoqeriOS: Ethernet hardware initialization failed\n")
         return null
     }
-    serial_write("NoqeriOS: VirtIO Ethernet DMA RX/TX queues online\n")
+
     if !network_dhcp(network) {
         serial_write("NoqeriOS: DHCP lease unavailable; network offline\n")
-        virtio_net_close(network.nic)
+        network_close(network)
         return null
     }
     serial_write("NoqeriOS: DHCP IPv4 lease acquired\n")
     if !network_arp_request(network) {
         serial_write("NoqeriOS: gateway ARP resolution failed\n")
-        virtio_net_close(network.nic)
+        network_close(network)
         return null
     }
     network.online = true

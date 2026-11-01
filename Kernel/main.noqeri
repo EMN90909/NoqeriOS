@@ -17,6 +17,7 @@ import "syscall.noqeri"
 import "fs/vfs.noqeri"
 import "terminal.noqeri"
 import "net/ipv4.noqeri"
+import "net/dns.noqeri"
 
 export function kernel_main(multibootInfo: usize): void {
     arch_cli()
@@ -221,6 +222,11 @@ export function kernel_main(multibootInfo: usize): void {
 
     // Optional network adapter: DHCP and ARP use bounded polling, never
     // block kernel boot permanently when networking is absent.
+    if dns_fixture_self_test() {
+        serial_write("NoqeriOS: DNS wire parser fixture passed\n")
+    } else {
+        serial_write("NoqeriOS: DNS wire parser fixture failed\n")
+    }
     let activeNetwork: *Network = network_boot_probe()
 
     arch_interrupts_init()
