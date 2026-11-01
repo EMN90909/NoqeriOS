@@ -89,7 +89,7 @@ jobs:
         run: bash Tests/qemu-smoke.sh
 
       - name: Boot Realtek RTL8139 Ethernet and acquire IPv4 DHCP lease
-        if: matrix.memory == '256M'
+        if: ${{ always() && matrix.memory == '256M' }}
         env:
           NOQERI: ${{ github.workspace }}/.deps/Noqeri/build/noqeri
           NOQERIOS_NETWORK: rtl8139
