@@ -1,0 +1,358 @@
+module os.kernel.net.ipv4
+
+import "../../Drivers/virtio_net.noqeri"
+import "../../Drivers/serial.noqeri"
+import "../../Drivers/pci.noqeri"
+import "../../Arch/x86_64/api.noqeri"
+
+// Minimal bounded Ethernet/ARP/IPv4/UDP/DHCP/ICMP bootstrap.
+// Single polling NIC; no TCP, IPv6, DNS resolver, TLS or fragmentation.
+record Network {
+    nic: *VirtioNet;
+    frame: usize;
+    rx: usize;
+    payload: usize;
+    routerMac: *u8;
+    ip: u32;
+    mask: u32;
+    gateway: u32;
+    dns: u32;
+    offer: u32;
+    server: u32;
+    dhcpType: u8;
+    online: bool;
+}
+
+function network_byte(base: usize, offset: usize): u8 {
+    let ptr: *u8 = base as *u8
+    return ptr[offset]
+}
+function network_put(base: usize, offset: usize, value: u8): void {
+    let ptr: *u8 = base as *u8
+    ptr[offset] = value
+}
+function network_read16(base: usize, offset: usize): u16 {
+    return ((network_byte(base, offset) as u16) * (256 as u16)) +
+           (network_byte(base, offset + (1 as usize)) as u16)
+}
+function network_write16(base: usize, offset: usize, value: u16): void {
+    network_put(base, offset, (value / (256 as u16)) as u8)
+    network_put(base, offset + (1 as usize), (value % (256 as u16)) as u8)
+}
+function network_read32(base: usize, offset: usize): u32 {
+    return ((network_byte(base, offset) as u32) * (16777216 as u32)) +
+           ((network_byte(base, offset + (1 as usize)) as u32) * (65536 as u32)) +
+           ((network_byte(base, offset + (2 as usize)) as u32) * (256 as u32)) +
+           (network_byte(base, offset + (3 as usize)) as u32)
+}
+function network_write32(base: usize, offset: usize, value: u32): void {
+    network_put(base, offset, (value / (16777216 as u32)) as u8)
+    network_put(base, offset + (1 as usize), ((value / (65536 as u32)) % (256 as u32)) as u8)
+    network_put(base, offset + (2 as usize), ((value / (256 as u32)) % (256 as u32)) as u8)
+    network_put(base, offset + (3 as usize), (value % (256 as u32)) as u8)
+}
+function network_fill(base: usize, start: usize, count: usize, value: u8): void {
+    let i: usize = 0 as usize
+    while i < count {
+        network_put(base, start + i, value)
+        i = i + (1 as usize)
+    }
+}
+function network_copy(out: usize, target: usize, source: usize, start: usize, count: usize): void {
+    let i: usize = 0 as usize
+    while i < count {
+        network_put(out, target + i, network_byte(source, start + i))
+        i = i + (1 as usize)
+    }
+}
+function network_checksum(base: usize, start: usize, count: usize): u16 {
+    let sum: u32 = 0 as u32
+    let i: usize = 0 as usize
+    while i < count {
+        let hi: u32 = network_byte(base, start + i) as u32
+        let lo: u32 = 0 as u32
+        if i + (1 as usize) < count {
+            lo = network_byte(base, start + i + (1 as usize)) as u32
+        }
+        sum = sum + hi * (256 as u32) + lo
+        i = i + (2 as usize)
+    }
+    while sum > (65535 as u32) {
+        sum = (sum % (65536 as u32)) + (sum / (65536 as u32))
+    }
+    return ((65535 as u32) - sum) as u16
+}
+function network_ethernet(n: *Network, targetMac: usize, etherType: u16): void {
+    network_copy(n.frame, 0 as usize, targetMac, 0 as usize, 6 as usize)
+    network_copy(n.frame, 6 as usize, n.nic.mac as usize, 0 as usize, 6 as usize)
+    network_write16(n.frame, 12 as usize, etherType)
+}
+function network_ipv4(n: *Network, targetMac: usize, src: u32, dst: u32, protocol: u8,
+                      payloadLength: usize): bool {
+    if payloadLength > (1480 as usize) { return false }
+    network_ethernet(n, targetMac, 2048 as u16)
+    network_put(n.frame, 14 as usize, 69 as u8) // IPv4, IHL 5
+    network_put(n.frame, 15 as usize, 0 as u8)
+    network_write16(n.frame, 16 as usize, (20 as usize + payloadLength) as u16)
+    network_write16(n.frame, 18 as usize, 0x4e51 as u16)
+    network_write16(n.frame, 20 as usize, 16384 as u16) // DF; no fragments
+    network_put(n.frame, 22 as usize, 64 as u8)
+    network_put(n.frame, 23 as usize, protocol)
+    network_write16(n.frame, 24 as usize, 0 as u16)
+    network_write32(n.frame, 26 as usize, src)
+    network_write32(n.frame, 30 as usize, dst)
+    network_write16(n.frame, 24 as usize, network_checksum(n.frame, 14 as usize, 20 as usize))
+    return true
+}
+function network_udp_send(n: *Network, targetMac: usize, srcIp: u32, dstIp: u32,
+                          srcPort: u16, dstPort: u16, payloadSize: usize): bool {
+    if payloadSize > (1472 as usize) { return false }
+    if !network_ipv4(n, targetMac, srcIp, dstIp, 17 as u8, payloadSize + (8 as usize)) {
+        return false
+    }
+    network_write16(n.frame, 34 as usize, srcPort)
+    network_write16(n.frame, 36 as usize, dstPort)
+    network_write16(n.frame, 38 as usize, (payloadSize + (8 as usize)) as u16)
+    network_write16(n.frame, 40 as usize, 0 as u16) // UDP checksum optional for IPv4
+    network_copy(n.frame, 42 as usize, n.payload, 0 as usize, payloadSize)
+    return virtio_net_send(n.nic, n.frame, payloadSize + (42 as usize))
+}
+function network_dhcp_send(n: *Network, kind: u8): bool {
+    network_fill(n.payload, 0 as usize, 320 as usize, 0 as u8)
+    network_put(n.payload, 0 as usize, 1 as u8) // BOOTREQUEST
+    network_put(n.payload, 1 as usize, 1 as u8) // Ethernet
+    network_put(n.payload, 2 as usize, 6 as u8)
+    network_write32(n.payload, 4 as usize, 0x4e4f5145 as u32) // transaction ID
+    network_write16(n.payload, 10 as usize, 32768 as u16) // broadcast flag
+    network_copy(n.payload, 28 as usize, n.nic.mac as usize, 0 as usize, 6 as usize)
+    network_write32(n.payload, 236 as usize, 0x63825363 as u32) // magic cookie
+    network_put(n.payload, 240 as usize, 53 as u8)
+    network_put(n.payload, 241 as usize, 1 as u8)
+    network_put(n.payload, 242 as usize, kind)
+    let option: usize = 243 as usize
+    if kind == (3 as u8) {
+        network_put(n.payload, option, 50 as u8)
+        network_put(n.payload, option + (1 as usize), 4 as u8)
+        network_write32(n.payload, option + (2 as usize), n.offer)
+        option = option + (6 as usize)
+        network_put(n.payload, option, 54 as u8)
+        network_put(n.payload, option + (1 as usize), 4 as u8)
+        network_write32(n.payload, option + (2 as usize), n.server)
+        option = option + (6 as usize)
+    }
+    network_put(n.payload, option, 55 as u8)
+    network_put(n.payload, option + (1 as usize), 3 as u8)
+    network_put(n.payload, option + (2 as usize), 1 as u8)
+    network_put(n.payload, option + (3 as usize), 3 as u8)
+    network_put(n.payload, option + (4 as usize), 6 as u8)
+    network_put(n.payload, option + (5 as usize), 255 as u8)
+    let broadcast: usize = n.frame + (2048 as usize)
+    // n.frame is a page; use its end as a transient FF:FF:FF:FF:FF:FF MAC.
+    network_fill(broadcast, 0 as usize, 6 as usize, 255 as u8)
+    return network_udp_send(n, broadcast, 0 as u32, 4294967295 as u32,
+                            68 as u16, 67 as u16, 300 as usize)
+}
+function network_is_dhcp(n: *Network, bytes: usize): bool {
+    if bytes < (42 as usize + 240 as usize) { return false }
+    if network_read16(n.rx, 12 as usize) != (2048 as u16) ||
+       network_byte(n.rx, 23 as usize) != (17 as u8) { return false }
+    let ipBytes: usize = ((network_byte(n.rx, 14 as usize) as usize) % (16 as usize)) * (4 as usize)
+    if ipBytes < (20 as usize) || ipBytes > (60 as usize) { return false }
+    let udpOffset: usize = (14 as usize) + ipBytes
+    if udpOffset + (8 as usize) + (240 as usize) > bytes ||
+       network_read16(n.rx, udpOffset + (2 as usize)) != (68 as u16) ||
+       network_read16(n.rx, udpOffset) != (67 as u16) { return false }
+    let dhcp: usize = udpOffset + (8 as usize)
+    if network_byte(n.rx, dhcp) != (2 as u8) ||
+       network_byte(n.rx, dhcp + (1 as usize)) != (1 as u8) ||
+       network_byte(n.rx, dhcp + (2 as usize)) != (6 as u8) ||
+       network_read32(n.rx, dhcp + (4 as usize)) != (0x4e4f5145 as u32) ||
+       network_read32(n.rx, dhcp + (236 as usize)) != (0x63825363 as u32) { return false }
+    let i: usize = 0 as usize
+    while i < (6 as usize) {
+        if network_byte(n.rx, dhcp + (28 as usize) + i) != n.nic.mac[i] { return false }
+        i = i + (1 as usize)
+    }
+    let offered: u32 = network_read32(n.rx, dhcp + (16 as usize))
+    let option: usize = dhcp + (240 as usize)
+    let end: usize = bytes
+    let message: u8 = 0 as u8
+    let server: u32 = 0 as u32
+    let mask: u32 = 0 as u32
+    let router: u32 = 0 as u32
+    let dns: u32 = 0 as u32
+    while option < end {
+        let tag: u8 = network_byte(n.rx, option)
+        if tag == (255 as u8) { break }
+        if tag == (0 as u8) {
+            option = option + (1 as usize)
+        } else {
+            if option + (2 as usize) > end { return false }
+            let size: usize = network_byte(n.rx, option + (1 as usize)) as usize
+            if size > (end - option - (2 as usize)) { return false }
+            if tag == (53 as u8) && size == (1 as usize) {
+                message = network_byte(n.rx, option + (2 as usize))
+            }
+            if size >= (4 as usize) {
+                let value: u32 = network_read32(n.rx, option + (2 as usize))
+                if tag == (54 as u8) { server = value }
+                if tag == (1 as u8) { mask = value }
+                if tag == (3 as u8) { router = value }
+                if tag == (6 as u8) { dns = value }
+            }
+            option = option + (2 as usize) + size
+        }
+    }
+    if offered == (0 as u32) || server == (0 as u32) { return false }
+    n.dhcpType = message
+    if message == (2 as u8) {
+        n.offer = offered
+        n.server = server
+    } else if message == (5 as u8) && offered == n.offer &&
+              server == n.server {
+        n.ip = offered
+        n.mask = mask
+        n.gateway = router
+        n.dns = dns
+    }
+    return true
+}
+function network_dhcp(n: *Network): bool {
+    // Bounded retries; boot must continue when no DHCP server is present.
+    let attempt: usize = 0 as usize
+    while attempt < (3 as usize) {
+        if network_dhcp_send(n, 1 as u8) {
+            let rxCount: usize = 0 as usize
+            while rxCount < (24 as usize) {
+                let length: usize = virtio_net_receive(n.nic, n.rx, 2048 as usize, 200000 as usize)
+                if length != (0 as usize) && network_is_dhcp(n, length) &&
+                   n.dhcpType == (2 as u8) { break }
+                rxCount = rxCount + (1 as usize)
+            }
+            if n.dhcpType == (2 as u8) && network_dhcp_send(n, 3 as u8) {
+                let ackCount: usize = 0 as usize
+                while ackCount < (32 as usize) {
+                    let length: usize = virtio_net_receive(n.nic, n.rx, 2048 as usize, 200000 as usize)
+                    if length != (0 as usize) && network_is_dhcp(n, length) &&
+                       n.dhcpType == (5 as u8) && n.ip != (0 as u32) { return true }
+                    ackCount = ackCount + (1 as usize)
+                }
+            }
+        }
+        attempt = attempt + (1 as usize)
+    }
+    return false
+}
+function network_arp_request(n: *Network): bool {
+    if n.gateway == (0 as u32) || n.ip == (0 as u32) { return false }
+    network_fill(n.frame, 0 as usize, 6 as usize, 255 as u8)
+    network_ethernet(n, n.frame, 2054 as u16)
+    network_write16(n.frame, 14 as usize, 1 as u16) // Ethernet
+    network_write16(n.frame, 16 as usize, 2048 as u16) // IPv4
+    network_put(n.frame, 18 as usize, 6 as u8)
+    network_put(n.frame, 19 as usize, 4 as u8)
+    network_write16(n.frame, 20 as usize, 1 as u16) // ARP request
+    network_copy(n.frame, 22 as usize, n.nic.mac as usize, 0 as usize, 6 as usize)
+    network_write32(n.frame, 28 as usize, n.ip)
+    network_fill(n.frame, 32 as usize, 6 as usize, 0 as u8)
+    network_write32(n.frame, 38 as usize, n.gateway)
+    let tries: usize = 0 as usize
+    while tries < (3 as usize) {
+        if !virtio_net_send(n.nic, n.frame, 60 as usize) { return false }
+        let polls: usize = 0 as usize
+        while polls < (32 as usize) {
+            let length: usize = virtio_net_receive(n.nic, n.rx, 2048 as usize, 200000 as usize)
+            if length >= (42 as usize) &&
+               network_read16(n.rx, 12 as usize) == (2054 as u16) &&
+               network_read16(n.rx, 20 as usize) == (2 as u16) &&
+               network_read32(n.rx, 28 as usize) == n.gateway &&
+               network_read32(n.rx, 38 as usize) == n.ip {
+                network_copy(n.routerMac as usize, 0 as usize, n.rx, 22 as usize, 6 as usize)
+                return true
+            }
+            polls = polls + (1 as usize)
+        }
+        tries = tries + (1 as usize)
+    }
+    return false
+}
+function network_icmp_echo(n: *Network): bool {
+    if !n.online || n.gateway == (0 as u32) { return false }
+    if !network_ipv4(n, n.routerMac as usize, n.ip, n.gateway, 1 as u8, 16 as usize) { return false }
+    network_put(n.frame, 34 as usize, 8 as u8) // echo request
+    network_put(n.frame, 35 as usize, 0 as u8)
+    network_write16(n.frame, 36 as usize, 0 as u16)
+    network_write16(n.frame, 38 as usize, 0x4e51 as u16)
+    network_write16(n.frame, 40 as usize, 1 as u16)
+    network_write32(n.frame, 42 as usize, 0x4e4f5145 as u32)
+    network_write32(n.frame, 46 as usize, 0x52494f53 as u32)
+    network_write16(n.frame, 36 as usize, network_checksum(n.frame, 34 as usize, 16 as usize))
+    if !virtio_net_send(n.nic, n.frame, 50 as usize) { return false }
+    let polls: usize = 0 as usize
+    while polls < (64 as usize) {
+        let length: usize = virtio_net_receive(n.nic, n.rx, 2048 as usize, 200000 as usize)
+        if length >= (50 as usize) &&
+           network_read16(n.rx, 12 as usize) == (2048 as u16) &&
+           network_byte(n.rx, 23 as usize) == (1 as u8) &&
+           network_read32(n.rx, 26 as usize) == n.gateway &&
+           network_read32(n.rx, 30 as usize) == n.ip &&
+           network_byte(n.rx, 34 as usize) == (0 as u8) &&
+           network_read16(n.rx, 38 as usize) == (0x4e51 as u16) &&
+           network_read16(n.rx, 40 as usize) == (1 as u16) {
+            return true
+        }
+        polls = polls + (1 as usize)
+    }
+    return false
+}
+
+function network_boot_probe(): void {
+    let location: u32 = pci_find_device_location(6900 as u16, 4161 as u16)
+    if location == (65536 as u32) {
+        serial_write("NoqeriOS: no supported VirtIO Ethernet NIC; network offline\n")
+        return
+    }
+    let statePage: usize = arch_alloc_page()
+    let nicPage: usize = arch_alloc_page()
+    let framePage: usize = arch_alloc_page()
+    let receivePage: usize = arch_alloc_page()
+    let payloadPage: usize = arch_alloc_page()
+    let macPage: usize = arch_alloc_page()
+    if statePage == 0 || nicPage == 0 || framePage == 0 ||
+       receivePage == 0 || payloadPage == 0 || macPage == 0 {
+        serial_write("NoqeriOS: network DMA allocation failed\n")
+        return
+    }
+    network_fill(statePage, 0 as usize, 4096 as usize, 0 as u8)
+    let network: *Network = statePage as *Network
+    network.nic = nicPage as *VirtioNet
+    network.frame = framePage
+    network.rx = receivePage
+    network.payload = payloadPage
+    network.routerMac = macPage as *u8
+    if !virtio_net_open(location, network.nic) {
+        serial_write("NoqeriOS: VirtIO Ethernet initialization failed\n")
+        return
+    }
+    serial_write("NoqeriOS: VirtIO Ethernet DMA RX/TX queues online\n")
+    if !network_dhcp(network) {
+        serial_write("NoqeriOS: DHCP lease unavailable; network offline\n")
+        virtio_net_close(network.nic)
+        return
+    }
+    serial_write("NoqeriOS: DHCP IPv4 lease acquired\n")
+    if !network_arp_request(network) {
+        serial_write("NoqeriOS: gateway ARP resolution failed\n")
+        virtio_net_close(network.nic)
+        return
+    }
+    network.online = true
+    serial_write("NoqeriOS: IPv4 gateway ARP resolved (Ethernet connected)\n")
+    if network_icmp_echo(network) {
+        serial_write("NoqeriOS: IPv4 gateway ICMP echo reply received\n")
+    } else {
+        serial_write("NoqeriOS: gateway ICMP echo not available\n")
+    }
+    // Keep the NIC up. A future network manager must own this state, handle
+    // lease renewal, ingress polling and packet dispatch.
+}
