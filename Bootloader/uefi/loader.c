@@ -83,6 +83,48 @@ typedef struct {
     BOOLEAN valid;
 } NOQ_FRAMEBUFFER;
 
+// Capture the firmware ACPI RSDP in a Multiboot2 tag. ACPI SDTs are
+// inspected by the kernel only when reachable through its low 1 GiB map.
+static EFI_GUID acpi20_guid = {
+    0x8868e871, 0xe4f1, 0x11d3,
+    {0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81}
+};
+static EFI_GUID acpi10_guid = {
+    0xeb9d2d30, 0x2d88, 0x11d3,
+    {0x9a, 0x16, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d}
+};
+static BOOLEAN guid_same(const EFI_GUID *a, const EFI_GUID *b) {
+    const UINT8 *x = (const UINT8 *)a;
+    const UINT8 *y = (const UINT8 *)b;
+    for (UINTN i = 0; i < 16; ++i) if (x[i] != y[i]) return FALSE;
+    return TRUE;
+}
+static BOOLEAN acpi_sum_ok(const UINT8 *bytes, UINTN length) {
+    UINT8 sum = 0;
+    for (UINTN i = 0; i < length; ++i) sum = (UINT8)(sum + bytes[i]);
+    return sum == 0;
+}
+static UINTN capture_acpi(EFI_SYSTEM_TABLE *st, UINT8 out[36]) {
+    for (UINTN i = 0; i < st->NumberOfTableEntries; ++i) {
+        EFI_CONFIGURATION_TABLE *entry = &st->ConfigurationTable[i];
+        BOOLEAN v2 = guid_same(&entry->VendorGuid, &acpi20_guid);
+        if (!v2 && !guid_same(&entry->VendorGuid, &acpi10_guid))
+            continue;
+        const UINT8 *source = (const UINT8 *)entry->VendorTable;
+        if (!source) continue;
+        const UINT8 signature[8] = {'R','S','D',' ','P','T','R',' '};
+        BOOLEAN match = TRUE;
+        for (UINTN j = 0; j < 8; ++j)
+            if (source[j] != signature[j]) match = FALSE;
+        if (!match || !acpi_sum_ok(source, 20)) continue;
+        UINTN count = v2 && source[15] >= 2 ? 36 : 20;
+        if (count == 36 && !acpi_sum_ok(source, 36)) continue;
+        for (UINTN j = 0; j < count; ++j) out[j] = source[j];
+        return count;
+    }
+    return 0;
+}
+
 static EFI_SYSTEM_TABLE *screen_table = NULL;
 static EFI_GUID gop_guid = {
     0x9042a9de, 0x23dc, 0x4a38,
@@ -281,7 +323,8 @@ static NOQ_FRAMEBUFFER probe_gop(EFI_SYSTEM_TABLE *st) {
 }
 
 static EFI_STATUS paging(EFI_BOOT_SERVICES *bs, EFI_PHYSICAL_ADDRESS *root,
-                         const NOQ_FRAMEBUFFER *fb) {
+                         const NOQ_FRAMEBUFFER *fb,
+                        const UINT8 *rsdp, UINTN rsdp_size) {
     EFI_PHYSICAL_ADDRESS addr;
     EFI_STATUS status = alloc_low(bs, 3, &addr);
     if (EFI_ERROR(status)) return status;
@@ -372,6 +415,16 @@ static BOOLEAN make_mb2(UINT8 *dest, UINTN capacity, EFI_MEMORY_DESCRIPTOR *map,
         tag_fb->blue_mask_size = 8;
         end += (sizeof(MB2_FRAMEBUFFER) + 7u) & ~7u;
     }
+    if (rsdp && (rsdp_size == 20 || rsdp_size == 36)) {
+        UINTN padded = (8 + rsdp_size + 7u) & ~7u;
+        if (end + padded + 8 > capacity) return FALSE;
+        UINT32 *acpi_tag = (UINT32 *)(dest + end);
+        acpi_tag[0] = rsdp_size == 36 ? 15u : 14u;
+        acpi_tag[1] = (UINT32)(8 + rsdp_size);
+        for (UINTN j = 0; j < rsdp_size; ++j)
+            dest[end + 8 + j] = rsdp[j];
+        end += padded;
+    }
     if (end + 8 > capacity) return FALSE;
     ((UINT32 *)(dest + end))[0] = 0;
     ((UINT32 *)(dest + end))[1] = 8;
@@ -400,6 +453,10 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st) {
     log_debug("uefi:after-elf-load\n");
     if (EFI_ERROR(status)) return fail(status, L"ELF load rejected or memory occupied", "uefi:bad-elf\n");
     NOQ_FRAMEBUFFER framebuffer = probe_gop(st);
+    UINT8 acpi_rsdp[36] = {0};
+    UINTN acpi_rsdp_size = capture_acpi(st, acpi_rsdp);
+    if (acpi_rsdp_size) log_debug("uefi: ACPI RSDP boot tag available\n");
+
     EFI_PHYSICAL_ADDRESS pml4, boot_info;
     status = paging(st->BootServices, &pml4, &framebuffer);
     if (EFI_ERROR(status)) return fail(status, L"Cannot reserve identity-map pages", "uefi:no-paging\n");
@@ -422,7 +479,8 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st) {
         status = uefi_call_wrapper(st->BootServices->GetMemoryMap, 5,
                                    &map_size, map, &key, &desc_size, &desc_version);
         if (EFI_ERROR(status)) return fail(status, L"GetMemoryMap failed", "uefi:bad-map\n");
-        if (!make_mb2((UINT8 *)(UINTN)boot_info, MAX_BOOT_INFO, map, map_size, desc_size, &framebuffer))
+        if (!make_mb2((UINT8 *)(UINTN)boot_info, MAX_BOOT_INFO, map, map_size, desc_size,
+                      &framebuffer, acpi_rsdp, acpi_rsdp_size))
             return fail(EFI_LOAD_ERROR, L"Memory map exceeds boot-info capacity", "uefi:map-overflow\n");
         status = uefi_call_wrapper(st->BootServices->ExitBootServices, 2, image, key);
         if (!EFI_ERROR(status)) {
