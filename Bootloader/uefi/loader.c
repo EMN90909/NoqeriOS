@@ -323,8 +323,7 @@ static NOQ_FRAMEBUFFER probe_gop(EFI_SYSTEM_TABLE *st) {
 }
 
 static EFI_STATUS paging(EFI_BOOT_SERVICES *bs, EFI_PHYSICAL_ADDRESS *root,
-                         const NOQ_FRAMEBUFFER *fb,
-                        const UINT8 *rsdp, UINTN rsdp_size) {
+                         const NOQ_FRAMEBUFFER *fb) {
     EFI_PHYSICAL_ADDRESS addr;
     EFI_STATUS status = alloc_low(bs, 3, &addr);
     if (EFI_ERROR(status)) return status;
@@ -374,7 +373,8 @@ static UINT32 map_type(UINT32 t) {
 }
 static BOOLEAN make_mb2(UINT8 *dest, UINTN capacity, EFI_MEMORY_DESCRIPTOR *map,
                         UINTN size, UINTN descriptor_size,
-                        const NOQ_FRAMEBUFFER *fb) {
+                        const NOQ_FRAMEBUFFER *fb,
+                        const UINT8 *rsdp, UINTN rsdp_size) {
     if (descriptor_size < sizeof(EFI_MEMORY_DESCRIPTOR) || size % descriptor_size != 0)
         return FALSE;
     UINTN count = size / descriptor_size;
