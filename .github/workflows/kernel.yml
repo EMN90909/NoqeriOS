@@ -72,6 +72,14 @@ jobs:
           NOQERIOS_MEMORY: ${{ matrix.memory }}
         run: bash Tests/qemu-smoke.sh
 
+      - name: Boot VirtIO Ethernet and acquire IPv4 DHCP lease
+        if: matrix.memory == '256M'
+        env:
+          NOQERI: ${{ github.workspace }}/.deps/Noqeri/build/noqeri
+          NOQERIOS_NETWORK: '1'
+          NOQERIOS_MEMORY: 256M
+        run: bash Tests/qemu-smoke.sh
+
       - name: Verify interactive NoqeriOS terminal
         if: matrix.memory == '256M'
         run: python3 Tests/terminal-interaction.py --memory 256M
