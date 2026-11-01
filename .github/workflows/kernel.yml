@@ -30,7 +30,7 @@ jobs:
       - name: Install kernel test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y binutils xorriso qemu-system-x86 cmake g++ make git curl
+          sudo apt-get install -y binutils xorriso qemu-system-x86 cmake g++ make git curl nasm autoconf automake libtool pkg-config mtools patch
 
       - name: Build Noqeri compiler
         run: |
@@ -51,7 +51,10 @@ jobs:
       - name: Prepare Limine bootloader
         run: |
           git clone --depth 1 --branch v12.x https://github.com/limine-bootloader/limine.git .deps/limine
-          make -C .deps/limine -j2
+          cd .deps/limine
+          ./bootstrap
+          ./configure --enable-bios --enable-bios-cd --enable-uefi-x86-64 --enable-uefi-cd
+          make -j2
 
       - name: Compile and boot NoqeriOS
         env:

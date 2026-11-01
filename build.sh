@@ -148,7 +148,8 @@ if [[ ! -f "$LIMINE_DIR/limine-bios-cd.bin" || ! -f "$LIMINE_DIR/limine-uefi-cd.
     else
         git clone --depth 1 --branch v12.x https://github.com/limine-bootloader/limine.git "$LIMINE_DIR"
     fi
-    make -C "$LIMINE_DIR" -j2
+    (cd "$LIMINE_DIR" && ./bootstrap && ./configure --enable-bios --enable-bios-cd --enable-uefi-x86-64 --enable-uefi-cd && make -j2)
+
 fi
 for asset in limine-bios.sys limine-bios-cd.bin limine-uefi-cd.bin BOOTX64.EFI; do
     test -s "$LIMINE_DIR/$asset" || { echo "Missing Limine asset: $asset" >&2; exit 5; }
