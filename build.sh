@@ -22,6 +22,10 @@ missing=()
 for tool in "${need[@]}"; do
     command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
 done
+# GNU-EFI headers are not executables: detect them separately for --uefi-bootstrap.
+if (( UEFI == 1 )) && [[ ! -f /usr/include/efi/efi.h ]]; then
+    missing+=(gnu-efi)
+fi
 if (( ${#missing[@]} > 0 )); then
     if (( BOOTSTRAP != 1 )); then
         echo "Missing Linux tools: ${missing[*]}. Re-run with --bootstrap." >&2
