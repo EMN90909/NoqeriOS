@@ -5,15 +5,19 @@ set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT="$ROOT/build"
 BOOTSTRAP=0
+UEFI=0
 case "${1:-}" in
     --bootstrap|--native-bootstrap) BOOTSTRAP=1 ;;
+    --uefi-bootstrap) BOOTSTRAP=1; UEFI=1 ;;
+    --uefi) UEFI=1 ;;
     --native|--no-bootstrap|"") ;;
-    *) echo "Usage: $0 [--bootstrap|--native|--native-bootstrap]" >&2; exit 2 ;;
+    *) echo "Usage: $0 [--bootstrap|--native|--native-bootstrap|--uefi|--uefi-bootstrap]" >&2; exit 2 ;;
 esac
 trap 'status=$?; echo "NoqeriOS Linux build failed (exit $status) near line $LINENO" >&2; exit "$status"' ERR
 [[ "$(uname -s)" == Linux ]] || { echo "Requires Linux/WSL. On Windows run build.bat." >&2; exit 2; }
 
 need=(git cmake g++ as ld nm xorriso python3)
+if (( UEFI == 1 )); then need+=(gcc objcopy mformat mmd mcopy); fi
 missing=()
 for tool in "${need[@]}"; do
     command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
@@ -26,7 +30,7 @@ if (( ${#missing[@]} > 0 )); then
     command -v apt-get >/dev/null || { echo "Automatic install requires apt-get." >&2; exit 3; }
     if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
         apt-get update
-        DEBIAN_FRONTEND=noninteractive apt-get install -y git cmake g++ binutils xorriso python3 qemu-system-x86
+        DEBIAN_FRONTEND=noninteractive apt-get install -y git cmake g++ binutils xorriso python3 qemu-system-x86 gnu-efi mtools ovmf gnu-efi mtools ovmf
     else
         sudo apt-get update
         sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y git cmake g++ binutils xorriso python3 qemu-system-x86
@@ -81,11 +85,27 @@ rm -rf "$ISO_ROOT"
 mkdir -p "$ISO_ROOT/boot"
 cp "$OUT/native-boot/noqerios-native.img" "$ISO_ROOT/boot/noqerios-native.img"
 cp "$OUT/kernel.elf" "$ISO_ROOT/boot/kernel.elf"
+if (( UEFI == 1 )); then
+    bash "$ROOT/Bootloader/uefi/build.sh"
+    mkdir -p "$ISO_ROOT/boot/uefi"
+    cp "$OUT/uefi/esp.img" "$ISO_ROOT/boot/uefi/esp.img"
+fi
 # El Torito floppy emulation provides the standard 512-byte sector INT 13h
 # interface used by our own stage0/stage1 BIOS loader. No GRUB or Limine.
-xorriso -as mkisofs -R -J -V NOQERIOS \
-    -b boot/noqerios-native.img -c boot/boot.cat \
-    -o "$OUT/noqerios.iso" "$ISO_ROOT"
+if (( UEFI == 1 )); then
+    xorriso -as mkisofs -R -J -V NOQERIOS \
+        -b boot/noqerios-native.img -c boot/boot.cat \
+        -eltorito-alt-boot -e boot/uefi/esp.img -no-emul-boot \
+        -o "$OUT/noqerios.iso" "$ISO_ROOT"
+else
+    xorriso -as mkisofs -R -J -V NOQERIOS \
+        -b boot/noqerios-native.img -c boot/boot.cat \
+        -o "$OUT/noqerios.iso" "$ISO_ROOT"
+fi
 [[ -s "$OUT/noqerios.iso" ]] || { echo "ISO output is empty." >&2; exit 5; }
 echo "NoqeriOS custom BIOS image: $OUT/native-boot/noqerios-native.img"
-echo "NoqeriOS bootable BIOS ISO: $OUT/noqerios.iso"
+if (( UEFI == 1 )); then
+    echo "NoqeriOS BIOS + UEFI El Torito ISO: $OUT/noqerios.iso"
+else
+    echo "NoqeriOS bootable BIOS ISO: $OUT/noqerios.iso"
+fi

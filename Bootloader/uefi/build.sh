@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build an original NoqeriOS UEFI x86-64 PE/COFF loader using gnu-efi.
 set -Eeuo pipefail
-ROOT="$(cd "$(dirname "\${BASH_SOURCE[0]}")/../.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT="$ROOT/build"
 UEFI_OUT="$OUT/uefi"
 mkdir -p "$UEFI_OUT"

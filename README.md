@@ -100,7 +100,7 @@ bash build.sh --bootstrap
 qemu-system-x86_64 -m 256M -cdrom build/noqerios.iso -boot d -serial mon:stdio -display none
 ```
 
-The COM1 terminal uses single-letter commands: `h`, `i`, `m`, `p`, `c`, and `r`. The CI suite also sends each command to the running kernel and checks its response. UEFI and a graphical desktop are not yet supported.
+The COM1 terminal uses single-letter commands: `h`, `i`, `m`, `p`, `c`, and `r`. The CI suite also sends each command to the running kernel and checks its response. UEFI is available experimentally with `bash build.sh --uefi-bootstrap`, producing a BIOS+UEFI optical ISO and `build/uefi/esp.img`. OVMF verification is required before using it on physical hardware. A graphical desktop is not yet supported.
 
 
 On Linux or WSL with QEMU installed:
@@ -114,3 +114,14 @@ The smoke test creates a deterministic NoqFS disk, boots `build/noqerios.iso` in
 ## Compiler baseline
 
 NoqeriOS tracks the current Noqeri systems compiler. The upstream Noqeri repository currently identifies its compiler as experimental version 0.1.4. On November 1, 2026 the native BIOS ISO passed QEMU smoke gates with 128 MB, 256 MB, and 768 MB RAM, including E820, PCI/VirtIO, VFS and serial terminal entry. New code must pass the same gates. This does not establish UEFI support or physical-hardware compatibility.
+
+## Experimental custom x86-64 UEFI boot
+
+The native UEFI loader is original NoqeriOS firmware adapter code in `Bootloader/uefi/loader.c`, compiled as `BOOTX64.EFI` using GNU-EFI. It loads the existing Noqeri kernel ELF, converts UEFI memory descriptors into Multiboot2 boot tags, creates an identity mapping and enters the Noqeri kernel through `uefi_kernel_entry`. The kernel remains authored in Noqeri, with small assembly/firmware adapters.
+
+```bash
+bash build.sh --uefi-bootstrap
+bash Tests/uefi-smoke.sh
+```
+
+The resulting ISO contains BIOS and UEFI optical boot entries; the FAT image `build/uefi/esp.img` contains `EFI/BOOT/BOOTX64.EFI` and `EFI/BOOT/KERNEL.ELF`. UEFI Secure Boot will reject the unsigned loader unless disabled or signed with trusted keys. No physical-PC boot is certified without device-specific testing. USB booting from a raw ISO is not yet validated; use an appropriate EFI system partition when preparing removable media.
