@@ -1,186 +1,91 @@
 #!/usr/bin/env bash
+# Build the Noqeri source on Linux, link a freestanding x86-64 kernel,
+# then package our own BIOS bootloader as an El Torito bootable ISO.
 set -Eeuo pipefail
-
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT="$ROOT/build"
 BOOTSTRAP=0
-NATIVE_BOOT=0
-
 case "${1:-}" in
-    --bootstrap) BOOTSTRAP=1 ;;
-    --native) NATIVE_BOOT=1 ;;
-    --native-bootstrap) BOOTSTRAP=1; NATIVE_BOOT=1 ;;
-    --no-bootstrap|"") BOOTSTRAP=0 ;;
-    *) echo "usage: $0 [--bootstrap|--no-bootstrap|--native|--native-bootstrap]" >&2; exit 2 ;;
+    --bootstrap|--native-bootstrap) BOOTSTRAP=1 ;;
+    --native|--no-bootstrap|"") ;;
+    *) echo "Usage: $0 [--bootstrap|--native|--native-bootstrap]" >&2; exit 2 ;;
 esac
+trap 'status=$?; echo "NoqeriOS Linux build failed (exit $status) near line $LINENO" >&2; exit "$status"' ERR
+[[ "$(uname -s)" == Linux ]] || { echo "Requires Linux/WSL. On Windows run build.bat." >&2; exit 2; }
 
-on_error() {
-    local rc=$?
-    echo >&2
-    echo "NoqeriOS build failed (exit $rc) at line ${BASH_LINENO[0]}." >&2
-    echo "Command: ${BASH_COMMAND}" >&2
-    echo "Build directory: $OUT" >&2
-    exit "$rc"
-}
-trap on_error ERR
-
-if [[ "$(uname -s)" != "Linux" ]]; then
-    echo "This script targets Linux or WSL. On Windows, run build.bat." >&2
-    exit 2
-fi
-
-if grep -qiE '(microsoft|wsl)' /proc/version 2>/dev/null; then
-    echo "NoqeriOS build host: WSL"
-else
-    echo "NoqeriOS build host: Linux"
-fi
-
-run_root() {
-    if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
-        "$@"
-    elif command -v sudo >/dev/null 2>&1; then
-        sudo "$@"
-    else
-        echo "Need root privileges to install missing build tools, but sudo is unavailable." >&2
-        return 1
-    fi
-}
-
-required_tools=(cmake g++ as ld xorriso git python3 curl make)
-missing_tools=()
-for tool in "${required_tools[@]}"; do
-    if ! command -v "$tool" >/dev/null 2>&1; then
-        missing_tools+=("$tool")
-    fi
+need=(git cmake g++ as ld nm xorriso python3)
+missing=()
+for tool in "${need[@]}"; do
+    command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
 done
-
-if (( ${#missing_tools[@]} > 0 )); then
-    if (( BOOTSTRAP == 0 )); then
-        echo "Missing build tools: ${missing_tools[*]}" >&2
-        echo "Re-run with --bootstrap to install them on Ubuntu/Debian/WSL." >&2
+if (( ${#missing[@]} > 0 )); then
+    if (( BOOTSTRAP != 1 )); then
+        echo "Missing Linux tools: ${missing[*]}. Re-run with --bootstrap." >&2
         exit 3
     fi
-    if ! command -v apt-get >/dev/null 2>&1; then
-        echo "Automatic dependency installation currently supports apt-based Linux/WSL hosts." >&2
-        exit 3
+    command -v apt-get >/dev/null || { echo "Automatic install requires apt-get." >&2; exit 3; }
+    if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y git cmake g++ binutils xorriso python3 qemu-system-x86
+    else
+        sudo apt-get update
+        sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y git cmake g++ binutils xorriso python3 qemu-system-x86
     fi
-    echo "Installing missing build dependencies..."
-    run_root apt-get update
-    run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        build-essential cmake binutils xorriso curl make \
-        qemu-system-x86 git ca-certificates python3
 fi
-
 mkdir -p "$OUT"
 
-NOQERI_SRC=""
-if [[ -n "${NOQERI:-}" && -x "${NOQERI}" ]]; then
-    :
+if [[ -n "${NOQERI:-}" ]]; then
+    [[ -x "$NOQERI" ]] || { echo "NOQERI does not point to an executable compiler." >&2; exit 4; }
 elif [[ -x "$ROOT/../Noqeri/build/noqeri" ]]; then
     NOQERI="$ROOT/../Noqeri/build/noqeri"
-    NOQERI_SRC="$ROOT/../Noqeri"
 elif [[ -x "$ROOT/.deps/Noqeri/build/noqeri" ]]; then
     NOQERI="$ROOT/.deps/Noqeri/build/noqeri"
-    NOQERI_SRC="$ROOT/.deps/Noqeri"
 else
+    SRC=""
     if [[ -f "$ROOT/../Noqeri/CMakeLists.txt" ]]; then
-        NOQERI_SRC="$ROOT/../Noqeri"
+        SRC="$ROOT/../Noqeri"
     elif [[ -f "$ROOT/.deps/Noqeri/CMakeLists.txt" ]]; then
-        NOQERI_SRC="$ROOT/.deps/Noqeri"
+        SRC="$ROOT/.deps/Noqeri"
     elif (( BOOTSTRAP == 1 )); then
-        echo "Noqeri compiler source not found; cloning current main..."
-        rm -rf "$ROOT/.deps/Noqeri"
         mkdir -p "$ROOT/.deps"
         git clone --depth 1 https://github.com/EMN90909/Noqeri.git "$ROOT/.deps/Noqeri"
-        NOQERI_SRC="$ROOT/.deps/Noqeri"
+        SRC="$ROOT/.deps/Noqeri"
     else
-        echo "Noqeri compiler not found." >&2
-        echo "Set NOQERI=/path/to/noqeri or re-run with --bootstrap." >&2
+        echo "Noqeri compiler unavailable. Set NOQERI or use --bootstrap." >&2
         exit 4
     fi
-
-    jobs=2
-    if command -v nproc >/dev/null 2>&1; then jobs="$(nproc)"; fi
-    echo "Building Noqeri compiler from $NOQERI_SRC"
-    cmake -S "$NOQERI_SRC" -B "$NOQERI_SRC/build" -DCMAKE_BUILD_TYPE=Release -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DBUILD_TESTING=OFF
-    cmake --build "$NOQERI_SRC/build" --target noqeri --parallel "$jobs"
-    NOQERI="$NOQERI_SRC/build/noqeri"
+    cmake -S "$SRC" -B "$SRC/build" -DCMAKE_BUILD_TYPE=Release -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DBUILD_TESTING=OFF
+    cmake --build "$SRC/build" --target noqeri --parallel "${NOQERI_BUILD_JOBS:-2}"
+    NOQERI="$SRC/build/noqeri"
 fi
-
-if [[ ! -x "$NOQERI" ]]; then
-    echo "Noqeri compiler was not produced at $NOQERI" >&2
-    exit 4
-fi
-
-echo "Using $($NOQERI --version | head -n 1)"
-
-KERNEL_SOURCE="$ROOT/Kernel/main.noqeri"
-"$NOQERI" check "$KERNEL_SOURCE" -O2 --unsafe
-"$NOQERI" build "$KERNEL_SOURCE" "$OUT/kernel_noqeri.s" -O2 --unsafe
-
-if [[ ! -s "$OUT/kernel_noqeri.s" ]]; then
-    echo "Noqeri compiler produced no kernel assembly" >&2
-    exit 5
-fi
+[[ -x "$NOQERI" ]] || { echo "Noqeri compiler missing at $NOQERI" >&2; exit 4; }
+echo "Compiling kernel with $("$NOQERI" --version | head -n 1)"
+"$NOQERI" check "$ROOT/Kernel/main.noqeri" --unsafe -O2
+"$NOQERI" build "$ROOT/Kernel/main.noqeri" "$OUT/kernel_noqeri.s" --unsafe -O2
+[[ -s "$OUT/kernel_noqeri.s" ]] || { echo "Compiler emitted no assembly." >&2; exit 5; }
 
 as --64 "$OUT/kernel_noqeri.s" -o "$OUT/kernel_noqeri.o"
-as --64 "$ROOT/Arch/x86_64/entry.S" -o "$OUT/entry.o"
-as --64 "$ROOT/Arch/x86_64/arch.S" -o "$OUT/arch.o"
-as --64 "$ROOT/Arch/x86_64/interrupts.S" -o "$OUT/interrupts.o"
-as --64 "$ROOT/Arch/x86_64/userspace.S" -o "$OUT/userspace.o"
-
-ld -nostdlib -z max-page-size=0x1000 \
-   -T "$ROOT/Arch/x86_64/linker.ld" \
-   -o "$OUT/kernel.elf" \
-   "$OUT/entry.o" "$OUT/arch.o" "$OUT/interrupts.o" "$OUT/userspace.o" "$OUT/kernel_noqeri.o"
-
-if (( NATIVE_BOOT == 1 )); then
-    bash "$ROOT/Bootloader/native/build.sh"
-    echo "NoqeriOS custom BIOS disk built; QEMU boot verification is still required."
-    exit 0
-fi
-
-# Limine provides BIOS + UEFI boot while retaining our Multiboot2 kernel ABI.
-# It is deliberately NOT the native Limine protocol, which needs a new
-# memory-manager / virtual-address handoff.
-ISO_ROOT="$OUT/iso-root"
-LIMINE_DIR="${LIMINE_DIR:-$ROOT/.deps/limine}"
-if [[ ! -f "$LIMINE_DIR/limine-bios-cd.bin" || ! -f "$LIMINE_DIR/limine-uefi-cd.bin" ]]; then
-    if (( BOOTSTRAP == 0 )); then
-        echo "Limine binaries missing at $LIMINE_DIR (set LIMINE_DIR or use --bootstrap)" >&2
-        exit 4
-    fi
-    mkdir -p "$ROOT/.deps"
-    if [[ -d "$LIMINE_DIR/.git" ]]; then
-        git -C "$LIMINE_DIR" fetch --depth 1 origin v12.x
-        git -C "$LIMINE_DIR" checkout FETCH_HEAD
-    else
-        git clone --depth 1 --branch v12.x https://github.com/limine-bootloader/limine.git "$LIMINE_DIR"
-    fi
-    (cd "$LIMINE_DIR" && ./bootstrap && ./configure --enable-bios --enable-bios-cd --enable-uefi-x86-64 --enable-uefi-cd && make -j2)
-
-fi
-for asset in limine-bios.sys limine-bios-cd.bin limine-uefi-cd.bin BOOTX64.EFI; do
-    test -s "$LIMINE_DIR/$asset" || { echo "Missing Limine asset: $asset" >&2; exit 5; }
+for module in entry arch interrupts userspace; do
+    as --64 "$ROOT/Arch/x86_64/$module.S" -o "$OUT/$module.o"
 done
-test -x "$LIMINE_DIR/limine" || { echo "Missing Limine install tool" >&2; exit 5; }
-rm -rf "$ISO_ROOT"
-mkdir -p "$ISO_ROOT/boot/limine" "$ISO_ROOT/EFI/BOOT"
-cp "$OUT/kernel.elf" "$ISO_ROOT/boot/kernel.elf"
-cp "$ROOT/Bootloader/limine.conf" "$ISO_ROOT/boot/limine/limine.conf"
-cp "$LIMINE_DIR"/limine-{bios.sys,bios-cd.bin,uefi-cd.bin} "$ISO_ROOT/boot/limine/"
-cp "$LIMINE_DIR/BOOTX64.EFI" "$ISO_ROOT/EFI/BOOT/BOOTX64.EFI"
-rm -f "$OUT/noqerios.iso"
-xorriso -as mkisofs -R -r -J \
-    -b boot/limine/limine-bios-cd.bin -no-emul-boot -boot-load-size 4 \
-    -boot-info-table --efi-boot boot/limine/limine-uefi-cd.bin \
-    -efi-boot-part --efi-boot-image --protective-msdos-label \
-    "$ISO_ROOT" -o "$OUT/noqerios.iso"
-"$LIMINE_DIR/limine" bios-install "$OUT/noqerios.iso"
-
-if [[ ! -s "$OUT/noqerios.iso" ]]; then
-    echo "ISO creation reported success but build/noqerios.iso is missing or empty." >&2
+ld -nostdlib -z max-page-size=0x1000 -T "$ROOT/Arch/x86_64/linker.ld" \
+    -o "$OUT/kernel.elf" "$OUT/entry.o" "$OUT/arch.o" \
+    "$OUT/interrupts.o" "$OUT/userspace.o" "$OUT/kernel_noqeri.o"
+nm "$OUT/kernel.elf" | grep -Eq '[[:space:]]T[[:space:]]kernel_main$' || {
+    echo "No exported kernel_main after linking." >&2
     exit 5
-fi
-
-echo "NoqeriOS ISO built successfully: $OUT/noqerios.iso"
+}
+bash "$ROOT/Bootloader/native/build.sh"
+ISO_ROOT="$OUT/iso-root"
+rm -rf "$ISO_ROOT"
+mkdir -p "$ISO_ROOT/boot"
+cp "$OUT/native-boot/noqerios-native.img" "$ISO_ROOT/boot/noqerios-native.img"
+cp "$OUT/kernel.elf" "$ISO_ROOT/boot/kernel.elf"
+# El Torito floppy emulation provides the standard 512-byte sector INT 13h
+# interface used by our own stage0/stage1 BIOS loader. No GRUB or Limine.
+xorriso -as mkisofs -R -J -V NOQERIOS \
+    -b boot/noqerios-native.img -c boot/boot.cat \
+    -o "$OUT/noqerios.iso" "$ISO_ROOT"
+[[ -s "$OUT/noqerios.iso" ]] || { echo "ISO output is empty." >&2; exit 5; }
+echo "NoqeriOS custom BIOS image: $OUT/native-boot/noqerios-native.img"
+echo "NoqeriOS bootable BIOS ISO: $OUT/noqerios.iso"
