@@ -30,7 +30,7 @@ elif [[ "${NOQERIOS_UEFI_MEDIA:-iso}" != iso ]]; then
 fi
 set +e
 timeout 25s qemu-system-x86_64 \
-    -machine q35 -m "${NOQERIOS_MEMORY:-256M}" \
+    -machine q35 -vga std -m "${NOQERIOS_MEMORY:-256M}" \
     -drive if=pflash,format=raw,unit=0,readonly=on,file="$CODE" \
     -drive if=pflash,format=raw,unit=1,file="$OUT/uefi-vars-test.fd" \
     "${MEDIA_ARGS[@]}" \
@@ -50,5 +50,16 @@ if ! grep -q 'NoqeriOS UEFI: ExitBootServices OK' "$DEBUG" || \
     echo "UEFI did not reach NoqeriOS serial terminal:" >&2
     cat "$DEBUG" "$LOG" >&2
     exit 1
+fi
+# The framebuffer is optional on real machines. CI explicitly asks for
+# a GOP handoff so graphics regressions cannot hide behind serial success.
+if [[ "${NOQERIOS_REQUIRE_GOP:-0}" == 1 ]]; then
+    if ! grep -q 'uefi: supported GOP RGB framebuffer found' "$DEBUG" || \
+       ! grep -q 'NoqeriOS: 32-bit framebuffer discovered' "$LOG" || \
+       ! grep -q 'NoqeriOS: framebuffer MMIO write succeeded' "$LOG"; then
+        echo "UEFI graphics framebuffer handoff failed:" >&2
+        cat "$DEBUG" "$LOG" >&2
+        exit 1
+    fi
 fi
 echo "PASS: custom NoqeriOS UEFI bootloader reached kernel and terminal (${NOQERIOS_UEFI_MEDIA:-iso})"
