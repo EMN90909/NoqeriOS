@@ -8,8 +8,7 @@ import "ipv4.noqeri"
 // multiplexing, TCP sockets or cryptographically secure sequence numbers.
 // Never use against untrusted/public servers.
 record TcpProbe {
-    network: *Network;
-    remote: u32;
+     remote: u32;
     remoteMac: usize;
     port: u16;
     sequence: u32;
@@ -38,8 +37,7 @@ function tcp_checksum(n: *Network, tcpLength: usize): u16 {
     }
     return ((65535 as u32) - sum) as u16
 }
-function tcp_emit(t: *TcpProbe, flags: u8, payloadLength: usize): bool {
-    let n: *Network = t.network
+function tcp_emit(n: *Network, t: *TcpProbe, flags: u8, payloadLength: usize): bool {
     if payloadLength > (1200 as usize) { return false }
     if !network_ipv4(n, t.remoteMac, n.ip, t.remote, 6 as u8,
                      20 as usize + payloadLength) { return false }
@@ -59,8 +57,7 @@ function tcp_emit(t: *TcpProbe, flags: u8, payloadLength: usize): bool {
 }
 // Validate an exact 4-tuple, basic IPv4 framing, TCP checksum, and bounds.
 // Returns the packet's TCP header offset, 0 if invalid.
-function tcp_receive_valid(t: *TcpProbe, bytes: usize): usize {
-    let n: *Network = t.network
+function tcp_receive_valid(n: *Network, t: *TcpProbe, bytes: usize): usize {
     if bytes < (54 as usize) || bytes > (1514 as usize) ||
        network_read16(n.rx, 12 as usize) != (2048 as u16) ||
        network_byte(n.rx, 14 as usize) != (69 as u8) ||
@@ -99,12 +96,12 @@ function tcp_receive_valid(t: *TcpProbe, bytes: usize): usize {
     if sum != (65535 as u32) { return 0 as usize }
     return (34 as usize) + headerSize
 }
-function tcp_poll(t: *TcpProbe, tries: usize): usize {
+function tcp_poll(n: *Network, t: *TcpProbe, tries: usize): usize {
     let count: usize = 0 as usize
     while count < tries {
-        let bytes: usize = network_receive(t.network, t.network.rx,
+        let bytes: usize = network_receive(n, n.rx,
                                            2048 as usize, 150000 as usize)
-        let offset: usize = tcp_receive_valid(t, bytes)
+        let offset: usize = tcp_receive_valid(n, t, bytes)
         if offset != (0 as usize) { return offset }
         count = count + (1 as usize)
     }
@@ -120,8 +117,7 @@ function tcp_fixture_request(n: *Network): bool {
     let state: usize = arch_alloc_page()
     if state == (0 as usize) { return false }
     let t: *TcpProbe = state as *TcpProbe
-    t.network = n
-    t.remote = remote
+         t.remote = remote
     t.remoteMac = mac
     t.port = 18080 as u16
     t.sequence = 0x4e515043 as u32
@@ -131,8 +127,8 @@ function tcp_fixture_request(n: *Network): bool {
     let attempt: usize = 0 as usize
     let established: bool = false
     while attempt < (3 as usize) && !established {
-        if !tcp_emit(t, 2 as u8, 0 as usize) { return false }
-        let offset: usize = tcp_poll(t, 64 as usize)
+        if !tcp_emit(n, t, 2 as u8, 0 as usize) { return false }
+        let offset: usize = tcp_poll(n, t, 64 as usize)
         if offset != (0 as usize) {
             let flags: u8 = network_byte(n.rx, 47 as usize)
             if (flags as u32) % (4 as u32) == (2 as u32) &&
@@ -145,7 +141,7 @@ function tcp_fixture_request(n: *Network): bool {
         }
         attempt = attempt + (1 as usize)
     }
-    if !established || !tcp_emit(t, 16 as u8, 0 as usize) { return false }
+    if !established || !tcp_emit(n, t, 16 as u8, 0 as usize) { return false }
 
     // GET / HTTP/1.0, no hostname resolution or TLS. Local test only.
     // The payload is deliberately constructed from bounded bytes rather
@@ -169,7 +165,7 @@ function tcp_fixture_request(n: *Network): bool {
     network_put(n.payload, 15 as usize, 10 as u8)
     network_put(n.payload, 16 as usize, 13 as u8)
     network_put(n.payload, 17 as usize, 10 as u8)
-    if !tcp_emit(t, 24 as u8, 18 as usize) { return false }
+    if !tcp_emit(n, t, 24 as u8, 18 as usize) { return false }
     t.sequence = t.sequence + (18 as u32)
 
     let response: bool = false
@@ -203,12 +199,12 @@ function tcp_fixture_request(n: *Network): bool {
             }
             if end > offset {
                 t.acknowledgement = t.acknowledgement + ((end - offset) as u32)
-                tcp_emit(t, 16 as u8, 0 as usize)
+                tcp_emit(n, t, 16 as u8, 0 as usize)
             }
         }
         polls = polls + (1 as usize)
     }
     // Tear down with a local RST rather than leave a half-open guest socket.
-    tcp_emit(t, 20 as u8, 0 as usize)
+    tcp_emit(n, t, 20 as u8, 0 as usize)
     return response
 }
