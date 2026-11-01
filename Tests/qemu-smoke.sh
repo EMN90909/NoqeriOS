@@ -56,6 +56,8 @@ if [[ "${NOQERIOS_NETWORK:-0}" == 1 || "${NOQERIOS_NETWORK:-0}" == virtio ]]; th
     NETWORK_ARGS=(-netdev user,id=noqnet,ipv6=off -device virtio-net-pci,netdev=noqnet,disable-legacy=on,mac=52:54:00:12:34:56)
 elif [[ "${NOQERIOS_NETWORK:-0}" == e1000 ]]; then
     NETWORK_ARGS=(-netdev user,id=noqnet,ipv6=off -device e1000,netdev=noqnet,mac=52:54:00:12:34:56)
+elif [[ "${NOQERIOS_NETWORK:-0}" == rtl8139 ]]; then
+    NETWORK_ARGS=(-netdev user,id=noqnet,ipv6=off -device rtl8139,netdev=noqnet,mac=52:54:00:12:34:56)
 fi
 rm -f "$LOG" "$DEBUG_LOG"
 set +e
@@ -112,9 +114,11 @@ grep -q "NoqeriOS: modular monolith core services online" "$LOG"
 grep -q "NoqeriOS: bootstrap milestone complete" "$LOG"
 grep -q "NoqeriOS serial terminal ready" "$LOG"
 
-if [[ "${NOQERIOS_NETWORK:-0}" == 1 || "${NOQERIOS_NETWORK:-0}" == virtio || "${NOQERIOS_NETWORK:-0}" == e1000 ]]; then
+if [[ "${NOQERIOS_NETWORK:-0}" == 1 || "${NOQERIOS_NETWORK:-0}" == virtio || "${NOQERIOS_NETWORK:-0}" == e1000 || "${NOQERIOS_NETWORK:-0}" == rtl8139 ]]; then
     if [[ "${NOQERIOS_NETWORK:-0}" == e1000 ]]; then
         grep -q "NoqeriOS: Intel 82540EM Ethernet DMA RX/TX queues online" "$LOG"
+    elif [[ "${NOQERIOS_NETWORK:-0}" == rtl8139 ]]; then
+        grep -q "NoqeriOS: Realtek RTL8139 Ethernet DMA RX/TX online" "$LOG"
     else
         grep -q "NoqeriOS: VirtIO Ethernet DMA RX/TX queues online" "$LOG"
     fi
