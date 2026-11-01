@@ -66,6 +66,7 @@ jobs:
           PY
 
       - name: Prepare Limine bootloader
+        if: false
         run: |
           git clone --depth 1 --branch v12.x https://github.com/limine-bootloader/limine.git .deps/limine
           cd .deps/limine
