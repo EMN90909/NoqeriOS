@@ -234,7 +234,10 @@ function gui_open(info: usize): *GuiDesktop {
     g.swapRedBlue = false
     // RGB framebuffer channel positions are in tag offsets 32-37.
     if fb.size >= (38 as u32) {
-        let red: u8 = (tag + (32 as usize) as usize) as *u8 as u8
+        let channels: *u8 = (tag + (32 as usize)) as *u8
+        // GOP RGB encoding has red in the least significant byte.
+        g.swapRedBlue = channels[0] == (0 as u8) &&
+                        channels[4] == (16 as u8)
     }
     g.focused = 0 as usize
     g.selectedAction = 0 as usize
