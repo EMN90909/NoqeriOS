@@ -244,7 +244,7 @@ static BOOLEAN make_mb2(UINT8 *dest, UINTN capacity, EFI_MEMORY_DESCRIPTOR *map,
     return TRUE;
 }
 
-EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st) {
+EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st) {
     InitializeLib(image, st);
     log_debug("NoqeriOS UEFI: entered firmware application\n");
     log_debug("uefi:before-console-print\n");
