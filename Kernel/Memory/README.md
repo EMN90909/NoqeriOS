@@ -4,7 +4,7 @@ This directory contains the first native Noqeri memory-management layer that rep
 
 ## Physical memory
 
-`pmm.nqr` owns frame state from the complete Multiboot2 memory map. It uses two bitmaps: an allocation bitmap and a reservation bitmap. The reservation bitmap prevents `pmm_free_page` from releasing firmware/kernel/bootstrap pages by accident.
+`pmm.noqeri` owns frame state from the complete Multiboot2 memory map. It uses two bitmaps: an allocation bitmap and a reservation bitmap. The reservation bitmap prevents `pmm_free_page` from releasing firmware/kernel/bootstrap pages by accident.
 
 Initialization starts with every frame unavailable, releases only Multiboot type-1 usable frames, then re-reserves critical ranges. The initial protected set includes low legacy memory, the kernel and PMM bootstrap metadata, Multiboot information, and the current 4-8 MiB ring-3 regression-test area.
 
@@ -14,13 +14,13 @@ The old `arch_alloc_page` interface remains temporarily for existing drivers. Af
 
 ## Virtual memory
 
-`vmm.nqr` implements four-level x86-64 page-table walking for 4 KiB mappings and recognizes existing 2 MiB bootstrap mappings during translation. It can create an address-space root that shares the current bootstrap low mapping, map/unmap/protect pages, translate addresses, invalidate TLB entries, and switch CR3 through the architecture API.
+`vmm.noqeri` implements four-level x86-64 page-table walking for 4 KiB mappings and recognizes existing 2 MiB bootstrap mappings during translation. It can create an address-space root that shares the current bootstrap low mapping, map/unmap/protect pages, translate addresses, invalidate TLB entries, and switch CR3 through the architecture API.
 
 Page-table flags are intentionally constructed arithmetically because the current Noqeri language has no bitwise operators. NX is not enabled in this batch because current Noqeri integer literals/NIR constants cannot safely express bit 63. That compiler limitation is recorded rather than hidden.
 
 ## Kernel heap
 
-`heap.nqr` is a reusable page-backed free-list allocator. Each heap page starts as one free block; allocations split blocks and frees coalesce adjacent blocks within a page. The allocator tracks allocations, frees, bytes in use, and backing pages. The implementation intentionally keeps completely free pages cached in the heap for now; page return can be added after heap ownership is used by more kernel objects.
+`heap.noqeri` is a reusable page-backed free-list allocator. Each heap page starts as one free block; allocations split blocks and frees coalesce adjacent blocks within a page. The allocator tracks allocations, frees, bytes in use, and backing pages. The implementation intentionally keeps completely free pages cached in the heap for now; page return can be added after heap ownership is used by more kernel objects.
 
 ## Invariants
 

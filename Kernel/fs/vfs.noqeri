@@ -1,8 +1,8 @@
 module os.kernel.fs.vfs
 
-import "../../Arch/x86_64/api.nqr"
-import "types.nqr"
-import "noqfs.nqr"
+import "../../Arch/x86_64/api.noqeri"
+import "types.noqeri"
+import "noqfs.noqeri"
 
 function vfs_mount_noqfs(blockLocation: u32, mount: *VfsMount): bool {
     return noqfs_mount(blockLocation, mount)

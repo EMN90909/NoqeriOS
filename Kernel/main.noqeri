@@ -1,19 +1,19 @@
 module os.kernel
 
-import "../Arch/x86_64/api.nqr"
-import "../Drivers/serial.nqr"
-import "../Drivers/framebuffer.nqr"
-import "../Drivers/pci.nqr"
-import "../Drivers/virtio.nqr"
-import "../Drivers/virtio_rng.nqr"
-import "../Drivers/virtio_block.nqr"
-import "memory.nqr"
-import "Memory/pmm.nqr"
-import "Memory/vmm.nqr"
-import "Memory/heap.nqr"
-import "scheduler.nqr"
-import "syscall.nqr"
-import "fs/vfs.nqr"
+import "../Arch/x86_64/api.noqeri"
+import "../Drivers/serial.noqeri"
+import "../Drivers/framebuffer.noqeri"
+import "../Drivers/pci.noqeri"
+import "../Drivers/virtio.noqeri"
+import "../Drivers/virtio_rng.noqeri"
+import "../Drivers/virtio_block.noqeri"
+import "memory.noqeri"
+import "Memory/pmm.noqeri"
+import "Memory/vmm.noqeri"
+import "Memory/heap.noqeri"
+import "scheduler.noqeri"
+import "syscall.noqeri"
+import "fs/vfs.noqeri"
 
 export function kernel_main(multibootInfo: usize): void {
     arch_cli()

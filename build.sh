@@ -111,10 +111,7 @@ fi
 
 echo "Using $($NOQERI --version | head -n 1)"
 
-# The modern language accepts .noqeri, not the historical .nqr extension.
-# Stage migrated sources in the build directory so original files remain intact.
-python3 "$ROOT/Tools/migrate_sources.py" "$ROOT" "$OUT/source"
-KERNEL_SOURCE="$OUT/source/Kernel/main.noqeri"
+KERNEL_SOURCE="$ROOT/Kernel/main.noqeri"
 "$NOQERI" check "$KERNEL_SOURCE" -O2
 "$NOQERI" build "$KERNEL_SOURCE" "$OUT/kernel_noqeri.s" -O2
 

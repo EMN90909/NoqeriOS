@@ -1,6 +1,6 @@
 module os.kernel.memory.pmm
 
-import "../memory.nqr"
+import "../memory.noqeri"
 
 record PhysicalMemoryManager {
     usedBitmap: *u8;

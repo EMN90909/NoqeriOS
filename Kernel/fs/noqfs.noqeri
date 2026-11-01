@@ -1,8 +1,8 @@
 module os.kernel.fs.noqfs
 
-import "../../Arch/x86_64/api.nqr"
-import "../../Drivers/virtio_block.nqr"
-import "types.nqr"
+import "../../Arch/x86_64/api.noqeri"
+import "../../Drivers/virtio_block.noqeri"
+import "types.noqeri"
 
 function noqfs_mount(blockLocation: u32, mount: *VfsMount): bool {
     if mount == null { return false }

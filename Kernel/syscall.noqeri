@@ -1,6 +1,6 @@
 module os.kernel.syscall
 
-import "../Arch/x86_64/api.nqr"
+import "../Arch/x86_64/api.noqeri"
 
 function syscall_not_supported(): isize {
     return -38

@@ -1,6 +1,6 @@
 module os.drivers.virtio
 
-import "pci.nqr"
+import "pci.noqeri"
 
 function virtio_find_capability(location: u32, wantedType: u8): u32 {
     if location == (65536 as u32) { return 0 as u32 }

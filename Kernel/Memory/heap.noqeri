@@ -1,6 +1,6 @@
 module os.kernel.memory.heap
 
-import "pmm.nqr"
+import "pmm.noqeri"
 
 record HeapBlock {
     size: usize;

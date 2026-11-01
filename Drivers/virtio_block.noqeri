@@ -1,6 +1,6 @@
 module os.drivers.virtio_block
 
-import "virtio.nqr"
+import "virtio.noqeri"
 
 function virtio_block_read_sector(location: u32, sector: u64, bufferPage: usize): bool {
     if location == (65536 as u32) || bufferPage == 0 { return false }

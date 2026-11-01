@@ -1,6 +1,6 @@
 module os.drivers.virtio_rng
 
-import "virtio.nqr"
+import "virtio.noqeri"
 
 function virtio_rng_dma_test(location: u32): bool {
     if !virtio_begin_driver(location) { return false }

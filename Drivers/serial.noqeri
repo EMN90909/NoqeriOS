@@ -1,6 +1,6 @@
 module os.drivers.serial
 
-import "../Arch/x86_64/api.nqr"
+import "../Arch/x86_64/api.noqeri"
 
 function serial_init(): void {
     arch_out8(1017 as u16, 0 as u8)

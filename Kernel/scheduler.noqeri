@@ -1,6 +1,6 @@
 module os.kernel.scheduler
 
-import "process.nqr"
+import "process.noqeri"
 
 record KernelScheduler {
     readyHead: *KernelProcess;

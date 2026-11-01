@@ -27,15 +27,15 @@ NoqeriOS is not a Linux kernel port. It owns its kernel and native ABI. Linux/PO
 ```text
 Arch/x86_64/       bootstrap, CPU, interrupt and ring-3 transition code
 Kernel/
-  main.nqr          architecture-neutral boot orchestration
-  memory.nqr        bootstrap physical memory discovery/allocation
-  process.nqr       kernel process model
-  scheduler.nqr     round-robin ready queue
-  syscall.nqr       native syscall dispatcher
+  main.noqeri          architecture-neutral boot orchestration
+  memory.noqeri        bootstrap physical memory discovery/allocation
+  process.noqeri       kernel process model
+  scheduler.noqeri     round-robin ready queue
+  syscall.noqeri       native syscall dispatcher
   fs/
-    types.nqr       VFS mount/node contracts
-    vfs.nqr         filesystem dispatch facade
-    noqfs.nqr       NoqFS mount, root lookup and file reads
+    types.noqeri       VFS mount/node contracts
+    vfs.noqeri         filesystem dispatch facade
+    noqfs.noqeri       NoqFS mount, root lookup and file reads
 Drivers/            PCI, serial, framebuffer and VirtIO drivers
 Tests/              deterministic QEMU boot/integration tests
 build.sh            Linux/WSL ISO builder
@@ -69,15 +69,7 @@ You can also provide an existing compiler explicitly:
 NOQERI=/path/to/noqeri bash ./build.sh --no-bootstrap
 ```
 
-Current Noqeri uses the **.noqeri** source extension. NoqeriOS still stores its historical kernel modules as .nqr while compatibility is qualified. The build now runs `Tools/migrate_sources.py` to stage rewritten modules under `build/source/` and changes only import filename suffixes. It compiles `build/source/Kernel/main.noqeri` without modifying the originals. The staged source is not evidence that the kernel has passed compiler or QEMU conformance.
-
-The source migration can be verified independently with:
-
-```sh
-python3 -m unittest discover -s Tests -p 'test_*.py'
-```
-
-The compiler checkout must provide the current Noqeri CLI and freestanding target; the build uses the minimal `noqeri` CMake target with `NOQERI_GRAPHICS_PORTABLE_BUILD=ON`. Compiler source may be supplied next to the OS checkout or downloaded by `--bootstrap`.
+All kernel, driver, and architecture source files use the canonical `.noqeri` extension. `build.sh` checks and compiles `Kernel/main.noqeri` directly, including its imported modules. No source-copy or rename stage is required.
 
 The Noqeri compiler itself is built by CMake with the host C/C++ toolchain. GNU binutils and GRUB/xorriso then produce the freestanding kernel and ISO image.
 

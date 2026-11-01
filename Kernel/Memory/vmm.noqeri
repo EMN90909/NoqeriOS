@@ -1,7 +1,7 @@
 module os.kernel.memory.vmm
 
-import "../../Arch/x86_64/api.nqr"
-import "pmm.nqr"
+import "../../Arch/x86_64/api.noqeri"
+import "pmm.noqeri"
 
 record AddressSpace {
     rootPhysical: usize;
