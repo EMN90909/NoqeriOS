@@ -1,21 +1,29 @@
-# Limine boot integration
+# NoqeriOS-owned bootloader
 
-The official Limine v12 boot manager replaces GRUB. The configured entry uses
-Limine's **Multiboot2 compatibility protocol**, retaining the current kernel
-ABI and memory-map parser.
+The default Linux build produces a BIOS-bootable ISO with **only NoqeriOS's
+own first- and second-stage loader**. No GRUB or Limine code is used.
 
-Boot chain: BIOS/UEFI -> Limine -> Multiboot2 x86 entry ->
-Arch/x86_64/entry.S -> Kernel/main.noqeri.
+- `native/stage0.S`: 512-byte BIOS boot sector, INT 13h EDD/CHS reads.
+- `native/stage1.S`: E820 discovery, A20, ELF64 segments and Multiboot2
+  handoff; minimal x86 assembly required before Noqeri can execute.
+- `native/image.py`: validates kernel ELF and constructs a 1.44 MiB boot
+  floppy image for El Torito BIOS emulation.
+- `handoff.noqeri`: checks the boot info passed to the Noqeri kernel.
 
-Configuration: Bootloader/limine.conf.
+From Linux (or Linux inside WSL):
 
-To build: bash build.sh --bootstrap
-To verify the kernel: bash Tests/qemu-smoke.sh
+```bash
+bash build.sh --bootstrap
+bash Tests/qemu-smoke.sh
+```
 
-The builder creates a hybrid BIOS/UEFI ISO using Limine's upstream
-boot binaries and xorriso. The bootloader executable is upstream Limine,
-not a Noqeri reimplementation. The kernel and handoff validation are Noqeri.
+The output is `build/noqerios.iso`; test interactively using:
 
-Do not set protocol: limine yet: native Limine needs request/response
-structures, HHDM-aware memory management and a 64-bit protocol entry.
-A successfully generated ISO is not a confirmed QEMU boot.
+```bash
+qemu-system-x86_64 -m 256M -cdrom build/noqerios.iso -boot d -serial mon:stdio -display none
+```
+
+BIOS x86-64 is supported. A native UEFI bootloader, full filesystem loading,
+boot menu, SMP and higher-half Limine protocol are separate future projects.
+The ordinary x86 processor bring-up code is assembly; the kernel and
+interactive terminal are written in Noqeri.

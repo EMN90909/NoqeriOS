@@ -1,11 +1,26 @@
-# NoqeriOS custom BIOS kernel bootloader
+# NoqeriOS native BIOS boot chain
 
-This repository owns the BIOS boot sector, second-stage ELF loader and Noqeri boot-information validator. No Limine or GRUB binary is included in the custom raw disk image.
+The custom loader uses LBA0 for its stage0 boot sector, LBA1–32 for stage1,
+and LBA33–1056 for the ELF64 kernel (maximum 512 KiB). The image is padded
+to exactly 1.44 MiB for BIOS El Torito floppy emulation.
 
-The BIOS boot sector reads stage1 from LBA 1. Stage1 queries BIOS E820, constructs a minimal Multiboot2 memory-map tag, uses INT 13h extended reads to load a fixed 512 KiB ELF64 region from LBA 33, enables A20, enters 32-bit protected mode, copies ELF PT_LOAD segments to physical addresses, zero-fills BSS and jumps to the original kernel's 32-bit Multiboot2 entry with EAX magic and EBX boot-info pointer. The kernel itself enters long mode and runs the Noqeri entry.
+Stage0 reads stage1 via INT 13h extensions or CHS fallback. Stage1 obtains
+an E820 physical memory map, enables A20, reads the kernel via EDD or CHS,
+enters 32-bit protected mode, loads ELF64 PT_LOAD segments, and jumps to
+the kernel's Multiboot2-compatible 32-bit entry. The architecture shim
+switches to long mode and enters the Noqeri kernel.
 
-The loader intentionally has tight restrictions: BIOS x86 only, fixed image offsets, x86-64 executable ELF with 32-bit physical segment addresses, image <=512 KiB, no disk filesystem or general-purpose boot menu. UEFI, framebuffer mode negotiation, ACPI and Limine protocol parity are not implemented.
+Linux builds and tests:
 
-Build the existing kernel first with `bash build.sh --bootstrap`, then `bash Bootloader/native/build.sh`. Boot in QEMU using `qemu-system-x86_64 -drive format=raw,file=build/native-boot/noqerios-native.img -serial stdio -display none`.
+```sh
+bash build.sh --bootstrap
+bash Tests/qemu-smoke.sh
+```
 
-**Do not treat these code paths as verified until compilation, ELF checking and the QEMU serial smoke test pass.** The legacy Limine ISO remains a fallback while custom boot verification is incomplete.
+Use `-serial mon:stdio` and `-display none` to interact with the COM1
+terminal. Boot debugging is emitted to QEMU ISA port 0xe9.
+
+**Limits:** legacy BIOS only, 1.44 MiB boot media, fixed layout, ELF64
+without relocation, no EFI protocol, full ACPI discovery, filesystem boot
+loader or graphical shell. The kernel's own VirtIO filesystem is separate.
+A passing ISO creation is not proof of a passing QEMU kernel smoke test.
