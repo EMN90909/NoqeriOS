@@ -1,0 +1,189 @@
+module os.drivers.e1000
+
+import "pci.noqeri"
+import "../Arch/x86_64/api.noqeri"
+
+// Intel 82540EM (PCI 8086:100e) early polling adapter.
+// Uses 8254x indirect I/O BAR (IOADDR/IODATA), NOT generic MMIO.
+// One 8-entry legacy RX and TX ring, 2048-byte RX DMA buffers.
+// This is hardware-family-specific bring-up; not e1000e, igb or igc.
+record E1000Net {
+    location: u32;
+    ioBase: u16;
+    mac: *u8;
+    rxDesc: usize;
+    txDesc: usize;
+    rxBuffers: usize;
+    txBuffer: usize;
+    rxNext: usize;
+    txNext: usize;
+    ready: bool;
+}
+function e1000_reg_read(net: *E1000Net, offset: u32): u32 {
+    arch_out32(net.ioBase, offset)
+    return arch_in32((net.ioBase + (4 as u16)) as u16)
+}
+function e1000_reg_write(net: *E1000Net, offset: u32, value: u32): void {
+    arch_out32(net.ioBase, offset)
+    arch_out32((net.ioBase + (4 as u16)) as u16, value)
+}
+function e1000_clear(base: usize, count: usize): void {
+    let p: *u8 = base as *u8
+    let i: usize = 0 as usize
+    while i < count {
+        p[i] = 0 as u8
+        i = i + (1 as usize)
+    }
+}
+function e1000_open(location: u32, net: *E1000Net): bool {
+    if net == null || location == (65536 as u32) { return false }
+    net.ready = false
+    net.location = location
+    let bus: u32 = pci_location_bus(location)
+    let slot: u32 = pci_location_slot(location)
+    let fn: u32 = pci_location_fn(location)
+    if pci_vendor_id(bus, slot, fn) != (32902 as u16) ||
+       pci_device_id(bus, slot, fn) != (4110 as u16) { return false }
+
+    let bar: u32 = pci_read32(bus, slot, fn, 20 as u32)
+    // BAR1 must describe an I/O port range (82540EM indirect register path).
+    if bar % (2 as u32) != (1 as u32) { return false }
+    let io: u32 = bar - (bar % (4 as u32))
+    if io < (256 as u32) || io > (65520 as u32) { return false }
+    net.ioBase = io as u16
+    pci_enable_device(location)
+    e1000_reg_write(net, 0x00d8 as u32, 4294967295 as u32) // IMC
+
+    let ral: u32 = e1000_reg_read(net, 0x5400 as u32)
+    let rah: u32 = e1000_reg_read(net, 0x5404 as u32)
+    if ((rah / (2147483648 as u32)) % (2 as u32)) == (0 as u32) {
+        return false // RAH valid bit absent; avoid inventing MAC
+    }
+
+    let macPage: usize = arch_alloc_page()
+    net.rxDesc = arch_alloc_page()
+    net.txDesc = arch_alloc_page()
+    net.txBuffer = arch_alloc_page()
+    net.rxBuffers = arch_alloc_page()
+    if macPage == 0 || net.rxDesc == 0 || net.txDesc == 0 ||
+       net.txBuffer == 0 || net.rxBuffers == 0 { return false }
+    // 8 x 2048-byte buffers; 4 pages total, need contiguous memory.
+    // The first page was allocated above; allocate the other three
+    // sequentially from the PMM-backed compatibility pool.
+    let i: usize = 1 as usize
+    while i < (4 as usize) {
+        let page: usize = arch_alloc_page()
+        if page != net.rxBuffers + i * (4096 as usize) { return false }
+        i = i + (1 as usize)
+    }
+    net.mac = macPage as *u8
+    net.mac[0] = (ral % (256 as u32)) as u8
+    net.mac[1] = ((ral / (256 as u32)) % (256 as u32)) as u8
+    net.mac[2] = ((ral / (65536 as u32)) % (256 as u32)) as u8
+    net.mac[3] = (ral / (16777216 as u32)) as u8
+    net.mac[4] = (rah % (256 as u32)) as u8
+    net.mac[5] = ((rah / (256 as u32)) % (256 as u32)) as u8
+    e1000_clear(net.rxDesc, 4096 as usize)
+    e1000_clear(net.txDesc, 4096 as usize)
+    e1000_clear(net.rxBuffers, 16384 as usize)
+    e1000_clear(net.txBuffer, 4096 as usize)
+    let j: usize = 0 as usize
+    while j < (8 as usize) {
+        let address: *u64 = (net.rxDesc + j * (16 as usize)) as *u64
+        address[0] = (net.rxBuffers + j * (2048 as usize)) as u64
+        j = j + (1 as usize)
+    }
+
+    // Turn off RX/TX while programming base/length/head/tail.
+    e1000_reg_write(net, 0x0100 as u32, 0 as u32)
+    e1000_reg_write(net, 0x0400 as u32, 0 as u32)
+    e1000_reg_write(net, 0x2800 as u32, net.rxDesc as u32)
+    e1000_reg_write(net, 0x2804 as u32, 0 as u32)
+    e1000_reg_write(net, 0x2808 as u32, 128 as u32)
+    e1000_reg_write(net, 0x2810 as u32, 0 as u32)
+    e1000_reg_write(net, 0x2818 as u32, 7 as u32)
+    e1000_reg_write(net, 0x3800 as u32, net.txDesc as u32)
+    e1000_reg_write(net, 0x3804 as u32, 0 as u32)
+    e1000_reg_write(net, 0x3808 as u32, 128 as u32)
+    e1000_reg_write(net, 0x3810 as u32, 0 as u32)
+    e1000_reg_write(net, 0x3818 as u32, 0 as u32)
+    // Inter-packet gap and TX config: EN | PSP | CT=16 | COLD=64.
+    e1000_reg_write(net, 0x0410 as u32, 0x0060200a as u32)
+    e1000_reg_write(net, 0x0400 as u32, 0x0040010a as u32)
+    // RCTL EN | BAM | SECRC, 2048 byte buffers; drop bad packets.
+    e1000_reg_write(net, 0x0100 as u32, 0x04008002 as u32)
+    net.rxNext = 0 as usize
+    net.txNext = 0 as usize
+    net.ready = true
+    return true
+}
+function e1000_send(net: *E1000Net, frame: usize, bytes: usize): bool {
+    if net == null || !net.ready || frame == 0 ||
+       bytes < (14 as usize) || bytes > (1514 as usize) { return false }
+    let source: *u8 = frame as *u8
+    let buffer: *u8 = net.txBuffer as *u8
+    let i: usize = 0 as usize
+    while i < bytes {
+        buffer[i] = source[i]
+        i = i + (1 as usize)
+    }
+    let desc: usize = net.txDesc + net.txNext * (16 as usize)
+    let address: *u64 = desc as *u64
+    let length: *u16 = (desc + (8 as usize)) as *u16
+    let command: *u8 = (desc + (11 as usize)) as *u8
+    let status: *volatile u8 = (desc + (12 as usize)) as *volatile u8
+    address[0] = net.txBuffer as u64
+    length[0] = bytes as u16
+    status[0] = 0 as u8
+    command[0] = 11 as u8 // EOP | IFCS | RS
+    atomicFence()
+    net.txNext = (net.txNext + (1 as usize)) % (8 as usize)
+    e1000_reg_write(net, 0x3818 as u32, net.txNext as u32)
+    let spins: usize = 0 as usize
+    while status[0] % (2 as u8) != (1 as u8) && spins < (4000000 as usize) {
+        arch_pause()
+        spins = spins + (1 as usize)
+    }
+    return status[0] % (2 as u8) == (1 as u8)
+}
+function e1000_receive(net: *E1000Net, dest: usize, capacity: usize, timeout: usize): usize {
+    if net == null || !net.ready || dest == 0 || capacity < (60 as usize) { return 0 as usize }
+    let desc: usize = net.rxDesc + net.rxNext * (16 as usize)
+    let length: *volatile u16 = (desc + (8 as usize)) as *volatile u16
+    let status: *volatile u8 = (desc + (12 as usize)) as *volatile u8
+    let errors: *volatile u8 = (desc + (13 as usize)) as *volatile u8
+    let spins: usize = 0 as usize
+    while (status[0] % (2 as u8)) == (0 as u8) && spins < timeout {
+        arch_pause()
+        spins = spins + (1 as usize)
+    }
+    if (status[0] % (2 as u8)) == (0 as u8) { return 0 as usize }
+    atomicFence()
+    let bytes: usize = length[0] as usize
+    let received: usize = 0 as usize
+    if errors[0] == (0 as u8) && (status[0] / (2 as u8)) % (2 as u8) == (1 as u8) &&
+       bytes >= (14 as usize) && bytes <= (1514 as usize) && bytes <= capacity {
+        let source: *u8 = (net.rxBuffers + net.rxNext * (2048 as usize)) as *u8
+        let destination: *u8 = dest as *u8
+        let i: usize = 0 as usize
+        while i < bytes {
+            destination[i] = source[i]
+            i = i + (1 as usize)
+        }
+        received = bytes
+    }
+    let reclaimed: usize = net.rxNext
+    status[0] = 0 as u8
+    net.rxNext = (net.rxNext + (1 as usize)) % (8 as usize)
+    atomicFence()
+    e1000_reg_write(net, 0x2818 as u32, reclaimed as u32)
+    return received
+}
+function e1000_close(net: *E1000Net): void {
+    if net != null && net.ready {
+        e1000_reg_write(net, 0x00d8 as u32, 4294967295 as u32)
+        e1000_reg_write(net, 0x0100 as u32, 0 as u32)
+        e1000_reg_write(net, 0x0400 as u32, 0 as u32)
+        net.ready = false
+    }
+}
