@@ -104,10 +104,10 @@ function network_ipv4(n: *Network, targetMac: usize, src: u32, dst: u32, protoco
     network_write16(n.frame, 24 as usize, network_checksum(n.frame, 14 as usize, 20 as usize))
     return true
 }
-function network_udp_send(n: *Network, targetMac: usize, srcIp: u32, dstIp: u32,
+function network_udp_send(n: *Network, targetMac: usize, dstIp: u32,
                           srcPort: u16, dstPort: u16, payloadSize: usize): bool {
     if payloadSize > (1472 as usize) { return false }
-    if !network_ipv4(n, targetMac, srcIp, dstIp, 17 as u8, payloadSize + (8 as usize)) {
+    if !network_ipv4(n, targetMac, n.ip, dstIp, 17 as u8, payloadSize + (8 as usize)) {
         return false
     }
     network_write16(n.frame, 34 as usize, srcPort)
@@ -149,7 +149,7 @@ function network_dhcp_send(n: *Network, kind: u8): bool {
     let broadcast: usize = n.frame + (2048 as usize)
     // n.frame is a page; use its end as a transient FF:FF:FF:FF:FF:FF MAC.
     network_fill(broadcast, 0 as usize, 6 as usize, 255 as u8)
-    return network_udp_send(n, broadcast, 0 as u32, 4294967295 as u32,
+    return network_udp_send(n, broadcast, 4294967295 as u32,
                             68 as u16, 67 as u16, 300 as usize)
 }
 function network_is_dhcp(n: *Network, bytes: usize): bool {
