@@ -77,6 +77,59 @@ function dns_parse_a(frame: usize, length: usize, dnsServer: u32): u32 {
     }
     return 0 as u32
 }
+// Deterministic offline regression: valid A answer, wrong transaction,
+// foreign DNS server and truncated packet must not be accepted.
+function dns_fixture_self_test(): bool {
+    let frame: usize = arch_alloc_page()
+    if frame == (0 as usize) { return false }
+    network_fill(frame, 0 as usize, 128 as usize, 0 as u8)
+    network_write16(frame, 12 as usize, 2048 as u16)
+    network_put(frame, 14 as usize, 69 as u8)
+    network_put(frame, 23 as usize, 17 as u8)
+    network_write16(frame, 16 as usize, 73 as u16)
+    network_write32(frame, 26 as usize, 0x0a000203 as u32)
+    network_write16(frame, 34 as usize, 53 as u16)
+    network_write16(frame, 36 as usize, 53000 as u16)
+    network_write16(frame, 38 as usize, 53 as u16)
+    network_write16(frame, 42 as usize, 0x4e51 as u16)
+    network_write16(frame, 44 as usize, 0x8180 as u16)
+    network_write16(frame, 46 as usize, 1 as u16)
+    network_write16(frame, 48 as usize, 1 as u16)
+    network_put(frame, 54 as usize, 7 as u8)
+    network_put(frame, 55 as usize, 101 as u8)
+    network_put(frame, 56 as usize, 120 as u8)
+    network_put(frame, 57 as usize, 97 as u8)
+    network_put(frame, 58 as usize, 109 as u8)
+    network_put(frame, 59 as usize, 112 as u8)
+    network_put(frame, 60 as usize, 108 as u8)
+    network_put(frame, 61 as usize, 101 as u8)
+    network_put(frame, 62 as usize, 3 as u8)
+    network_put(frame, 63 as usize, 99 as u8)
+    network_put(frame, 64 as usize, 111 as u8)
+    network_put(frame, 65 as usize, 109 as u8)
+    network_put(frame, 66 as usize, 0 as u8)
+    network_write16(frame, 67 as usize, 1 as u16)
+    network_write16(frame, 69 as usize, 1 as u16)
+    network_put(frame, 71 as usize, 192 as u8)
+    network_put(frame, 72 as usize, 12 as u8)
+    network_write16(frame, 73 as usize, 1 as u16)
+    network_write16(frame, 75 as usize, 1 as u16)
+    network_write32(frame, 77 as usize, 60 as u32)
+    network_write16(frame, 81 as usize, 4 as u16)
+    network_write32(frame, 83 as usize, 0xcb007107 as u32)
+    if dns_parse_a(frame, 87 as usize, 0x0a000203 as u32) != (0xcb007107 as u32) {
+        return false
+    }
+    if dns_parse_a(frame, 86 as usize, 0x0a000203 as u32) != (0 as u32) {
+        return false
+    }
+    if dns_parse_a(frame, 87 as usize, 0x0a000204 as u32) != (0 as u32) {
+        return false
+    }
+    network_write16(frame, 42 as usize, 0x0000 as u16)
+    return dns_parse_a(frame, 87 as usize, 0x0a000203 as u32) == (0 as u32)
+}
+
 function network_dns_example(n: *Network): u32 {
     if n == null || !n.online || n.dns == (0 as u32) { return 0 as u32 }
     // DNS wire header: query ID 'NQ', recursion desired, QDCOUNT=1.
