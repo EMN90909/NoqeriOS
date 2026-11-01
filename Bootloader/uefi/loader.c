@@ -44,13 +44,13 @@ typedef struct __attribute__((packed)) {
 static EFI_GUID loaded_image_guid = EFI_LOADED_IMAGE_PROTOCOL_GUID;
 static EFI_GUID filesystem_guid = EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID;
 
-static void log_debug(const CHAR8 *s) {
+static void log_debug(const char *s) {
     while (*s) {
         UINT8 b = (UINT8) *s++;
         __asm__ volatile("outb %0, $0xe9" : : "a"(b));
     }
 }
-static BOOLEAN eq(const CHAR8 *a, const CHAR8 *b) {
+static BOOLEAN eq(const char *a, const char *b) {
     while (*a && *b) if (*a++ != *b++) return FALSE;
     return *a == *b;
 }
@@ -66,8 +66,8 @@ static void bytes_zero(void *to, UINTN count) {
     UINT8 *d = to;
     for (UINTN i = 0; i < count; ++i) d[i] = 0;
 }
-static EFI_STATUS fail(EFI_STATUS status, const CHAR16 *message, const CHAR8 *debug) {
-    Print(L"NoqeriOS UEFI: %s (%r)\r\n", message, status);
+static EFI_STATUS fail(EFI_STATUS status, const CHAR16 *message, const char *debug) {
+    (void)message;
     log_debug(debug);
     return status;
 }
@@ -81,11 +81,14 @@ static EFI_STATUS read_kernel(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *st,
     EFI_STATUS status = uefi_call_wrapper(st->BootServices->HandleProtocol, 3,
                                         image_handle, &loaded_image_guid, (VOID **)&loaded);
     if (EFI_ERROR(status)) return status;
+    log_debug("uefi: loaded image protocol OK\n");
     status = uefi_call_wrapper(st->BootServices->HandleProtocol, 3,
                               loaded->DeviceHandle, &filesystem_guid, (VOID **)&volume);
     if (EFI_ERROR(status)) return status;
+    log_debug("uefi: filesystem protocol OK\n");
     status = uefi_call_wrapper(volume->OpenVolume, 2, volume, &root);
     if (EFI_ERROR(status)) return status;
+    log_debug("uefi: opened boot volume\n");
     status = uefi_call_wrapper(root->Open, 5, root, &file,
                               L"\\EFI\\BOOT\\KERNEL.ELF", EFI_FILE_MODE_READ, 0);
     if (EFI_ERROR(status)) {
@@ -93,6 +96,7 @@ static EFI_STATUS read_kernel(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *st,
         return status;
     }
     /* One extra byte lets us reject oversized images without trusting file metadata. */
+    log_debug("uefi: opened kernel file\n");
     status = uefi_call_wrapper(st->BootServices->AllocatePool, 3,
                               EfiLoaderData, MAX_ELF + 1, (VOID **)contents);
     if (!EFI_ERROR(status)) {
@@ -244,7 +248,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st) {
     InitializeLib(image, st);
     log_debug("NoqeriOS UEFI: entered firmware application\n");
     log_debug("uefi:before-console-print\n");
-    Print(L"NoqeriOS UEFI loader: opening kernel ELF\r\n");
+    log_debug("NoqeriOS UEFI: reading kernel file\n");
     log_debug("uefi:after-console-print\n");
     UINT8 *kernel = NULL;
     UINTN kernel_size = 0;
@@ -266,9 +270,10 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st) {
     status = uefi_call_wrapper(st->BootServices->AllocatePool, 3, EfiLoaderData,
                                MAX_MEMMAP, (VOID **)&map);
     if (EFI_ERROR(status)) return fail(status, L"Cannot reserve firmware memory map", "uefi:no-map\n");
-    Print(L"NoqeriOS UEFI: kernel loaded, exiting boot services\r\n");
+    log_debug("NoqeriOS UEFI: kernel loaded, exiting boot services\n");
     log_debug("NoqeriOS UEFI: ELF loaded, preparing handoff\n");
-    UINTN key = 0, desc_size = 0, map_size, desc_version = 0;
+    UINTN key = 0, desc_size = 0, map_size = 0;
+    UINT32 desc_version = 0;
     for (UINTN attempt = 0; attempt < 6; ++attempt) {
         map_size = MAX_MEMMAP;
         status = uefi_call_wrapper(st->BootServices->GetMemoryMap, 5,
