@@ -39,6 +39,15 @@ user-mode NAT, with **no inbound host forwarding**. The guest sends only
 DHCP/ARP and a gateway ICMP probe and does not intentionally contact
 arbitrary public internet hosts. Public network reachability is NOT tested.
 
+## Interactive serial commands
+
+After kernel startup, the COM1 terminal accepts `n` for the active Ethernet
+IPv4 configuration (IP, netmask, gateway and DNS addresses), and `g` for an
+on-demand ICMP echo to the current gateway. With no network card or a failed
+DHCP lease, both commands return an offline diagnostic instead of crashing.
+The system retains its network state, but background packet polling, sockets
+and DHCP renewal are not yet implemented.
+
 ## Boundaries: this is NOT a complete internet-capable OS yet
 
 | Interface or protocol | Status |
