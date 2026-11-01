@@ -16,6 +16,7 @@ import "scheduler.noqeri"
 import "syscall.noqeri"
 import "fs/vfs.noqeri"
 import "terminal.noqeri"
+import "net/ipv4.noqeri"
 
 export function kernel_main(multibootInfo: usize): void {
     arch_cli()
@@ -217,6 +218,10 @@ export function kernel_main(multibootInfo: usize): void {
     } else {
         serial_write("NoqeriOS: VirtIO block device not found\n")
     }
+
+    // Optional network adapter: DHCP and ARP use bounded polling, never
+    // block kernel boot permanently when networking is absent.
+    network_boot_probe()
 
     arch_interrupts_init()
     arch_sti()
