@@ -24,14 +24,20 @@
 NOQERIOS_NETWORK=1 bash Tests/qemu-smoke.sh
 ```
 
-The test adds a **virtual** network device on QEMU user-mode NAT (no\nforwarded inbound ports) and expects:
+The test adds a **virtual** network device on QEMU user-mode NAT (no
+forwarded inbound ports) and expects:
 ```
 NoqeriOS: VirtIO Ethernet DMA RX/TX queues online
 NoqeriOS: DHCP IPv4 lease acquired
 NoqeriOS: IPv4 gateway ARP resolved (Ethernet connected)
 ```
 
-The optional ICMP gateway echo is logged, but is not required as some host\nnetwork configurations cannot proxy ICMP echo. QEMU normally omits DHCP\nrouter option 3 if `restrict=on`; therefore the gateway test uses regular\nuser-mode NAT, with **no inbound host forwarding**. The guest sends only\nDHCP/ARP and a gateway ICMP probe and does not intentionally contact\narbitrary public internet hosts. Public network reachability is NOT tested.
+The optional ICMP gateway echo is logged, but is not required as some host
+network configurations cannot proxy ICMP echo. QEMU normally omits DHCP
+router option 3 if `restrict=on`; therefore the gateway test uses regular
+user-mode NAT, with **no inbound host forwarding**. The guest sends only
+DHCP/ARP and a gateway ICMP probe and does not intentionally contact
+arbitrary public internet hosts. Public network reachability is NOT tested.
 
 ## Boundaries: this is NOT a complete internet-capable OS yet
 
