@@ -4,6 +4,7 @@
 Only a local host fixture is contacted (guest 10.0.2.2:18080); no public
 internet traffic or forwarded inbound guest ports. Requires built kernel ISO.
 """
+import argparse
 import os
 from pathlib import Path
 import select
@@ -62,6 +63,9 @@ def until(proc: subprocess.Popen, expected: bytes,
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--nic", choices=("virtio", "e1000", "rtl8139"), default="virtio")
+    args = parser.parse_args()
     if not ISO.is_file() or not DISK.is_file():
         raise SystemExit("Run Tests/qemu-smoke.sh first to build ISO and NoqFS disk")
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -71,12 +75,17 @@ def main() -> None:
     errors = []
     worker = threading.Thread(target=fixture, args=(server, errors), daemon=True)
     worker.start()
+    device = {
+        "virtio": "virtio-net-pci,netdev=noqnet,disable-legacy=on,mac=52:54:00:12:34:56",
+        "e1000": "e1000,netdev=noqnet,mac=52:54:00:12:34:56",
+        "rtl8139": "rtl8139,netdev=noqnet,mac=52:54:00:12:34:56",
+    }[args.nic]
     command = [
         "qemu-system-x86_64", "-machine", "q35", "-m", "256M",
         "-boot", "order=d", "-cdrom", str(ISO),
         "-device", "virtio-rng-pci,disable-legacy=on",
         "-netdev", "user,id=noqnet,ipv6=off",
-        "-device", "virtio-net-pci,netdev=noqnet,disable-legacy=on,mac=52:54:00:12:34:56",
+        "-device", device,
         "-drive", f"if=none,format=raw,file={DISK},id=noqerios-test-disk",
         "-device", "virtio-blk-pci,drive=noqerios-test-disk,disable-legacy=on",
         "-serial", "stdio", "-monitor", "none", "-display", "none",
@@ -95,7 +104,7 @@ def main() -> None:
         worker.join(timeout=1)
         if errors:
             raise AssertionError(f"Host TCP fixture failed: {errors}")
-        print("PASS: NoqeriOS TCP SYN/SYN-ACK/ACK, HTTP request, and local HTTP response")
+        print(f"PASS: {args.nic} NoqeriOS TCP SYN/SYN-ACK/ACK, HTTP request, and local HTTP response")
     except Exception:
         print("Captured serial output:\n" +
               output.decode(errors="replace"), file=sys.stderr)
