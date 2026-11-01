@@ -7,6 +7,7 @@ import struct
 SECTOR = 512
 STAGE1_SECTORS = 32
 KERNEL_SECTORS = 1024
+FLOPPY_SECTORS = 2880
 
 def assemble_image(stage0: bytes, stage1: bytes, kernel: bytes) -> bytes:
     if len(stage0) != SECTOR or stage0[510:] != bytes((0x55, 0xaa)):
@@ -19,7 +20,8 @@ def assemble_image(stage0: bytes, stage1: bytes, kernel: bytes) -> bytes:
         raise ValueError("kernel must be ELF64")
     if struct.unpack_from("<H", kernel, 18)[0] != 62:
         raise ValueError("kernel must target x86-64")
-    return stage0 + stage1.ljust(STAGE1_SECTORS * SECTOR, bytes(1)) + kernel.ljust(KERNEL_SECTORS * SECTOR, bytes(1))
+    image = stage0 + stage1.ljust(STAGE1_SECTORS * SECTOR, bytes(1)) + kernel.ljust(KERNEL_SECTORS * SECTOR, bytes(1))
+    return image.ljust(FLOPPY_SECTORS * SECTOR, bytes(1))
 
 def main() -> None:
     ap = argparse.ArgumentParser()
