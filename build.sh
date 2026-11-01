@@ -112,8 +112,13 @@ fi
 echo "Using $($NOQERI --version | head -n 1)"
 
 KERNEL_SOURCE="$ROOT/Kernel/main.noqeri"
-"$NOQERI" check "$KERNEL_SOURCE" -O2
-"$NOQERI" build "$KERNEL_SOURCE" "$OUT/kernel_noqeri.s" -O2
+"$NOQERI" check "$KERNEL_SOURCE" -O2 --unsafe
+"$NOQERI" build "$KERNEL_SOURCE" "$OUT/kernel_noqeri.s" -O2 --unsafe
+
+if [[ ! -s "$OUT/kernel_noqeri.s" ]]; then
+    echo "Noqeri compiler produced no kernel assembly" >&2
+    exit 5
+fi
 
 as --64 "$OUT/kernel_noqeri.s" -o "$OUT/kernel_noqeri.o"
 as --64 "$ROOT/Arch/x86_64/entry.S" -o "$OUT/entry.o"
@@ -126,7 +131,7 @@ ld -nostdlib -z max-page-size=0x1000 \
    -o "$OUT/kernel.elf" \
    "$OUT/entry.o" "$OUT/arch.o" "$OUT/interrupts.o" "$OUT/userspace.o" "$OUT/kernel_noqeri.o"
 
-grub-file --is-x86-multiboot2 "$OUT/kernel.elf"
+grub-file --is-x86-multiboot2 "$OUT/kernel.elf"\nif command -v nm >/dev/null 2>&1; then\n    nm "$OUT/kernel.elf" | grep -Eq "[[:space:]]T[[:space:]]kernel_main$" || { echo "Missing Noqeri kernel_main symbol" >&2; exit 5; }\nfi
 
 ISO_ROOT="$OUT/iso-root"
 rm -rf "$ISO_ROOT"

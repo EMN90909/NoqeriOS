@@ -34,8 +34,16 @@ jobs:
 
       - name: Build Noqeri compiler
         run: |
-          cmake -S .deps/Noqeri -B .deps/Noqeri/build -DCMAKE_BUILD_TYPE=Release
-          cmake --build .deps/Noqeri/build --parallel
+          cmake -S .deps/Noqeri -B .deps/Noqeri/build -DCMAKE_BUILD_TYPE=Release -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DBUILD_TESTING=OFF
+          cmake --build .deps/Noqeri/build --target noqeri --parallel 2
+
+      - name: Verify kernel source and boot contracts
+        run: |
+          test -f Kernel/main.noqeri
+          test -z "$(find Arch Drivers Kernel -type f -name '*.nqr' -print -quit)"
+          bash -n build.sh Tests/qemu-smoke.sh
+          grep -q -- '--unsafe' build.sh
+          grep -q '0x36d76289' Arch/x86_64/entry.S
 
       - name: Compile and boot NoqeriOS
         env:
