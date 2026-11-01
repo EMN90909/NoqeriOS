@@ -6,7 +6,7 @@ NoqeriOS is a standalone x86-64 operating-system project built around the Noqeri
 
 The kernel is moving toward a modular monolith: core services execute in kernel space, while architecture code, device drivers, filesystems, process management, and syscall services are kept behind explicit subsystem boundaries. The organization is inspired by mature hobby/research kernels such as ToaruOS/Misaka, but the implementation and ABI are native NoqeriOS code.
 
-The current boot path can:
+The boot path targets these milestones (pending successful CI):
 
 - boot an x86-64 Multiboot2 kernel under QEMU;
 - enter an exported `kernel_main` implemented in Noqeri;
@@ -40,7 +40,7 @@ Drivers/            PCI, serial, framebuffer and VirtIO drivers
 Tests/              deterministic QEMU boot/integration tests
 build.sh            Linux/WSL ISO builder
 build.bat           Windows self-bootstrapping ISO builder
-grub.cfg            Multiboot2 boot menu
+Bootloader/          Limine configuration and handoff
 ```
 
 ## Build on Linux or WSL
@@ -51,7 +51,7 @@ The recommended one-command setup is:
 bash ./build.sh --bootstrap
 ```
 
-`--bootstrap` checks the build host, installs missing packages on apt-based Linux/WSL systems, clones and builds the current Noqeri compiler when necessary, compiles the Noqeri kernel, assembles the architecture sources, links the Multiboot2 ELF kernel, verifies it with `grub-file`, and produces:
+`--bootstrap` checks the build host, installs missing packages on apt-based Linux/WSL systems, clones and builds the current Noqeri compiler when necessary, compiles the Noqeri kernel, assembles the architecture sources, links the Multiboot2 ELF kernel, packages it with Limine, and produces:
 
 ```text
 build/noqerios.iso
@@ -71,7 +71,7 @@ NOQERI=/path/to/noqeri bash ./build.sh --no-bootstrap
 
 All kernel, driver, and architecture source files use the canonical `.noqeri` extension. `build.sh` checks and compiles `Kernel/main.noqeri` directly, including its imported modules. No source-copy or rename stage is required.
 
-The Noqeri compiler itself is built by CMake with the host C/C++ toolchain. GNU binutils and GRUB/xorriso then produce the freestanding kernel and ISO image.
+The Noqeri compiler itself is built by CMake with the host C/C++ toolchain. GNU binutils and Limine/xorriso then produce the freestanding kernel and ISO image.
 
 ## Build on Windows
 
@@ -81,7 +81,7 @@ Run:
 build.bat
 ```
 
-The batch launcher uses a WSL Linux toolchain so the Windows and Linux builds use the same GRUB/binutils ISO path. If WSL or an Ubuntu distribution is missing, it attempts to install the required Windows/WSL components. Once WSL is available it invokes `build.sh --bootstrap`, which installs the C/C++ compiler, CMake, binutils, GRUB, xorriso, mtools, QEMU and the other required Linux-side tools.
+The batch launcher uses a WSL Linux toolchain so the Windows and Linux builds use the same Limine/binutils ISO path. If WSL or an Ubuntu distribution is missing, it attempts to install the required Windows/WSL components. Once WSL is available it invokes `build.sh --bootstrap`, which installs the C/C++ compiler, CMake, binutils, Limine, xorriso, QEMU and the other required Linux-side tools.
 
 Build output is written to:
 

@@ -1,14 +1,21 @@
-# NoqeriOS bootloader and handoff
+# Limine boot integration
 
-The currently supported boot chain is **GRUB Multiboot2 → minimal x86 assembly entry → Noqeri kernel**. GRUB loads the ELF, provides the memory map and boot tags, and enters the 32-bit Multiboot2 entry point. `Arch/x86_64/entry.S` sets up paging and 64-bit mode. Noqeri boot validation lives in `handoff.noqeri`; the kernel entry validates boot metadata before using it.
+The official Limine v12 boot manager replaces GRUB. The configured entry uses
+Limine's **Multiboot2 compatibility protocol**, retaining the current kernel
+ABI and memory-map parser.
 
-This is a real bootloader integration, **not a standalone, fully Noqeri-written BIOS/UEFI bootloader**. Pre-long-mode CPU transitions and firmware interfaces cannot be replaced by an ordinary Noqeri function without a qualified freestanding loader backend and architecture entry adapter.
+Boot chain: BIOS/UEFI -> Limine -> Multiboot2 x86 entry ->
+Arch/x86_64/entry.S -> Kernel/main.noqeri.
 
-## Build and test
+Configuration: Bootloader/limine.conf.
 
-```sh
-bash build.sh --bootstrap
-bash Tests/qemu-smoke.sh
-```
+To build: bash build.sh --bootstrap
+To verify the kernel: bash Tests/qemu-smoke.sh
 
-The generated ISO includes `/boot/grub/grub.cfg` and `/boot/kernel.elf`. The second command must pass before claiming this boots correctly. NoqeriOS is currently an experimental kernel, not a general-purpose production OS.
+The builder creates a hybrid BIOS/UEFI ISO using Limine's upstream
+boot binaries and xorriso. The bootloader executable is upstream Limine,
+not a Noqeri reimplementation. The kernel and handoff validation are Noqeri.
+
+Do not set protocol: limine yet: native Limine needs request/response
+structures, HHDM-aware memory management and a 64-bit protocol entry.
+A successfully generated ISO is not a confirmed QEMU boot.
