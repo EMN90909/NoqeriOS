@@ -7,11 +7,11 @@ SECTOR = 512
 STAGE1_SECTORS = 32
 
 def assemble_image(boot_sector: bytes, stage1: bytes) -> bytes:
-    if len(boot_sector) != SECTOR or boot_sector[510:] != b"\\x55\\xaa":
+    if len(boot_sector) != SECTOR or boot_sector[510:] != bytes((0x55, 0xaa)):
         raise ValueError("stage0 must be a signed 512-byte BIOS boot sector")
     if not stage1 or len(stage1) > STAGE1_SECTORS * SECTOR:
         raise ValueError("stage1 must fit in 32 sectors and cannot be empty")
-    return boot_sector + stage1.ljust(STAGE1_SECTORS * SECTOR, b"\\0")
+    return boot_sector + stage1.ljust(STAGE1_SECTORS * SECTOR, bytes((0,)))
 
 def main() -> None:
     ap = argparse.ArgumentParser()
