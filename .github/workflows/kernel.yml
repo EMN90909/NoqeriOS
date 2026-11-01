@@ -48,6 +48,23 @@ jobs:
           grep -q -- '--unsafe' build.sh
           grep -q '0x36d76289' Arch/x86_64/entry.S
 
+      - name: Assemble original BIOS bootloader
+        run: |
+          mkdir -p build/native-check
+          as --32 Bootloader/native/stage0.S -o build/native-check/stage0.o
+          ld -m elf_i386 -Ttext 0x7c00 --oformat binary -o build/native-check/stage0.bin build/native-check/stage0.o
+          as --32 Bootloader/native/stage1.S -o build/native-check/stage1.o
+          ld -m elf_i386 -Ttext 0x8000 --oformat binary -o build/native-check/stage1.bin build/native-check/stage1.o
+          python3 -m py_compile Bootloader/native/image.py
+          python3 - <<'PY'
+          from pathlib import Path
+          s0 = Path('build/native-check/stage0.bin').read_bytes()
+          s1 = Path('build/native-check/stage1.bin').read_bytes()
+          assert len(s0) == 512 and s0[-2:] == bytes((0x55,0xaa))
+          assert 0 < len(s1) <= 16384
+          print('Custom BIOS loader assembly and signature OK')
+          PY
+
       - name: Prepare Limine bootloader
         run: |
           git clone --depth 1 --branch v12.x https://github.com/limine-bootloader/limine.git .deps/limine
