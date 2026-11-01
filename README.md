@@ -69,6 +69,16 @@ You can also provide an existing compiler explicitly:
 NOQERI=/path/to/noqeri bash ./build.sh --no-bootstrap
 ```
 
+Current Noqeri uses the **.noqeri** source extension. NoqeriOS still stores its historical kernel modules as .nqr while compatibility is qualified. The build now runs `Tools/migrate_sources.py` to stage rewritten modules under `build/source/` and changes only import filename suffixes. It compiles `build/source/Kernel/main.noqeri` without modifying the originals. The staged source is not evidence that the kernel has passed compiler or QEMU conformance.
+
+The source migration can be verified independently with:
+
+```sh
+python3 -m unittest discover -s Tests -p 'test_*.py'
+```
+
+The compiler checkout must provide the current Noqeri CLI and freestanding target; the build uses the minimal `noqeri` CMake target with `NOQERI_GRAPHICS_PORTABLE_BUILD=ON`. Compiler source may be supplied next to the OS checkout or downloaded by `--bootstrap`.
+
 The Noqeri compiler itself is built by CMake with the host C/C++ toolchain. GNU binutils and GRUB/xorriso then produce the freestanding kernel and ISO image.
 
 ## Build on Windows
