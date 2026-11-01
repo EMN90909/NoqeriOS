@@ -125,6 +125,9 @@ jobs:
           grep -q 'uefi_kernel_entry' Arch/x86_64/entry.S
           test -f Bootloader/uefi/loader.c
 
+      - name: Validate GPT removable-media image builder
+        run: python3 -m unittest discover -s Tests -p 'test_uefi_usb.py'
+
       - name: Build UEFI ISO and boot under OVMF
         env:
           NOQERI: ${{ github.workspace }}/.deps/Noqeri/build/noqeri
@@ -144,6 +147,8 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: noqerios-bios-uefi-iso
-          path: build/noqerios.iso
+          name: noqerios-bios-uefi-iso-and-usb
+          path: |
+            build/noqerios.iso
+            build/noqerios-uefi-usb.img
           if-no-files-found: error
