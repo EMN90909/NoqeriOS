@@ -38,19 +38,18 @@ printf 'HELO from NoqFS\n' | dd of="$DISK" bs=1 seek=1024 conv=notrunc status=no
 
 rm -f "$LOG" "$DEBUG_LOG"
 set +e
-timeout 12s qemu-system-x86_64 \
+timeout 20s qemu-system-x86_64 \
     -machine q35 \
     -m "$MEMORY" \
-    -drive if=ide,format=raw,file="$OUT/native-boot/noqerios-native.img" \
+    -boot order=d \
+    -cdrom "$OUT/noqerios.iso" \
     -device virtio-rng-pci,disable-legacy=on \
     -drive if=none,format=raw,file="$DISK",id=noqerios-test-disk \
     -device virtio-blk-pci,drive=noqerios-test-disk,disable-legacy=on \
     -serial file:"$LOG" \
     -debugcon file:"$DEBUG_LOG" \
     -global isa-debugcon.iobase=0xe9 \
-    -display none \
-    -no-reboot \
-    -no-shutdown >/dev/null 2>&1
+    -display none -no-reboot -no-shutdown >/dev/null 2>&1
 rc=$?
 set -e
 
