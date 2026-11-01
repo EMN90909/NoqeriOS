@@ -243,13 +243,19 @@ static BOOLEAN make_mb2(UINT8 *dest, UINTN capacity, EFI_MEMORY_DESCRIPTOR *map,
 EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st) {
     InitializeLib(image, st);
     log_debug("NoqeriOS UEFI: entered firmware application\n");
+    log_debug("uefi:before-console-print\n");
     Print(L"NoqeriOS UEFI loader: opening kernel ELF\r\n");
+    log_debug("uefi:after-console-print\n");
     UINT8 *kernel = NULL;
     UINTN kernel_size = 0;
+    log_debug("uefi:before-file-open\n");
     EFI_STATUS status = read_kernel(image, st, &kernel, &kernel_size);
+    log_debug("uefi:after-file-open\n");
     if (EFI_ERROR(status)) return fail(status, L"Cannot read KERNEL.ELF", "uefi:no-kernel\n");
     UINT64 kernel_entry = 0;
+    log_debug("uefi:before-elf-load\n");
     status = load_elf(st, kernel, kernel_size, &kernel_entry);
+    log_debug("uefi:after-elf-load\n");
     if (EFI_ERROR(status)) return fail(status, L"ELF load rejected or memory occupied", "uefi:bad-elf\n");
     EFI_PHYSICAL_ADDRESS pml4, boot_info;
     status = paging(st->BootServices, &pml4);
