@@ -31,12 +31,12 @@ record Network {
 // v2=Intel 82540EM e1000. Keep buffers stable for DMA and never reinitialize
 // a device while a packet is outstanding.
 function network_send(n: *Network, frame: usize, length: usize): bool {
-    if n.adapterKind == (1 as u32) { return network_send(n, frame, length) }
+    if n.adapterKind == (1 as u32) { return virtio_net_send(n.nic, frame, length) }
     if n.adapterKind == (2 as u32) { return e1000_send(n.intel, frame, length) }
     return false
 }
 function network_receive(n: *Network, output: usize, capacity: usize, timeout: usize): usize {
-    if n.adapterKind == (1 as u32) { return network_receive(n, output, capacity, timeout) }
+    if n.adapterKind == (1 as u32) { return virtio_net_receive(n.nic, output, capacity, timeout) }
     if n.adapterKind == (2 as u32) { return e1000_receive(n.intel, output, capacity, timeout) }
     return 0 as usize
 }
