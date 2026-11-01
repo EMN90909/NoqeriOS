@@ -290,13 +290,8 @@ function network_dhcp(n: *Network): bool {
     }
     return false
 }
-function network_arp_request(n: *Network): bool {
-    arch_out8(233 as u16, 73 as u8) // 'I' leased IPv4
-    network_trace_hex(n.ip)
-    arch_out8(233 as u16, 71 as u8) // 'G' gateway IPv4
-    network_trace_hex(n.gateway)
-    if n.gateway == (0 as u32) || n.ip == (0 as u32) {
-        serial_write("NoqeriOS: DHCP did not supply an IPv4 router\n")
+function network_arp_resolve(n: *Network, address: u32, destinationMac: usize): bool {
+    if address == (0 as u32) || n.ip == (0 as u32) || destinationMac == (0 as usize) {
         return false
     }
     network_fill(n.frame, 0 as usize, 6 as usize, 255 as u8)
@@ -309,7 +304,7 @@ function network_arp_request(n: *Network): bool {
     network_copy(n.frame, 22 as usize, n.mac as usize, 0 as usize, 6 as usize)
     network_write32(n.frame, 28 as usize, n.ip)
     network_fill(n.frame, 32 as usize, 6 as usize, 0 as u8)
-    network_write32(n.frame, 38 as usize, n.gateway)
+    network_write32(n.frame, 38 as usize, address)
     let tries: usize = 0 as usize
     while tries < (3 as usize) {
         if !network_send(n, n.frame, 60 as usize) { return false }
@@ -326,9 +321,9 @@ function network_arp_request(n: *Network): bool {
             if length >= (42 as usize) &&
                network_read16(n.rx, 12 as usize) == (2054 as u16) &&
                network_read16(n.rx, 20 as usize) == (2 as u16) &&
-               network_read32(n.rx, 28 as usize) == n.gateway &&
+               network_read32(n.rx, 28 as usize) == address &&
                network_read32(n.rx, 38 as usize) == n.ip {
-                network_copy(n.routerMac as usize, 0 as usize, n.rx, 22 as usize, 6 as usize)
+                network_copy(destinationMac, 0 as usize, n.rx, 22 as usize, 6 as usize)
                 return true
             }
             polls = polls + (1 as usize)
@@ -336,6 +331,41 @@ function network_arp_request(n: *Network): bool {
         tries = tries + (1 as usize)
     }
     return false
+}
+function network_arp_request(n: *Network): bool {
+    arch_out8(233 as u16, 73 as u8)
+    network_trace_hex(n.ip)
+    arch_out8(233 as u16, 71 as u8)
+    network_trace_hex(n.gateway)
+    return network_arp_resolve(n, n.gateway, n.routerMac as usize)
+}
+// Logical bitwise AND using arithmetic, until Stage-2 bit operators
+// are guaranteed on every supported Noqeri native compiler.
+function network_ip_mask(value: u32, mask: u32): u32 {
+    let left: u32 = value
+    let right: u32 = mask
+    let result: u32 = 0 as u32
+    let bit: u32 = 1 as u32
+    let index: usize = 0 as usize
+    while index < (32 as usize) {
+        if left % (2 as u32) == (1 as u32) &&
+           right % (2 as u32) == (1 as u32) {
+            result = result + bit
+        }
+        left = left / (2 as u32)
+        right = right / (2 as u32)
+        bit = bit * (2 as u32)
+        index = index + (1 as usize)
+    }
+    return result
+}
+function network_route_mac(n: *Network, destination: u32, output: usize): bool {
+    if n == null || !n.online || output == (0 as usize) { return false }
+    if network_ip_mask(destination, n.mask) == network_ip_mask(n.ip, n.mask) {
+        return network_arp_resolve(n, destination, output)
+    }
+    network_copy(output, 0 as usize, n.routerMac as usize, 0 as usize, 6 as usize)
+    return true
 }
 function network_icmp_echo(n: *Network): bool {
     if !n.online || n.gateway == (0 as u32) { return false }
