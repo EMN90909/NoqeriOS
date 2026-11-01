@@ -55,6 +55,7 @@ function e1000_buffer(dev: *E1000, index: usize): usize {
 function e1000_open(location: u32, dev: *E1000): bool {
     if dev == null || location == (65536 as u32) { return false }
     if pci_device_id(pci_location_bus(location), pci_location_slot(location), pci_location_fn(location)) != (4110 as u16) {
+        arch_out8(233 as u16, 49 as u8)
         return false
     }
     let bus: u32 = pci_location_bus(location)
@@ -63,9 +64,15 @@ function e1000_open(location: u32, dev: *E1000): bool {
     let bar1: u32 = pci_read32(bus, slot, fn, 20 as u32)
     // For this Intel model BAR1 is its 64-byte I/O window.
     if bar1 == (0 as u32) || bar1 == (4294967295 as u32) ||
-       (bar1 % (2 as u32)) != (1 as u32) { return false }
+       (bar1 % (2 as u32)) != (1 as u32) {
+        arch_out8(233 as u16, 50 as u8)
+        return false
+    }
     let port: u32 = (bar1 / (4 as u32)) * (4 as u32)
-    if port == (0 as u32) || port > (65472 as u32) { return false }
+    if port == (0 as u32) || port > (65472 as u32) {
+        arch_out8(233 as u16, 51 as u8)
+        return false
+    }
     dev.ready = false
     dev.ioPort = port as u16
     dev.location = location
@@ -96,7 +103,10 @@ function e1000_open(location: u32, dev: *E1000): bool {
        dev.txBuffer == 0 || macPage == 0 ||
        dev.rx0 == 0 || dev.rx1 == 0 || dev.rx2 == 0 ||
        dev.rx3 == 0 || dev.rx4 == 0 || dev.rx5 == 0 ||
-       dev.rx6 == 0 || dev.rx7 == 0 { return false }
+       dev.rx6 == 0 || dev.rx7 == 0 {
+        arch_out8(233 as u16, 52 as u8)
+        return false
+    }
     e1000_clear(dev.rxDescriptors, 4096 as usize)
     e1000_clear(dev.txDescriptors, 4096 as usize)
     e1000_clear(dev.txBuffer, 4096 as usize)
@@ -106,6 +116,7 @@ function e1000_open(location: u32, dev: *E1000): bool {
     let low: u32 = e1000_reg_read(dev, 0x5400 as u32)
     let high: u32 = e1000_reg_read(dev, 0x5404 as u32)
     if (low == (0 as u32) && (high % (65536 as u32)) == (0 as u32)) {
+        arch_out8(233 as u16, 53 as u8)
         return false
     }
     let i: usize = 0 as usize
