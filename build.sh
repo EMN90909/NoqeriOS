@@ -4,11 +4,14 @@ set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT="$ROOT/build"
 BOOTSTRAP=0
+NATIVE_BOOT=0
 
 case "${1:-}" in
     --bootstrap) BOOTSTRAP=1 ;;
+    --native) NATIVE_BOOT=1 ;;
+    --native-bootstrap) BOOTSTRAP=1; NATIVE_BOOT=1 ;;
     --no-bootstrap|"") BOOTSTRAP=0 ;;
-    *) echo "usage: $0 [--bootstrap|--no-bootstrap]" >&2; exit 2 ;;
+    *) echo "usage: $0 [--bootstrap|--no-bootstrap|--native|--native-bootstrap]" >&2; exit 2 ;;
 esac
 
 on_error() {
@@ -130,6 +133,12 @@ ld -nostdlib -z max-page-size=0x1000 \
    -T "$ROOT/Arch/x86_64/linker.ld" \
    -o "$OUT/kernel.elf" \
    "$OUT/entry.o" "$OUT/arch.o" "$OUT/interrupts.o" "$OUT/userspace.o" "$OUT/kernel_noqeri.o"
+
+if (( NATIVE_BOOT == 1 )); then
+    bash "$ROOT/Bootloader/native/build.sh"
+    echo "NoqeriOS custom BIOS disk built; QEMU boot verification is still required."
+    exit 0
+fi
 
 # Limine provides BIOS + UEFI boot while retaining our Multiboot2 kernel ABI.
 # It is deliberately NOT the native Limine protocol, which needs a new
