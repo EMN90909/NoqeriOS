@@ -56,3 +56,37 @@ untrusted networks.
 The CI matrix exercises the TCP/HTTP probe on the existing virtual VirtIO,
 Intel 82540EM and Realtek RTL8139 adapters. Emulator success is not proof of
 compatibility on any untested physical Ethernet device.
+
+## TCP reliability and Noqeri compiler reference (incremental)
+
+The [Noqeri language reference](https://github.com/EMN90909/Noqeri/blob/main/Doc/LANGUAGE_REFERENCE.md)
+defines declaration-order record layout, fixed-width `u8/u16/u32/usize`,
+volatile and atomic primitives, and caller-owned raw-pointer boundaries.
+Its [freestanding interface](https://github.com/EMN90909/Noqeri/blob/main/Doc/FREESTANDING.md)
+has no libc socket transport. The kernel must implement TCP in Noqeri and
+use its own NIC driver, IP stack and timer instead of assuming the hosted
+Noqeri runtime is available.
+
+This step introduces a bounded caller-owned `TcpProbe` connection record,
+avoids retaining pointers to stack data, validates incoming IPv4 header
+checksums in addition to TCP pseudo-header checksums, and reassembles up to
+1024 contiguous response bytes in reserved RX scratch memory. In-sequence
+received bytes advance the acknowledgement; duplicates and packets arriving
+ahead of the next expected sequence trigger a duplicate ACK without being
+mistaken for contiguous bytes. The HTTP test marker may now straddle segments.
+
+The `x` serial command runs the same local fixture with the first SYN
+transmission deliberately suppressed. This exercises the bounded initial
+handshake retry path; **it is a deterministic fault injection, not a claim
+of real packet-loss recovery**. The QEMU fixture can also split the response
+into distinct sends with TCP_NODELAY and a pause:
+
+```sh
+NOQERIOS_NETWORK=virtio bash Tests/qemu-smoke.sh
+python3 Tests/tcp-http-smoke.py --nic virtio --syn-retry --split-response
+```
+
+It is **not** a TCP retransmission timer, full receive reassembly, a
+general-purpose socket interface, or production security. This code still
+uses a fixed TCP source port and ISN strictly against the local QEMU fixture;
+do not expose it to external peers or treat these tests as HTTPS support.
