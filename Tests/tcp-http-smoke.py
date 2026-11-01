@@ -20,7 +20,7 @@ DISK = ROOT / "build" / "virtio-test.img"
 EXPECTED = b"TCP: local HTTP fixture response verified"
 
 
-def fixture(server: socket.socket, failures: list[str]) -> None:
+def fixture(server: socket.socket, failures: list[str], split_response: bool) -> None:
     try:
         server.settimeout(35)
         client, address = server.accept()
@@ -36,10 +36,19 @@ def fixture(server: socket.socket, failures: list[str]) -> None:
                 failures.append(f"Unexpected guest HTTP request: {incoming!r}")
                 return
             body = b"NOQERI_NET_OK"
-            client.sendall(
+            headers = (
                 b"HTTP/1.0 200 OK\r\nContent-Length: 13\r\nConnection: close\r\n"
-                b"\r\n" + body
+                b"\r\n"
             )
+            if split_response:
+                client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                # Split the unique payload marker across separate writes.
+                # Without stream reassembly, the guest cannot find it.
+                client.sendall(headers + body[:6])
+                time.sleep(0.15)
+                client.sendall(body[6:])
+            else:
+                client.sendall(headers + body)
             time.sleep(0.4)
     except Exception as e:
         failures.append(str(e))
@@ -65,6 +74,8 @@ def until(proc: subprocess.Popen, expected: bytes,
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--nic", choices=("virtio", "e1000", "rtl8139"), default="virtio")
+    parser.add_argument("--split-response", action="store_true")
+    parser.add_argument("--syn-retry", action="store_true")
     args = parser.parse_args()
     if not ISO.is_file() or not DISK.is_file():
         raise SystemExit("Run Tests/qemu-smoke.sh first to build ISO and NoqFS disk")
@@ -73,7 +84,7 @@ def main() -> None:
     server.bind(("127.0.0.1", 18080))
     server.listen(2)
     errors = []
-    worker = threading.Thread(target=fixture, args=(server, errors), daemon=True)
+    worker = threading.Thread(target=fixture, args=(server, errors, args.split_response), daemon=True)
     worker.start()
     device = {
         "virtio": "virtio-net-pci,netdev=noqnet,disable-legacy=on,mac=52:54:00:12:34:56",
@@ -98,13 +109,14 @@ def main() -> None:
         until(proc, b"NoqeriOS serial terminal ready (COM1)", 14, output)
         until(proc, b"noqerios> ", 4, output)
         output.clear()
-        proc.stdin.write(b"t")
+        proc.stdin.write(b"x" if args.syn_retry else b"t")
         proc.stdin.flush()
         until(proc, EXPECTED, 17, output)
         worker.join(timeout=1)
         if errors:
             raise AssertionError(f"Host TCP fixture failed: {errors}")
-        print(f"PASS: {args.nic} NoqeriOS TCP SYN/SYN-ACK/ACK, HTTP request, and local HTTP response")
+        print(f"PASS: {args.nic} NoqeriOS TCP handshake and HTTP response "
+              f"(split={args.split_response}, retry={args.syn_retry})")
     except Exception:
         print("Captured serial output:\n" +
               output.decode(errors="replace"), file=sys.stderr)
