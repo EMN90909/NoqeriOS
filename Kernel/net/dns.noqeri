@@ -154,7 +154,9 @@ function network_dns_example(n: *Network): u32 {
     network_put(name, 24 as usize, 0 as u8)
     network_write16(name, 25 as usize, 1 as u16)
     network_write16(name, 27 as usize, 1 as u16)
-    if !network_udp_send(n, n.routerMac as usize, n.dns,
+    let destinationMac: usize = n.frame + (2048 as usize)
+    if !network_route_mac(n, n.dns, destinationMac) { return 0 as u32 }
+    if !network_udp_send(n, destinationMac, n.dns,
                          53000 as u16, 53 as u16, 29 as usize) { return 0 as u32 }
     let count: usize = 0 as usize
     while count < (64 as usize) {
