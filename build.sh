@@ -43,7 +43,7 @@ run_root() {
     fi
 }
 
-required_tools=(cmake g++ as ld grub-file grub-mkrescue xorriso mformat git)
+required_tools=(cmake g++ as ld grub-file grub-mkrescue xorriso mformat git python3)
 missing_tools=()
 for tool in "${required_tools[@]}"; do
     if ! command -v "$tool" >/dev/null 2>&1; then
@@ -65,7 +65,7 @@ if (( ${#missing_tools[@]} > 0 )); then
     run_root apt-get update
     run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y \
         build-essential cmake binutils grub-common grub-pc-bin xorriso mtools \
-        qemu-system-x86 git ca-certificates
+        qemu-system-x86 git ca-certificates python3
 fi
 
 mkdir -p "$OUT"
@@ -80,9 +80,9 @@ elif [[ -x "$ROOT/.deps/Noqeri/build/noqeri" ]]; then
     NOQERI="$ROOT/.deps/Noqeri/build/noqeri"
     NOQERI_SRC="$ROOT/.deps/Noqeri"
 else
-    if [[ -d "$ROOT/../Noqeri/CMakeLists.txt" ]]; then
+    if [[ -f "$ROOT/../Noqeri/CMakeLists.txt" ]]; then
         NOQERI_SRC="$ROOT/../Noqeri"
-    elif [[ -d "$ROOT/.deps/Noqeri/CMakeLists.txt" ]]; then
+    elif [[ -f "$ROOT/.deps/Noqeri/CMakeLists.txt" ]]; then
         NOQERI_SRC="$ROOT/.deps/Noqeri"
     elif (( BOOTSTRAP == 1 )); then
         echo "Noqeri compiler source not found; cloning current main..."
@@ -99,8 +99,8 @@ else
     jobs=2
     if command -v nproc >/dev/null 2>&1; then jobs="$(nproc)"; fi
     echo "Building Noqeri compiler from $NOQERI_SRC"
-    cmake -S "$NOQERI_SRC" -B "$NOQERI_SRC/build" -DCMAKE_BUILD_TYPE=Release
-    cmake --build "$NOQERI_SRC/build" --parallel "$jobs"
+    cmake -S "$NOQERI_SRC" -B "$NOQERI_SRC/build" -DCMAKE_BUILD_TYPE=Release -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DBUILD_TESTING=OFF
+    cmake --build "$NOQERI_SRC/build" --target noqeri --parallel "$jobs"
     NOQERI="$NOQERI_SRC/build/noqeri"
 fi
 
@@ -111,8 +111,12 @@ fi
 
 echo "Using $($NOQERI --version | head -n 1)"
 
-"$NOQERI" check "$ROOT/Kernel/main.nqr" -O2
-"$NOQERI" build "$ROOT/Kernel/main.nqr" "$OUT/kernel_noqeri.s" -O2
+# The modern language accepts .noqeri, not the historical .nqr extension.
+# Stage migrated sources in the build directory so original files remain intact.
+python3 "$ROOT/Tools/migrate_sources.py" "$ROOT" "$OUT/source"
+KERNEL_SOURCE="$OUT/source/Kernel/main.noqeri"
+"$NOQERI" check "$KERNEL_SOURCE" -O2
+"$NOQERI" build "$KERNEL_SOURCE" "$OUT/kernel_noqeri.s" -O2
 
 as --64 "$OUT/kernel_noqeri.s" -o "$OUT/kernel_noqeri.o"
 as --64 "$ROOT/Arch/x86_64/entry.S" -o "$OUT/entry.o"
