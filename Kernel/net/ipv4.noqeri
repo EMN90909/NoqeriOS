@@ -107,11 +107,11 @@ function network_checksum(base: usize, start: usize, count: usize): u16 {
 }
 function network_device_send(n: *Network, frame: usize, length: usize): bool {
     if n.deviceKind == (2 as u8) { return e1000_send(n.e1000, frame, length) }
-    return network_device_send(n, frame, length)
+    return virtio_net_send(n.nic, frame, length)
 }
 function network_device_receive(n: *Network, dest: usize, cap: usize, timeout: usize): usize {
     if n.deviceKind == (2 as u8) { return e1000_receive(n.e1000, dest, cap, timeout) }
-    return network_device_receive(n, dest, cap, timeout)
+    return virtio_net_receive(n.nic, dest, cap, timeout)
 }
 function network_device_close(n: *Network): void {
     if n.deviceKind == (2 as u8) { e1000_close(n.e1000) }
