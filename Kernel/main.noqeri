@@ -15,6 +15,7 @@ import "Memory/heap.noqeri"
 import "scheduler.noqeri"
 import "syscall.noqeri"
 import "fs/vfs.noqeri"
+import "terminal.noqeri"
 
 export function kernel_main(multibootInfo: usize): void {
     arch_cli()
@@ -253,7 +254,6 @@ export function kernel_main(multibootInfo: usize): void {
 
     serial_write("NoqeriOS: modular monolith core services online\n")
     serial_write("NoqeriOS: bootstrap milestone complete\n")
-    while true {
-        arch_halt()
-    }
+    terminal_run()
+    while true { arch_halt() }
 }
