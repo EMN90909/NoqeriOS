@@ -47,11 +47,13 @@ printf '\x10\x00\x00\x00\x00\x00\x00\x00' | dd of="$DISK" bs=1 seek=528 conv=not
 printf '\x01\x00\x00\x00' | dd of="$DISK" bs=1 seek=536 conv=notrunc status=none
 printf 'HELO from NoqFS\n' | dd of="$DISK" bs=1 seek=1024 conv=notrunc status=none
 
-# Network tests use slirp's isolated virtual LAN, without forwarding ports
-# or exposing the experimental kernel as a service to the host network.
+# Network tests use QEMU user-mode NAT (no inbound port forwarding).
+# The kernel only exchanges DHCP/ARP with the virtual gateway; the test
+# does not contact public hosts. The DHCP server omits a router with
+# restrict=on, which makes a gateway ARP test impossible.
 NETWORK_ARGS=()
 if [[ "${NOQERIOS_NETWORK:-0}" == 1 ]]; then
-    NETWORK_ARGS=(-netdev user,id=noqnet,restrict=on -device virtio-net-pci,netdev=noqnet,disable-legacy=on,mac=52:54:00:12:34:56)
+    NETWORK_ARGS=(-netdev user,id=noqnet,ipv6=off -device virtio-net-pci,netdev=noqnet,disable-legacy=on,mac=52:54:00:12:34:56)
 fi
 rm -f "$LOG" "$DEBUG_LOG"
 set +e
