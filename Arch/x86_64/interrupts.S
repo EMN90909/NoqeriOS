@@ -136,3 +136,6 @@ isr_default:
 2:
     hlt
     jmp 2b
+
+/* Explicitly request a non-executable kernel stack from GNU ld. */
+.section .note.GNU-stack,"",@progbits

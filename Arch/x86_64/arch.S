@@ -170,3 +170,6 @@ arch_serial_write:
     jmp 3b
 5:
     ret
+
+/* Explicitly request a non-executable kernel stack from GNU ld. */
+.section .note.GNU-stack,"",@progbits

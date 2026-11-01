@@ -135,3 +135,6 @@ user_test_entry:
 user_test_stack_bottom:
     .skip 16384
 user_test_stack_top:
+
+/* Explicitly request a non-executable kernel stack from GNU ld. */
+.section .note.GNU-stack,"",@progbits

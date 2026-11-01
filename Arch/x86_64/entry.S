@@ -127,3 +127,6 @@ halt_forever:
     cli
     hlt
     jmp halt_forever
+
+/* Explicitly request a non-executable kernel stack from GNU ld. */
+.section .note.GNU-stack,"",@progbits
