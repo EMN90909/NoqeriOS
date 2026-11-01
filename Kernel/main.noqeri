@@ -31,6 +31,14 @@ export function kernel_main(multibootInfo: usize): void {
     serial_write("NoqeriOS: entered 64-bit Noqeri kernel\n")
     serial_write("NoqeriOS: serial driver online\n")
 
+    // Draw a boot marker as soon as GOP is available, before chipset probes.
+    if framebuffer_probe(multibootInfo) {
+        if framebuffer_draw_boot_mark(multibootInfo) {
+            serial_write("NoqeriOS: early framebuffer boot marker displayed\n")
+        }
+    }
+
+
     let memoryReady: bool = false
     let pmmAddress: usize = 0 as usize
     let kernelStart: usize = arch_kernel_start()
