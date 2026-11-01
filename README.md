@@ -140,6 +140,10 @@ The output files are `build/noqerios.iso` and
 `build/noqerios-uefi-usb.img`. UEFI uses our own PE/COFF loader in
 `Bootloader/uefi/` and the 64-bit Noqeri kernel entry; it does not
 use Limine or GRUB. `Tests/uefi-smoke.sh` is the required OVMF test.
+The loader also probes UEFI GOP and transfers supported 32-bit RGB
+framebuffers to the kernel, mapping high physical framebuffer addresses
+before handing off. It shows preboot status/errors on the UEFI screen;
+the kernel currently paints only a boot mark, not a usable GUI.
 
 See [UEFI physical hardware compatibility](Docs/PHYSICAL_UEFI.md)
 before experimenting on any real machine. Secure Boot, USB input,
@@ -148,3 +152,18 @@ supported**, so OVMF boot success alone does not establish laptop or
 desktop usability.
 
 To verify the UEFI GPT removable-media image through virtual USB xHCI, run `bash Tests/uefi-usb-smoke.sh` after building with `--uefi`. Actual machine firmware, xHCI, NVMe, graphics and keyboard support still require device-specific validation. Never erase your system disk when preparing boot media.
+
+The current kernel is **x86-64 only**. BIOS stage0/stage1 execute in 16-bit
+real mode and the ELF loader runs in 32-bit protected mode, but **16-bit-only
+and 32-bit-only CPUs cannot run this kernel**. The BIOS loader checks for
+long-mode, PAE, PSE and MSR support and shows a firmware-screen error rather
+than attempting to run ELF64 on an incompatible CPU. IA32 UEFI firmware is
+also unsupported (the project builds `BOOTX64.EFI`, not `BOOTIA32.EFI`).
+See [CPU and firmware boot matrix](Docs/BOOT_COMPATIBILITY.md).
+
+For additional emulator checks:
+
+```sh
+bash Tests/bios-cpu-smoke.sh
+NOQERIOS_REQUIRE_GOP=1 bash Tests/uefi-smoke.sh
+```
