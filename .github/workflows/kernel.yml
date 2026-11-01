@@ -96,6 +96,10 @@ jobs:
           NOQERIOS_MEMORY: 256M
         run: bash Tests/qemu-smoke.sh
 
+      - name: Verify outbound TCP and HTTP against local host fixture
+        if: matrix.memory == '256M'
+        run: python3 Tests/tcp-http-smoke.py
+
       - name: Verify interactive NoqeriOS terminal
         if: matrix.memory == '256M'
         run: python3 Tests/terminal-interaction.py --memory 256M
