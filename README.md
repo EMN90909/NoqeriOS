@@ -6,7 +6,7 @@ NoqeriOS is a standalone x86-64 operating-system project built around the Noqeri
 
 The kernel is moving toward a modular monolith: core services execute in kernel space, while architecture code, device drivers, filesystems, process management, and syscall services are kept behind explicit subsystem boundaries. The organization is inspired by mature hobby/research kernels such as ToaruOS/Misaka, but the implementation and ABI are native NoqeriOS code.
 
-The boot path targets these milestones (pending successful CI):
+The boot path supports these experimental milestones, with some still awaiting successful full CI qualification:
 
 - boot an x86-64 Multiboot2 kernel under QEMU;
 - enter an exported `kernel_main` implemented in Noqeri;
@@ -40,7 +40,7 @@ Drivers/            PCI, serial, framebuffer and VirtIO drivers
 Tests/              deterministic QEMU boot/integration tests
 build.sh            Linux/WSL ISO builder
 build.bat           Windows self-bootstrapping ISO builder
-Bootloader/          Limine configuration and handoff
+Bootloader/native/  original BIOS stage0/stage1, ELF loader, image packager
 ```
 
 ## Build on Linux or WSL
@@ -51,7 +51,7 @@ The recommended one-command setup is:
 bash ./build.sh --bootstrap
 ```
 
-`--bootstrap` checks the build host, installs missing packages on apt-based Linux/WSL systems, clones and builds the current Noqeri compiler when necessary, compiles the Noqeri kernel, assembles the architecture sources, links the Multiboot2 ELF kernel, packages it with Limine, and produces:
+`--bootstrap` checks the build host, installs missing packages on apt-based Linux/WSL systems, clones and builds the current Noqeri compiler when necessary, compiles the Noqeri kernel, assembles the architecture sources, links the Multiboot2 ELF kernel, packages it with the original NoqeriOS BIOS bootloader (El Torito floppy emulation), and produces:
 
 ```text
 build/noqerios.iso
@@ -71,7 +71,7 @@ NOQERI=/path/to/noqeri bash ./build.sh --no-bootstrap
 
 All kernel, driver, and architecture source files use the canonical `.noqeri` extension. `build.sh` checks and compiles `Kernel/main.noqeri` directly, including its imported modules. No source-copy or rename stage is required.
 
-The Noqeri compiler itself is built by CMake with the host C/C++ toolchain. GNU binutils and Limine/xorriso then produce the freestanding kernel and ISO image.
+The Noqeri compiler itself is built by CMake with the host C/C++ toolchain. GNU binutils assemble the CPU-entry code and xorriso packages the custom BIOS loader as an ISO. The loader contains no GRUB or Limine dependency.
 
 ## Build on Windows
 
@@ -81,7 +81,7 @@ Run:
 build.bat
 ```
 
-The batch launcher uses a WSL Linux toolchain so the Windows and Linux builds use the same Limine/binutils ISO path. If WSL or an Ubuntu distribution is missing, it attempts to install the required Windows/WSL components. Once WSL is available it invokes `build.sh --bootstrap`, which installs the C/C++ compiler, CMake, binutils, Limine, xorriso, QEMU and the other required Linux-side tools.
+The batch launcher uses a WSL Linux toolchain so the Windows and Linux builds use the same native BIOS/binutils ISO path. If WSL or an Ubuntu distribution is missing, it attempts to install the required Windows/WSL components. Once WSL is available it invokes `build.sh --bootstrap`, which installs the C/C++ compiler, CMake, binutils, xorriso, QEMU and the other required Linux-side tools.
 
 Build output is written to:
 
@@ -93,6 +93,16 @@ Windows build diagnostics are retained in `build\windows-build.log`. If the batc
 
 ## Boot test
 
+Run the BIOS-only ISO interactively with a serial terminal:
+
+```sh
+bash build.sh --bootstrap
+qemu-system-x86_64 -m 256M -cdrom build/noqerios.iso -boot d -serial mon:stdio -display none
+```
+
+The COM1 terminal uses single-letter commands: `h`, `i`, `m`, `p`, `c`, and `r`. UEFI and a graphical desktop are not yet supported.
+
+
 On Linux or WSL with QEMU installed:
 
 ```sh
@@ -103,4 +113,4 @@ The smoke test creates a deterministic NoqFS disk, boots `build/noqerios.iso` in
 
 ## Compiler baseline
 
-NoqeriOS tracks the current Noqeri systems compiler. The upstream Noqeri repository currently identifies its compiler as experimental version 0.1.4. The OS boot path predates this update, and compatibility with the present compiler and `x86_64-unknown-none` target still requires a complete compiler build plus QEMU smoke test. Do not treat earlier validation claims as verification of the updated toolchain.
+NoqeriOS tracks the current Noqeri systems compiler. The upstream Noqeri repository currently identifies its compiler as experimental version 0.1.4. The OS boot path predates this update, and a Linux source build and QEMU terminal-entry boot have been observed. Extended boot smoke gates are still under active repair, particularly E820 memory discovery and VirtIO I/O. Check the current GitHub Actions matrix for final qualification.
