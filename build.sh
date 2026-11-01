@@ -65,12 +65,12 @@ echo "Compiling kernel with $("$NOQERI" --version | head -n 1)"
 [[ -s "$OUT/kernel_noqeri.s" ]] || { echo "Compiler emitted no assembly." >&2; exit 5; }
 
 as --64 "$OUT/kernel_noqeri.s" -o "$OUT/kernel_noqeri.o"
-for module in entry arch interrupts userspace; do
+for module in entry arch interrupts userspace freestanding; do
     as --64 "$ROOT/Arch/x86_64/$module.S" -o "$OUT/$module.o"
 done
 ld -nostdlib -z max-page-size=0x1000 -T "$ROOT/Arch/x86_64/linker.ld" \
     -o "$OUT/kernel.elf" "$OUT/entry.o" "$OUT/arch.o" \
-    "$OUT/interrupts.o" "$OUT/userspace.o" "$OUT/kernel_noqeri.o"
+    "$OUT/interrupts.o" "$OUT/userspace.o" "$OUT/freestanding.o" "$OUT/kernel_noqeri.o"
 nm "$OUT/kernel.elf" | grep -Eq '[[:space:]]T[[:space:]]kernel_main$' || {
     echo "No exported kernel_main after linking." >&2
     exit 5
