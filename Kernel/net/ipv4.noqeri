@@ -339,11 +339,57 @@ function network_icmp_echo(n: *Network): bool {
     return false
 }
 
-function network_boot_probe(): void {
+// Serial output for dynamic dotted-decimal addresses (no libc printf).
+function network_console_char(value: u8): void {
+    let spins: usize = 0 as usize
+    while ((arch_in8(1021 as u16) as usize) / (32 as usize)) % (2 as usize) == (0 as usize) &&
+          spins < (100000 as usize) {
+        arch_pause()
+        spins = spins + (1 as usize)
+    }
+    arch_out8(1016 as u16, value)
+}
+function network_console_octet(value: u8): void {
+    let number: u32 = value as u32
+    if number >= (100 as u32) {
+        network_console_char((48 as u32 + (number / (100 as u32))) as u8)
+        number = number % (100 as u32)
+        network_console_char((48 as u32 + (number / (10 as u32))) as u8)
+    } else if number >= (10 as u32) {
+        network_console_char((48 as u32 + (number / (10 as u32))) as u8)
+    }
+    network_console_char((48 as u32 + (number % (10 as u32))) as u8)
+}
+function network_console_ip(address: u32): void {
+    network_console_octet((address / (16777216 as u32)) as u8)
+    network_console_char(46 as u8)
+    network_console_octet(((address / (65536 as u32)) % (256 as u32)) as u8)
+    network_console_char(46 as u8)
+    network_console_octet(((address / (256 as u32)) % (256 as u32)) as u8)
+    network_console_char(46 as u8)
+    network_console_octet((address % (256 as u32)) as u8)
+}
+function network_console_status(n: *Network): void {
+    if n == null || !n.online {
+        serial_write("Network: no configured Ethernet interface\n")
+        return
+    }
+    serial_write("Network: VirtIO Ethernet linked (IPv4)\nIP: ")
+    network_console_ip(n.ip)
+    serial_write("\nMask: ")
+    network_console_ip(n.mask)
+    serial_write("\nGateway: ")
+    network_console_ip(n.gateway)
+    serial_write("\nDNS: ")
+    network_console_ip(n.dns)
+    serial_write("\n")
+}
+
+function network_boot_probe(): *Network {
     let location: u32 = pci_find_device_location(6900 as u16, 4161 as u16)
     if location == (65536 as u32) {
         serial_write("NoqeriOS: no supported VirtIO Ethernet NIC; network offline\n")
-        return
+        return null
     }
     let statePage: usize = arch_alloc_page()
     let nicPage: usize = arch_alloc_page()
@@ -354,7 +400,7 @@ function network_boot_probe(): void {
     if statePage == 0 || nicPage == 0 || framePage == 0 ||
        receivePage == 0 || payloadPage == 0 || macPage == 0 {
         serial_write("NoqeriOS: network DMA allocation failed\n")
-        return
+        return null
     }
     network_fill(statePage, 0 as usize, 4096 as usize, 0 as u8)
     let network: *Network = statePage as *Network
@@ -365,19 +411,19 @@ function network_boot_probe(): void {
     network.routerMac = macPage as *u8
     if !virtio_net_open(location, network.nic) {
         serial_write("NoqeriOS: VirtIO Ethernet initialization failed\n")
-        return
+        return null
     }
     serial_write("NoqeriOS: VirtIO Ethernet DMA RX/TX queues online\n")
     if !network_dhcp(network) {
         serial_write("NoqeriOS: DHCP lease unavailable; network offline\n")
         virtio_net_close(network.nic)
-        return
+        return null
     }
     serial_write("NoqeriOS: DHCP IPv4 lease acquired\n")
     if !network_arp_request(network) {
         serial_write("NoqeriOS: gateway ARP resolution failed\n")
         virtio_net_close(network.nic)
-        return
+        return null
     }
     network.online = true
     serial_write("NoqeriOS: IPv4 gateway ARP resolved (Ethernet connected)\n")
@@ -386,6 +432,7 @@ function network_boot_probe(): void {
     } else {
         serial_write("NoqeriOS: gateway ICMP echo not available\n")
     }
-    // Keep the NIC up. A future network manager must own this state, handle
-    // lease renewal, ingress polling and packet dispatch.
+    // Retain the configured network state for serial terminal commands.
+    // A future network manager must add lease renewal and ingress dispatch.
+    return network
 }
