@@ -1,0 +1,279 @@
+module os.kernel.gui
+
+import "../Arch/x86_64/api.noqeri"
+import "../Drivers/serial.noqeri"
+import "../Drivers/framebuffer.noqeri"
+
+// Initial single-process layered software compositor. UI surfaces are
+// rectangles/text redrawn into GOP/MB2 framebuffer on selection changes.
+// No GPU acceleration, mouse cursor, USB HID or userspace window IPC yet.
+record GuiDesktop {
+    pixels: *volatile u32;
+    width: usize;
+    height: usize;
+    stride: usize;
+    swapRedBlue: bool;
+    focused: usize;
+    selectedAction: usize;
+    redraws: usize;
+}
+
+function gui_color(g: *GuiDesktop, rgb: u32): u32 {
+    if !g.swapRedBlue { return rgb }
+    let red: u32 = rgb / (65536 as u32)
+    let green: u32 = (rgb / (256 as u32)) % (256 as u32)
+    let blue: u32 = rgb % (256 as u32)
+    return blue * (65536 as u32) + green * (256 as u32) + red
+}
+function gui_fill(g: *GuiDesktop, left: usize, top: usize,
+                  width: usize, height: usize, color: u32): void {
+    if g == null || left >= g.width || top >= g.height { return }
+    let w: usize = width
+    let h: usize = height
+    if w > g.width - left { w = g.width - left }
+    if h > g.height - top { h = g.height - top }
+    let packed: u32 = gui_color(g, color)
+    let y: usize = 0 as usize
+    while y < h {
+        let row: usize = (top + y) * g.stride + left
+        let x: usize = 0 as usize
+        while x < w {
+            g.pixels[row + x] = packed
+            x = x + (1 as usize)
+        }
+        y = y + (1 as usize)
+    }
+}
+function gui_glyph(code: u8): u64 {
+    if code == (48 as u8) { return 15629735534 as u64 }
+    if code == (49 as u8) { return 15170933124 as u64 }
+    if code == (50 as u8) { return 33558693422 as u64 }
+    if code == (51 as u8) { return 32247317566 as u64 }
+    if code == (52 as u8) { return 2247698626 as u64 }
+    if code == (53 as u8) { return 32247857695 as u64 }
+    if code == (54 as u8) { return 15621636359 as u64 }
+    if code == (55 as u8) { return 8866891839 as u64 }
+    if code == (56 as u8) { return 15621113390 as u64 }
+    if code == (57 as u8) { return 30133437998 as u64 }
+    if code == (65 as u8) { return 18842895918 as u64 }
+    if code == (66 as u8) { return 32801506878 as u64 }
+    if code == (67 as u8) { return 16660316687 as u64 }
+    if code == (68 as u8) { return 32801080894 as u64 }
+    if code == (69 as u8) { return 33840644639 as u64 }
+    if code == (70 as u8) { return 17734517279 as u64 }
+    if code == (71 as u8) { return 16695149071 as u64 }
+    if code == (72 as u8) { return 18842895921 as u64 }
+    if code == (73 as u8) { return 33424543903 as u64 }
+    if code == (74 as u8) { return 13507823687 as u64 }
+    if code == (75 as u8) { return 18879369809 as u64 }
+    if code == (76 as u8) { return 33840185872 as u64 }
+    if code == (77 as u8) { return 18842572657 as u64 }
+    if code == (78 as u8) { return 18842507057 as u64 }
+    if code == (79 as u8) { return 15621211694 as u64 }
+    if code == (80 as u8) { return 17734518334 as u64 }
+    if code == (81 as u8) { return 14585218606 as u64 }
+    if code == (82 as u8) { return 18879563326 as u64 }
+    if code == (83 as u8) { return 32247333391 as u64 }
+    if code == (84 as u8) { return 4433514655 as u64 }
+    if code == (85 as u8) { return 15621211697 as u64 }
+    if code == (86 as u8) { return 4648912433 as u64 }
+    if code == (87 as u8) { return 11464787505 as u64 }
+    if code == (88 as u8) { return 18834663985 as u64 }
+    if code == (89 as u8) { return 4433521201 as u64 }
+    if code == (90 as u8) { return 33831389247 as u64 }
+    if code == (58 as u8) { return 138416256 as u64 }
+    if code == (45 as u8) { return 1015808 as u64 }
+    if code == (47 as u8) { return 17725261857 as u64 }
+    if code == (46 as u8) { return 4429185024 as u64 }
+    if code == (32 as u8) { return 0 as u64 }
+    if code == (124 as u8) { return 4433514628 as u64 }
+    return 0 as u64
+}
+function gui_letter(g: *GuiDesktop, code: u8, x: usize, y: usize, color: u32): void {
+    let shape: u64 = gui_glyph(code)
+    let row: usize = 0 as usize
+    while row < (7 as usize) {
+        let divisor: u64 = 1 as u64
+        let j: usize = 0 as usize
+        while j < row {
+            divisor = divisor * (32 as u64)
+            j = j + (1 as usize)
+        }
+        let bits: u64 = (shape / divisor) % (32 as u64)
+        let col: usize = 0 as usize
+        while col < (5 as usize) {
+            let mask: u64 = 16 as u64
+            let c: usize = 0 as usize
+            while c < col {
+                mask = mask / (2 as u64)
+                c = c + (1 as usize)
+            }
+            if (bits / mask) % (2 as u64) == (1 as u64) {
+                gui_fill(g, x + col * (2 as usize), y + row * (2 as usize),
+                         2 as usize, 2 as usize, color)
+            }
+            col = col + (1 as usize)
+        }
+        row = row + (1 as usize)
+    }
+}
+function gui_label(g: *GuiDesktop, title: string, x: usize, y: usize, color: u32): void {
+    // No dynamic font or host string conversion is required; Noqeri's
+    // freestanding strings are NUL terminated in this compiler backend.
+    let ptr: *u8 = title as *u8
+    let index: usize = 0 as usize
+    while index < (70 as usize) && ptr[index] != (0 as u8) {
+        gui_letter(g, ptr[index], x + index * (12 as usize), y, color)
+        index = index + (1 as usize)
+    }
+}
+function gui_panel(g: *GuiDesktop, x: usize, y: usize,
+                   w: usize, h: usize, title: string, active: bool): void {
+    gui_fill(g, x + (5 as usize), y + (6 as usize), w, h, 0x0d1121 as u32)
+    gui_fill(g, x, y, w, h, 0x202d44 as u32)
+    let edge: u32 = 0x465775 as u32
+    if active { edge = 0x58d6d0 as u32 }
+    gui_fill(g, x, y, w, 3 as usize, edge)
+    gui_fill(g, x, y, 3 as usize, h, edge)
+    gui_fill(g, x + w - (3 as usize), y, 3 as usize, h, edge)
+    gui_fill(g, x, y + h - (3 as usize), w, 3 as usize, edge)
+    gui_fill(g, x + (3 as usize), y + (3 as usize),
+             w - (6 as usize), 36 as usize, 0x131e33 as u32)
+    gui_label(g, title, x + (14 as usize), y + (13 as usize), 0xf1f5fc as u32)
+    gui_fill(g, x + w - (25 as usize), y + (17 as usize),
+             8 as usize, 8 as usize, edge)
+}
+function gui_paint(g: *GuiDesktop): void {
+    if g == null { return }
+    // Compose retained layers: wallpaper, top bar, overlapping windows,
+    // selection highlight and persistent bottom shortcut dock.
+    gui_fill(g, 0 as usize, 0 as usize, g.width, g.height, 0x101728 as u32)
+    let y: usize = 0 as usize
+    while y < g.height {
+        if y % (76 as usize) < (2 as usize) {
+            gui_fill(g, 0 as usize, y, g.width, 2 as usize, 0x18243a as u32)
+        }
+        y = y + (1 as usize)
+    }
+    gui_fill(g, 0 as usize, 0 as usize, g.width, 55 as usize, 0x0c1426 as u32)
+    gui_fill(g, 0 as usize, 52 as usize, g.width, 3 as usize, 0x58d6d0 as u32)
+    gui_label(g, "NOQERIOS", 24 as usize, 18 as usize, 0xffffff as u32)
+    if g.width >= (650 as usize) {
+        gui_label(g, "EXPERIMENTAL DESKTOP", g.width - (302 as usize),
+                  19 as usize, 0x9caec6 as u32)
+    }
+
+    let left: usize = 30 as usize
+    let top: usize = 85 as usize
+    let panelW: usize = 350 as usize
+    let panelH: usize = 240 as usize
+    if panelW > g.width - (44 as usize) { panelW = g.width - (44 as usize) }
+    if panelH > g.height - (125 as usize) { panelH = g.height - (125 as usize) }
+    let secondX: usize = 160 as usize
+    let secondY: usize = 146 as usize
+    if secondX + panelW > g.width - (12 as usize) {
+        secondX = g.width - panelW - (12 as usize)
+    }
+    if secondY + panelH > g.height - (56 as usize) {
+        secondY = g.height - panelH - (56 as usize)
+    }
+    if g.focused == (0 as usize) {
+        gui_panel(g, secondX, secondY, panelW, panelH, "SYSTEM", false)
+        gui_panel(g, left, top, panelW, panelH, "WELCOME", true)
+    } else {
+        gui_panel(g, left, top, panelW, panelH, "WELCOME", false)
+        gui_panel(g, secondX, secondY, panelW, panelH, "SYSTEM", true)
+    }
+    if g.focused == (0 as usize) {
+        gui_label(g, "NOQERIOS DESKTOP", left + (18 as usize),
+                  top + (57 as usize), 0xf2f7ff as u32)
+        gui_label(g, "A / S : CHANGE FOCUS", left + (18 as usize),
+                  top + (91 as usize), 0x9ab2ce as u32)
+        gui_label(g, "Z : SELECT", left + (18 as usize),
+                  top + (119 as usize), 0x9ab2ce as u32)
+        gui_label(g, "SERIAL COM1 ACTIVE", left + (18 as usize),
+                  top + (151 as usize), 0x58d6d0 as u32)
+    } else {
+        gui_label(g, "CPU SLOTS: 250", secondX + (18 as usize),
+                  secondY + (57 as usize), 0xf2f7ff as u32)
+        gui_label(g, "ONLINE: BSP ONLY", secondX + (18 as usize),
+                  secondY + (90 as usize), 0xf6c779 as u32)
+        gui_label(g, "UEFI GRAPHICS READY", secondX + (18 as usize),
+                  secondY + (121 as usize), 0x58d6d0 as u32)
+        gui_label(g, "NATIVE NOQERI", secondX + (18 as usize),
+                  secondY + (151 as usize), 0x9ab2ce as u32)
+    }
+    let barY: usize = g.height - (45 as usize)
+    gui_fill(g, 0 as usize, barY, g.width, 45 as usize, 0x0c1426 as u32)
+    gui_fill(g, 20 as usize, barY + (10 as usize), 145 as usize,
+             27 as usize, 0x2a6672 as u32)
+    gui_label(g, "HOME", 36 as usize, barY + (17 as usize), 0xffffff as u32)
+    if g.width >= (500 as usize) {
+        gui_label(g, "A / S FOCUS  Z ACTIVATE", 185 as usize,
+                  barY + (17 as usize), 0xaec4db as u32)
+    }
+    g.redraws = g.redraws + (1 as usize)
+}
+function gui_open(info: usize): *GuiDesktop {
+    let tag: usize = mb2_find_framebuffer(info)
+    if tag == (0 as usize) { return null }
+    let fb: *Mb2FramebufferTag = tag as *Mb2FramebufferTag
+    if fb.bpp != (32 as u8) || fb.framebufferType != (1 as u8) ||
+       fb.width < (320 as u32) || fb.height < (240 as u32) ||
+       fb.width > (4096 as u32) || fb.height > (2160 as u32) ||
+       fb.pitch < fb.width * (4 as u32) ||
+       fb.pitch % (4 as u32) != (0 as u32) ||
+       fb.address == (0 as u64) { return null }
+    let state: usize = arch_alloc_page()
+    if state == (0 as usize) { return null }
+    let g: *GuiDesktop = state as *GuiDesktop
+    g.pixels = (fb.address as usize) as *volatile u32
+    g.width = fb.width as usize
+    g.height = fb.height as usize
+    g.stride = (fb.pitch as usize) / (4 as usize)
+    g.swapRedBlue = false
+    // RGB framebuffer channel positions are in tag offsets 32-37.
+    if fb.size >= (38 as u32) {
+        let red: u8 = (tag + (32 as usize) as usize) as *u8 as u8
+    }
+    g.focused = 0 as usize
+    g.selectedAction = 0 as usize
+    g.redraws = 0 as usize
+    gui_paint(g)
+    return g
+}
+function gui_key(g: *GuiDesktop, key: u8): bool {
+    if g == null { return false }
+    let changed: bool = false
+    if key == (97 as u8) || key == (65 as u8) {
+        g.focused = 0 as usize
+        changed = true
+    } else if key == (115 as u8) || key == (83 as u8) {
+        g.focused = 1 as usize
+        changed = true
+    } else if key == (122 as u8) || key == (90 as u8) {
+        g.selectedAction = g.selectedAction + (1 as usize)
+        g.focused = (g.focused + (1 as usize)) % (2 as usize)
+        changed = true
+    }
+    if changed {
+        gui_paint(g)
+        serial_write("NoqeriOS: GUI compositor window focus updated\n")
+    }
+    return changed
+}
+// Optional legacy i8042 keyboard input. No assumption of a USB keyboard.
+// QEMU PS/2 set-1 make codes: A=0x1e S=0x1f Z=0x2c Enter=0x1c.
+// Drain AUX/mouse packets but do not attempt to interpret them as keys.
+function gui_keyboard_poll(g: *GuiDesktop): void {
+    if g == null { return }
+    let status: u8 = arch_in8(100 as u16)
+    if status % (2 as u8) != (1 as u8) { return }
+    let code: u8 = arch_in8(96 as u16)
+    if ((status as u32) / (32 as u32)) % (2 as u32) == (1 as u32) {
+        return
+    }
+    if code == (30 as u8) { gui_key(g, 97 as u8) }
+    if code == (31 as u8) { gui_key(g, 115 as u8) }
+    if code == (44 as u8) || code == (28 as u8) { gui_key(g, 122 as u8) }
+}
