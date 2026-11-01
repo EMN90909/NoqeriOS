@@ -172,7 +172,7 @@ function tcp_fixture_request(n: *Network): bool {
     let polls: usize = 0 as usize
     while polls < (128 as usize) && !response {
         let length: usize = network_receive(n, n.rx, 2048 as usize, 150000 as usize)
-        let offset: usize = tcp_receive_valid(t, length)
+        let offset: usize = tcp_receive_valid(n, t, length)
         if offset != (0 as usize) &&
            network_read32(n.rx, 38 as usize) == t.acknowledgement {
             let ipTotal: usize = network_read16(n.rx, 16 as usize) as usize
