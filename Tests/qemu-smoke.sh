@@ -52,8 +52,10 @@ printf 'HELO from NoqFS\n' | dd of="$DISK" bs=1 seek=1024 conv=notrunc status=no
 # does not contact public hosts. The DHCP server omits a router with
 # restrict=on, which makes a gateway ARP test impossible.
 NETWORK_ARGS=()
-if [[ "${NOQERIOS_NETWORK:-0}" == 1 ]]; then
+if [[ "${NOQERIOS_NETWORK:-0}" == 1 || "${NOQERIOS_NETWORK:-0}" == virtio ]]; then
     NETWORK_ARGS=(-netdev user,id=noqnet,ipv6=off -device virtio-net-pci,netdev=noqnet,disable-legacy=on,mac=52:54:00:12:34:56)
+elif [[ "${NOQERIOS_NETWORK:-0}" == e1000 ]]; then
+    NETWORK_ARGS=(-netdev user,id=noqnet,ipv6=off -device e1000,netdev=noqnet,mac=52:54:00:12:34:56)
 fi
 rm -f "$LOG" "$DEBUG_LOG"
 set +e
@@ -110,8 +112,12 @@ grep -q "NoqeriOS: modular monolith core services online" "$LOG"
 grep -q "NoqeriOS: bootstrap milestone complete" "$LOG"
 grep -q "NoqeriOS serial terminal ready" "$LOG"
 
-if [[ "${NOQERIOS_NETWORK:-0}" == 1 ]]; then
-    grep -q "NoqeriOS: VirtIO Ethernet DMA RX/TX queues online" "$LOG"
+if [[ "${NOQERIOS_NETWORK:-0}" == 1 || "${NOQERIOS_NETWORK:-0}" == virtio || "${NOQERIOS_NETWORK:-0}" == e1000 ]]; then
+    if [[ "${NOQERIOS_NETWORK:-0}" == e1000 ]]; then
+        grep -q "NoqeriOS: Intel 82540EM Ethernet DMA RX/TX queues online" "$LOG"
+    else
+        grep -q "NoqeriOS: VirtIO Ethernet DMA RX/TX queues online" "$LOG"
+    fi
     grep -q "NoqeriOS: DHCP IPv4 lease acquired" "$LOG"
     grep -q "NoqeriOS: IPv4 gateway ARP resolved (Ethernet connected)" "$LOG"
 fi
