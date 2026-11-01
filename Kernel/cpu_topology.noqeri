@@ -1,0 +1,202 @@
+module os.kernel.cpu_topology
+
+import "../Arch/x86_64/api.noqeri"
+
+// CPU topology capacity is 250 logical processors, NOT 250 online CPUs.
+// Only the BSP executes kernel code today; AP startup/scheduling is separate.
+// ACPI SDT pointers beyond the boot identity-mapped first GiB are rejected.
+record CpuRegistry {
+    ids: *u32;
+    count: usize;
+    online: usize;
+    rejected: usize;
+    bsp: u32;
+    hasMadt: bool;
+}
+function cpu_add(reg: *CpuRegistry, apicId: u32): bool {
+    if reg == null || reg.ids == null { return false }
+    let i: usize = 0 as usize
+    while i < reg.count {
+        if reg.ids[i] == apicId { return false }
+        i = i + (1 as usize)
+    }
+    if reg.count >= (250 as usize) {
+        reg.rejected = reg.rejected + (1 as usize)
+        return false
+    }
+    reg.ids[reg.count] = apicId
+    reg.count = reg.count + (1 as usize)
+    return true
+}
+function cpu_capacity_self_test(reg: *CpuRegistry): bool {
+    if reg == null { return false }
+    reg.count = 0 as usize
+    reg.rejected = 0 as usize
+    let i: usize = 0 as usize
+    while i < (250 as usize) {
+        if !cpu_add(reg, (i * (2 as usize)) as u32) { return false }
+        i = i + (1 as usize)
+    }
+    let valid: bool = reg.count == (250 as usize) &&
+                       !cpu_add(reg, 8 as u32) &&
+                       !cpu_add(reg, 900 as u32) &&
+                       reg.count == (250 as usize) &&
+                       reg.rejected == (1 as usize)
+    reg.count = 0 as usize
+    reg.rejected = 0 as usize
+    return valid
+}
+function cpu_byte(address: usize, offset: usize): u8 {
+    let data: *u8 = address as *u8
+    return data[offset]
+}
+function cpu_u32(address: usize, offset: usize): u32 {
+    let data: *u32 = (address + offset) as *u32
+    return data[0]
+}
+function cpu_u64(address: usize, offset: usize): u64 {
+    let data: *u64 = (address + offset) as *u64
+    return data[0]
+}
+function cpu_memory_valid(address: u64, length: usize): bool {
+    // The early physical identity map is currently only 1 GiB.
+    return address >= (4096 as u64) &&
+           address < (1073741824 as u64) &&
+           length <= (65536 as usize) &&
+           (length as u64) <= ((1073741824 as u64) - address)
+}
+function cpu_checksum(base: usize, length: usize): bool {
+    let sum: u32 = 0 as u32
+    let i: usize = 0 as usize
+    while i < length {
+        sum = (sum + (cpu_byte(base, i) as u32)) % (256 as u32)
+        i = i + (1 as usize)
+    }
+    return sum == (0 as u32)
+}
+function cpu_signature(base: usize, a: u8, b: u8, c: u8, d: u8): bool {
+    return cpu_byte(base, 0 as usize) == a &&
+           cpu_byte(base, 1 as usize) == b &&
+           cpu_byte(base, 2 as usize) == c &&
+           cpu_byte(base, 3 as usize) == d
+}
+// Check SDT length and full checksum prior to interpreting entries.
+function cpu_sdt_valid(address: u64): bool {
+    if !cpu_memory_valid(address, 36 as usize) { return false }
+    let base: usize = address as usize
+    let size: usize = cpu_u32(base, 4 as usize) as usize
+    return size >= (36 as usize) && cpu_memory_valid(address, size) &&
+           cpu_checksum(base, size)
+}
+function cpu_read_madt(reg: *CpuRegistry, address: u64): bool {
+    if !cpu_sdt_valid(address) { return false }
+    let table: usize = address as usize
+    if !cpu_signature(table, 65 as u8, 80 as u8, 73 as u8, 67 as u8) {
+        return false // "APIC"
+    }
+    let end: usize = cpu_u32(table, 4 as usize) as usize
+    if end < (44 as usize) { return false }
+    let offset: usize = 44 as usize
+    while offset + (2 as usize) <= end {
+        let kind: u8 = cpu_byte(table, offset)
+        let length: usize = cpu_byte(table, offset + (1 as usize)) as usize
+        if length < (2 as usize) || length > (end - offset) { return false }
+        if kind == (0 as u8) && length >= (8 as usize) {
+            let flags: u32 = cpu_u32(table, offset + (4 as usize))
+            if flags % (2 as u32) == (1 as u32) {
+                cpu_add(reg, cpu_byte(table, offset + (3 as usize)) as u32)
+            }
+        }
+        if kind == (9 as u8) && length >= (16 as usize) {
+            let flags: u32 = cpu_u32(table, offset + (8 as usize))
+            if flags % (2 as u32) == (1 as u32) {
+                cpu_add(reg, cpu_u32(table, offset + (4 as usize)))
+            }
+        }
+        offset = offset + length
+    }
+    reg.hasMadt = true
+    return true
+}
+function cpu_read_rsdp(reg: *CpuRegistry, tag: usize, length: usize): bool {
+    if length < (28 as usize) { return false }
+    let base: usize = tag + (8 as usize)
+    // "RSD PTR " + ACPI v1 checksum, verify before XSDT address.
+    if cpu_byte(base, 0 as usize) != (82 as u8) ||
+       cpu_byte(base, 1 as usize) != (83 as u8) ||
+       cpu_byte(base, 2 as usize) != (68 as u8) ||
+       cpu_byte(base, 3 as usize) != (32 as u8) ||
+       cpu_byte(base, 4 as usize) != (80 as u8) ||
+       cpu_byte(base, 5 as usize) != (84 as u8) ||
+       cpu_byte(base, 6 as usize) != (82 as u8) ||
+       cpu_byte(base, 7 as usize) != (32 as u8) ||
+       !cpu_checksum(base, 20 as usize) { return false }
+    let xsdt: u64 = 0 as u64
+    let entryBytes: usize = 4 as usize
+    if length >= (44 as usize) &&
+       cpu_byte(base, 15 as usize) >= (2 as u8) &&
+       cpu_u32(base, 20 as usize) >= (36 as u32) &&
+       cpu_checksum(base, 36 as usize) {
+        xsdt = cpu_u64(base, 24 as usize)
+        entryBytes = 8 as usize
+    } else {
+        xsdt = cpu_u32(base, 16 as usize) as u64
+    }
+    if !cpu_sdt_valid(xsdt) { return false }
+    let table: usize = xsdt as usize
+    let len: usize = cpu_u32(table, 4 as usize) as usize
+    if entryBytes == (8 as usize) {
+        if !cpu_signature(table, 88 as u8, 83 as u8, 68 as u8, 84 as u8) {
+            return false
+        }
+    } else if !cpu_signature(table, 82 as u8, 83 as u8, 68 as u8, 84 as u8) {
+        return false
+    }
+    let offset: usize = 36 as usize
+    while offset + entryBytes <= len {
+        let target: u64 = 0 as u64
+        if entryBytes == (8 as usize) { target = cpu_u64(table, offset) }
+        else { target = cpu_u32(table, offset) as u64 }
+        if cpu_memory_valid(target, 36 as usize) &&
+           cpu_signature(target as usize, 65 as u8, 80 as u8, 73 as u8, 67 as u8) {
+            return cpu_read_madt(reg, target)
+        }
+        offset = offset + entryBytes
+    }
+    return false
+}
+function cpu_discover_mb2(reg: *CpuRegistry, info: usize): void {
+    if reg == null || info == (0 as usize) { return }
+    let total: usize = (cpu_u32(info, 0 as usize) as usize)
+    if total < (16 as usize) || total > (1048576 as usize) { return }
+    let offset: usize = 8 as usize
+    while offset + (8 as usize) <= total {
+        let base: usize = info + offset
+        let kind: u32 = cpu_u32(base, 0 as usize)
+        let size: usize = cpu_u32(base, 4 as usize) as usize
+        if kind == (0 as u32) { return }
+        if size < (8 as usize) || size > (total - offset) { return }
+        if kind == (15 as u32) || kind == (14 as u32) {
+            cpu_read_rsdp(reg, base, size)
+            if reg.hasMadt { return }
+        }
+        offset = offset + ((size + (7 as usize)) / (8 as usize)) * (8 as usize)
+    }
+}
+function cpu_registry_boot(info: usize): *CpuRegistry {
+    let page: usize = arch_alloc_page()
+    let idsPage: usize = arch_alloc_page()
+    if page == (0 as usize) || idsPage == (0 as usize) { return null }
+    let reg: *CpuRegistry = page as *CpuRegistry
+    reg.ids = idsPage as *u32
+    reg.count = 0 as usize
+    reg.online = 1 as usize // BSP only; no AP trampoline is enabled
+    reg.rejected = 0 as usize
+    reg.hasMadt = false
+    reg.bsp = arch_cpu_apic_id()
+    if !cpu_capacity_self_test(reg) { return null }
+    cpu_discover_mb2(reg, info)
+    // Register the boot processor even if the MADT was absent.
+    cpu_add(reg, reg.bsp)
+    return reg
+}
