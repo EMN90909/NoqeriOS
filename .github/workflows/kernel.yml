@@ -93,3 +93,57 @@ jobs:
           name: noqerios-custom-bios-iso
           path: build/noqerios.iso
           if-no-files-found: error
+
+
+  uefi-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: Checkout NoqeriOS
+        uses: actions/checkout@v4
+
+      - name: Checkout Noqeri compiler
+        uses: actions/checkout@v4
+        with:
+          repository: EMN90909/Noqeri
+          path: .deps/Noqeri
+
+      - name: Install UEFI and OVMF build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc g++ cmake binutils xorriso mtools gnu-efi ovmf qemu-system-x86 python3
+
+      - name: Build Noqeri compiler
+        run: |
+          cmake -S .deps/Noqeri -B .deps/Noqeri/build -DCMAKE_BUILD_TYPE=Release -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DBUILD_TESTING=OFF
+          cmake --build .deps/Noqeri/build --target noqeri --parallel 2
+
+      - name: Verify UEFI sources and shell scripts
+        run: |
+          bash -n build.sh Bootloader/uefi/build.sh Tests/uefi-smoke.sh
+          test -f Arch/x86_64/entry.S
+          grep -q 'uefi_kernel_entry' Arch/x86_64/entry.S
+          test -f Bootloader/uefi/loader.c
+
+      - name: Build UEFI ISO and boot under OVMF
+        env:
+          NOQERI: ${{ github.workspace }}/.deps/Noqeri/build/noqeri
+        run: bash Tests/uefi-smoke.sh
+
+      - name: Upload UEFI boot debugging
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noqerios-uefi-logs
+          path: |
+            build/uefi-boot-debug.log
+            build/uefi-serial.log
+          if-no-files-found: ignore
+
+      - name: Upload verified hybrid ISO
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noqerios-bios-uefi-iso
+          path: build/noqerios.iso
+          if-no-files-found: error
