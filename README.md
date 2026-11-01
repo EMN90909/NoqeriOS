@@ -125,3 +125,24 @@ bash Tests/uefi-smoke.sh
 ```
 
 The resulting ISO contains BIOS and UEFI optical boot entries; the FAT image `build/uefi/esp.img` contains `EFI/BOOT/BOOTX64.EFI` and `EFI/BOOT/KERNEL.ELF`. UEFI Secure Boot will reject the unsigned loader unless disabled or signed with trusted keys. No physical-PC boot is certified without device-specific testing. USB booting from a raw ISO is not yet validated; use an appropriate EFI system partition when preparing removable media.
+
+
+## Experimental UEFI and physical hardware
+
+Linux can build a hybrid original BIOS + UEFI ISO and a removable-media
+GPT/FAT EFI image using:
+
+```sh
+bash build.sh --uefi-bootstrap
+```
+
+The output files are `build/noqerios.iso` and
+`build/noqerios-uefi-usb.img`. UEFI uses our own PE/COFF loader in
+`Bootloader/uefi/` and the 64-bit Noqeri kernel entry; it does not
+use Limine or GRUB. `Tests/uefi-smoke.sh` is the required OVMF test.
+
+See [UEFI physical hardware compatibility](Docs/PHYSICAL_UEFI.md)
+before experimenting on any real machine. Secure Boot, USB input,
+modern display text output and general hardware drivers are **not yet
+supported**, so OVMF boot success alone does not establish laptop or
+desktop usability.
