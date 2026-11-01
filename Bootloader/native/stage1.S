@@ -56,6 +56,9 @@ _start:
     movw $0x5018,%di
     xorl %ebx,%ebx
 e820_next:
+    /* INT 13h AH=08 may return ES:DI floppy parameters; restore ES=0. */
+    xorw %ax,%ax
+    movw %ax,%es
     movl $0x534d4150,%edx
     movl $0xe820,%eax
     movl $24,%ecx
