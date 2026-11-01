@@ -41,7 +41,7 @@ jobs:
         run: |
           test -f Kernel/main.noqeri
           test -z "$(find Arch Drivers Kernel -type f -name '*.nqr' -print -quit)"
-          bash -n build.sh Tests/qemu-smoke.sh
+          bash -n build.sh Tests/qemu-smoke.sh Tests/bios-cpu-smoke.sh
           test -f Bootloader/native/stage0.S
           test -f Bootloader/native/stage1.S
           test -f Bootloader/handoff.noqeri
@@ -71,6 +71,10 @@ jobs:
           NOQERI: ${{ github.workspace }}/.deps/Noqeri/build/noqeri
           NOQERIOS_MEMORY: ${{ matrix.memory }}
         run: bash Tests/qemu-smoke.sh
+
+      - name: Reject unsupported 32-bit-only BIOS CPUs
+        if: matrix.memory == '256M'
+        run: bash Tests/bios-cpu-smoke.sh
 
       - name: Boot VirtIO Ethernet and acquire IPv4 DHCP lease
         if: matrix.memory == '256M'
@@ -162,6 +166,12 @@ jobs:
       - name: Build UEFI ISO and boot under OVMF
         env:
           NOQERI: ${{ github.workspace }}/.deps/Noqeri/build/noqeri
+        run: bash Tests/uefi-smoke.sh
+
+      - name: Verify GOP framebuffer handoff under OVMF
+        env:
+          NOQERI: ${{ github.workspace }}/.deps/Noqeri/build/noqeri
+          NOQERIOS_REQUIRE_GOP: '1'
         run: bash Tests/uefi-smoke.sh
 
       - name: Verify GPT UEFI USB image under OVMF
