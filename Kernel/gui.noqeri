@@ -343,7 +343,9 @@ function gui_label(g: *GuiDesktop, labelId: u32, x: usize, y: usize, color: u32)
     }
 }
 function gui_panel(g: *GuiDesktop, x: usize, y: usize,
-                   w: usize, h: usize, title: u32, active: bool): void {
+                   w: usize, h: usize, title: u32): void {
+    let active: bool = (title == (1 as u32) && g.focused == (0 as usize)) ||
+                       (title == (2 as u32) && g.focused == (1 as usize))
     gui_fill(g, x + (5 as usize), y + (6 as usize), w, h, 0x0d1121 as u32)
     gui_fill(g, x, y, w, h, 0x202d44 as u32)
     let edge: u32 = 0x465775 as u32
@@ -393,11 +395,11 @@ function gui_paint(g: *GuiDesktop): void {
         secondY = g.height - panelH - (56 as usize)
     }
     if g.focused == (0 as usize) {
-        gui_panel(g, secondX, secondY, panelW, panelH, 2 as u32, false)
-        gui_panel(g, left, top, panelW, panelH, 1 as u32, true)
+        gui_panel(g, secondX, secondY, panelW, panelH, 2 as u32)
+        gui_panel(g, left, top, panelW, panelH, 1 as u32)
     } else {
-        gui_panel(g, left, top, panelW, panelH, 1 as u32, false)
-        gui_panel(g, secondX, secondY, panelW, panelH, 2 as u32, true)
+        gui_panel(g, left, top, panelW, panelH, 1 as u32)
+        gui_panel(g, secondX, secondY, panelW, panelH, 2 as u32)
     }
     if g.focused == (0 as usize) {
         gui_label(g, 5 as u32, left + (18 as usize),
