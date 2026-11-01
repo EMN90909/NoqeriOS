@@ -21,7 +21,7 @@ export function kernel_main(multibootInfo: usize): void {
     arch_cli()
     serial_init()
     if !boot_info_valid(multibootInfo) {
-        serial_write("NoqeriOS: invalid Multiboot2 handoff\\n")
+        serial_write("NoqeriOS: invalid Multiboot2 handoff\n")
         while true { arch_halt() }
     }
     serial_write("NoqeriOS: entered 64-bit Noqeri kernel\n")
@@ -102,7 +102,7 @@ export function kernel_main(multibootInfo: usize): void {
                     let heapStatePage: usize = pmm_alloc_page(pmm)
                     if heapStatePage != (0 as usize) {
                         let heap: *KernelHeap = heapStatePage as *KernelHeap
-                        if heap_initialize(heap, pmm) && heap_self_test(heap) {
+                        if heap_initialize(heap, pmmStatePage as *PhysicalMemoryManager) && heap_self_test(heap) {
                             serial_write("NoqeriOS: kernel heap alloc free reuse stress passed\n")
                         } else {
                             serial_write("NoqeriOS: kernel heap self-test failed\n")

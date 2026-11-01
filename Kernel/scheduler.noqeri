@@ -43,7 +43,7 @@ function scheduler_create_process(scheduler: *KernelScheduler, storage: usize, p
     let pid: usize = scheduler.nextPid
     scheduler.nextPid = scheduler.nextPid + (1 as usize)
     process_initialize(process, pid, privilege)
-    if !scheduler_enqueue(scheduler, process) { return null }
+    if !scheduler_enqueue(scheduler, storage as *KernelProcess) { return null }
     return process
 }
 

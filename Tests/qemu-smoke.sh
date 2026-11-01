@@ -40,7 +40,7 @@ set +e
 timeout 12s qemu-system-x86_64 \
     -machine q35 \
     -m "$MEMORY" \
-    -drive if=ide,format=raw,file="$OUT/native-boot/noqerios-native.img" \\
+    -drive if=ide,format=raw,file="$OUT/native-boot/noqerios-native.img" \
     -device virtio-rng-pci,disable-legacy=on \
     -drive if=none,format=raw,file="$DISK",id=noqerios-test-disk \
     -device virtio-blk-pci,drive=noqerios-test-disk,disable-legacy=on \

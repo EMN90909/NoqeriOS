@@ -156,7 +156,7 @@ function vmm_walk_pte(space: *AddressSpace, virtualAddress: usize): *u64 {
     if !vmm_entry_present(pdEntry) || vmm_entry_large(pdEntry) { return null }
 
     let pt: *u64 = vmm_entry_address(pdEntry) as *u64
-    return &(pt[vmm_pt_index(virtualAddress)])
+    return (vmm_entry_address(pdEntry) + (vmm_pt_index(virtualAddress) * (8 as usize))) as *u64
 }
 
 function vmm_unmap_page(space: *AddressSpace, virtualAddress: usize): usize {

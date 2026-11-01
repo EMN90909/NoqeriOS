@@ -68,7 +68,7 @@ function heap_add_region(heap: *KernelHeap, minimumPayload: usize): bool {
     block.reserved = 0 as u32
     block.next = null
     block.magic = heap_block_magic()
-    heap_append_block(heap, block)
+    heap_append_block(heap, base as *HeapBlock)
     heap.pageCount = heap.pageCount + pageCount
     return true
 }
