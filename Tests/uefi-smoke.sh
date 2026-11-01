@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Boot native NoqeriOS UEFI ISO under OVMF. Requires GNU-EFI, OVMF, QEMU.
 set -Eeuo pipefail
-ROOT="$(cd "$(dirname "\${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/build"
 mkdir -p "$OUT"
 bash "$ROOT/build.sh" --uefi
@@ -21,7 +21,7 @@ done
 cp "$VARS" "$OUT/uefi-vars-test.fd"
 set +e
 timeout 25s qemu-system-x86_64 \
-    -machine q35 -m "\${NOQERIOS_MEMORY:-256M}" \
+    -machine q35 -m "${NOQERIOS_MEMORY:-256M}" \
     -drive if=pflash,format=raw,unit=0,readonly=on,file="$CODE" \
     -drive if=pflash,format=raw,unit=1,file="$OUT/uefi-vars-test.fd" \
     -cdrom "$OUT/noqerios.iso" -boot order=d \
