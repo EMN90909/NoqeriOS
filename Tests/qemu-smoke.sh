@@ -4,13 +4,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/build"
 LOG="$OUT/qemu-serial.log"
+DEBUG_LOG="$OUT/qemu-boot-debug.log"
 DISK="$OUT/virtio-test.img"
 MEMORY="${NOQERIOS_MEMORY:-256M}"
 
 bash "$ROOT/build.sh" --native
 
-if [[ ! -f "$OUT/native-boot/noqerios-native.img" ]]; then
-    echo "ERROR: native BIOS boot image was not produced" >&2
+if [[ ! -s "$OUT/noqerios.iso" ]]; then
+    echo "ERROR: custom BIOS ISO was not produced" >&2
     exit 1
 fi
 if ! command -v qemu-system-x86_64 >/dev/null 2>&1; then
@@ -35,7 +36,7 @@ printf '\x10\x00\x00\x00\x00\x00\x00\x00' | dd of="$DISK" bs=1 seek=528 conv=not
 printf '\x01\x00\x00\x00' | dd of="$DISK" bs=1 seek=536 conv=notrunc status=none
 printf 'HELO from NoqFS\n' | dd of="$DISK" bs=1 seek=1024 conv=notrunc status=none
 
-rm -f "$LOG"
+rm -f "$LOG" "$DEBUG_LOG"
 set +e
 timeout 12s qemu-system-x86_64 \
     -machine q35 \
@@ -45,6 +46,8 @@ timeout 12s qemu-system-x86_64 \
     -drive if=none,format=raw,file="$DISK",id=noqerios-test-disk \
     -device virtio-blk-pci,drive=noqerios-test-disk,disable-legacy=on \
     -serial file:"$LOG" \
+    -debugcon file:"$DEBUG_LOG" \
+    -global isa-debugcon.iobase=0xe9 \
     -display none \
     -no-reboot \
     -no-shutdown >/dev/null 2>&1
@@ -57,7 +60,12 @@ if [[ $rc -ne 0 && $rc -ne 124 ]]; then
     exit 1
 fi
 
-grep -q "NoqeriOS: entered 64-bit Noqeri kernel" "$LOG"
+if ! grep -q "NoqeriOS: entered 64-bit Noqeri kernel" "$LOG"; then
+    echo "NoqeriOS kernel entry not observed. Boot debug:" >&2
+    cat "$DEBUG_LOG" >&2 || true
+    cat "$LOG" >&2 || true
+    exit 1
+fi
 grep -q "NoqeriOS: serial driver online" "$LOG"
 grep -q "NoqeriOS: physical memory map accepted" "$LOG"
 grep -q "NoqeriOS: bitmap physical memory manager online" "$LOG"
@@ -83,5 +91,5 @@ grep -q "NoqeriOS: modular monolith core services online" "$LOG"
 grep -q "NoqeriOS: bootstrap milestone complete" "$LOG"
 grep -q "NoqeriOS serial terminal ready" "$LOG"
 
-echo "NoqeriOS QEMU smoke test passed with $MEMORY RAM"
+echo "NoqeriOS custom BIOS ISO QEMU smoke test passed with $MEMORY RAM"
 cat "$LOG"
