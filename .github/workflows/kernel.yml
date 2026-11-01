@@ -103,6 +103,10 @@ jobs:
             python3 Tests/tcp-http-smoke.py --nic "$nic"
           done
 
+      - name: Verify bounded TCP SYN retry and split-response stream
+        if: matrix.memory == '256M'
+        run: python3 Tests/tcp-http-smoke.py --nic virtio --syn-retry --split-response
+
       - name: Verify interactive NoqeriOS terminal
         if: matrix.memory == '256M'
         run: python3 Tests/terminal-interaction.py --memory 256M
