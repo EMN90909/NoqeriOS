@@ -27,6 +27,15 @@ export function kernel_main(multibootInfo: usize): void {
     serial_write("NoqeriOS: entered 64-bit Noqeri kernel\n")
     serial_write("NoqeriOS: serial driver online\n")
 
+    // Show a hardware boot marker before touching PCI, PIT, VirtIO or ring 3.
+    // On real UEFI hardware these later subsystems may still be incomplete.
+    // The EFI adapter maps the GOP framebuffer before ExitBootServices.
+    if framebuffer_probe(multibootInfo) {
+        if framebuffer_draw_boot_mark(multibootInfo) {
+            serial_write("NoqeriOS: early framebuffer boot marker displayed\n")
+        }
+    }
+
     let memoryReady: bool = false
     let pmmAddress: usize = 0 as usize
     let kernelStart: usize = arch_kernel_start()
