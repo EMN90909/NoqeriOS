@@ -43,7 +43,7 @@ run_root() {
     fi
 }
 
-required_tools=(cmake g++ as ld grub-file grub-mkrescue xorriso mformat git python3)
+required_tools=(cmake g++ as ld xorriso git python3 curl make)
 missing_tools=()
 for tool in "${required_tools[@]}"; do
     if ! command -v "$tool" >/dev/null 2>&1; then
@@ -64,7 +64,7 @@ if (( ${#missing_tools[@]} > 0 )); then
     echo "Installing missing build dependencies..."
     run_root apt-get update
     run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        build-essential cmake binutils grub-common grub-pc-bin xorriso mtools \
+        build-essential cmake binutils xorriso curl make \
         qemu-system-x86 git ca-certificates python3
 fi
 
@@ -131,18 +131,42 @@ ld -nostdlib -z max-page-size=0x1000 \
    -o "$OUT/kernel.elf" \
    "$OUT/entry.o" "$OUT/arch.o" "$OUT/interrupts.o" "$OUT/userspace.o" "$OUT/kernel_noqeri.o"
 
-grub-file --is-x86-multiboot2 "$OUT/kernel.elf"
-if command -v nm >/dev/null 2>&1; then
-    nm "$OUT/kernel.elf" | grep -Eq "[[:space:]]T[[:space:]]kernel_main$" || { echo "Missing Noqeri kernel_main symbol" >&2; exit 5; }
-fi
-
+# Limine provides BIOS + UEFI boot while retaining our Multiboot2 kernel ABI.
+# It is deliberately NOT the native Limine protocol, which needs a new
+# memory-manager / virtual-address handoff.
 ISO_ROOT="$OUT/iso-root"
+LIMINE_DIR="${LIMINE_DIR:-$ROOT/.deps/limine}"
+if [[ ! -f "$LIMINE_DIR/limine-bios-cd.bin" || ! -f "$LIMINE_DIR/limine-uefi-cd.bin" ]]; then
+    if (( BOOTSTRAP == 0 )); then
+        echo "Limine binaries missing at $LIMINE_DIR (set LIMINE_DIR or use --bootstrap)" >&2
+        exit 4
+    fi
+    mkdir -p "$ROOT/.deps"
+    if [[ -d "$LIMINE_DIR/.git" ]]; then
+        git -C "$LIMINE_DIR" fetch --depth 1 origin v12.x
+        git -C "$LIMINE_DIR" checkout FETCH_HEAD
+    else
+        git clone --depth 1 --branch v12.x https://github.com/limine-bootloader/limine.git "$LIMINE_DIR"
+    fi
+    make -C "$LIMINE_DIR" -j2
+fi
+for asset in limine-bios.sys limine-bios-cd.bin limine-uefi-cd.bin BOOTX64.EFI; do
+    test -s "$LIMINE_DIR/$asset" || { echo "Missing Limine asset: $asset" >&2; exit 5; }
+done
+test -x "$LIMINE_DIR/limine" || { echo "Missing Limine install tool" >&2; exit 5; }
 rm -rf "$ISO_ROOT"
-mkdir -p "$ISO_ROOT/boot/grub"
+mkdir -p "$ISO_ROOT/boot/limine" "$ISO_ROOT/EFI/BOOT"
 cp "$OUT/kernel.elf" "$ISO_ROOT/boot/kernel.elf"
-cp "$ROOT/Bootloader/grub.cfg" "$ISO_ROOT/boot/grub/grub.cfg"
+cp "$ROOT/Bootloader/limine.conf" "$ISO_ROOT/boot/limine/limine.conf"
+cp "$LIMINE_DIR"/limine-{bios.sys,bios-cd.bin,uefi-cd.bin} "$ISO_ROOT/boot/limine/"
+cp "$LIMINE_DIR/BOOTX64.EFI" "$ISO_ROOT/EFI/BOOT/BOOTX64.EFI"
 rm -f "$OUT/noqerios.iso"
-grub-mkrescue -o "$OUT/noqerios.iso" "$ISO_ROOT" >/dev/null
+xorriso -as mkisofs -R -r -J \
+    -b boot/limine/limine-bios-cd.bin -no-emul-boot -boot-load-size 4 \
+    -boot-info-table --efi-boot boot/limine/limine-uefi-cd.bin \
+    -efi-boot-part --efi-boot-image --protective-msdos-label \
+    "$ISO_ROOT" -o "$OUT/noqerios.iso"
+"$LIMINE_DIR/limine" bios-install "$OUT/noqerios.iso"
 
 if [[ ! -s "$OUT/noqerios.iso" ]]; then
     echo "ISO creation reported success but build/noqerios.iso is missing or empty." >&2
