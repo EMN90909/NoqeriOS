@@ -419,6 +419,60 @@ function network_console_status(n: *Network): void {
     serial_write("\n")
 }
 
+// Cooperative packet pump. Responds to correctly addressed ARP requests and
+// IPv4 ICMP echo while the single-core serial terminal is idle. No socket
+// demultiplexer, DHCP renewal timer, background network thread, or firewall.
+function network_service_poll(n: *Network): void {
+    if n == null || !n.online { return }
+    let size: usize = network_receive(n, n.rx, 2048 as usize, 0 as usize)
+    if size < (42 as usize) { return }
+    if network_read16(n.rx, 12 as usize) == (2054 as u16) &&
+       network_read16(n.rx, 14 as usize) == (1 as u16) &&
+       network_read16(n.rx, 16 as usize) == (2048 as u16) &&
+       network_byte(n.rx, 18 as usize) == (6 as u8) &&
+       network_byte(n.rx, 19 as usize) == (4 as u8) &&
+       network_read16(n.rx, 20 as usize) == (1 as u16) &&
+       network_read32(n.rx, 38 as usize) == n.ip {
+        network_ethernet(n, n.rx + (22 as usize), 2054 as u16)
+        network_write16(n.frame, 14 as usize, 1 as u16)
+        network_write16(n.frame, 16 as usize, 2048 as u16)
+        network_put(n.frame, 18 as usize, 6 as u8)
+        network_put(n.frame, 19 as usize, 4 as u8)
+        network_write16(n.frame, 20 as usize, 2 as u16)
+        network_copy(n.frame, 22 as usize, n.mac as usize, 0 as usize, 6 as usize)
+        network_write32(n.frame, 28 as usize, n.ip)
+        network_copy(n.frame, 32 as usize, n.rx, 22 as usize, 6 as usize)
+        network_write32(n.frame, 38 as usize, network_read32(n.rx, 28 as usize))
+        network_fill(n.frame, 42 as usize, 18 as usize, 0 as u8)
+        network_send(n, n.frame, 60 as usize)
+        return
+    }
+    if network_read16(n.rx, 12 as usize) != (2048 as u16) ||
+       network_byte(n.rx, 14 as usize) != (69 as u8) ||
+       network_byte(n.rx, 23 as usize) != (1 as u8) ||
+       network_read32(n.rx, 30 as usize) != n.ip { return }
+    let total: usize = network_read16(n.rx, 16 as usize) as usize
+    if total < (28 as usize) || total > size - (14 as usize) ||
+       total > (1500 as usize) ||
+       network_read16(n.rx, 20 as usize) % (8192 as u16) != (0 as u16) {
+        return
+    }
+    let payload: usize = total - (20 as usize)
+    if network_byte(n.rx, 34 as usize) != (8 as u8) ||
+       network_byte(n.rx, 35 as usize) != (0 as u8) ||
+       network_checksum(n.rx, 34 as usize, payload) != (0 as u16) {
+        return
+    }
+    if !network_ipv4(n, n.rx + (6 as usize), n.ip,
+                     network_read32(n.rx, 26 as usize), 1 as u8, payload) { return }
+    network_copy(n.frame, 34 as usize, n.rx, 34 as usize, payload)
+    network_put(n.frame, 34 as usize, 0 as u8)
+    network_write16(n.frame, 36 as usize, 0 as u16)
+    network_write16(n.frame, 36 as usize,
+                    network_checksum(n.frame, 34 as usize, payload))
+    network_send(n, n.frame, 34 as usize + payload)
+}
+
 function network_boot_probe(): *Network {
     let virtioLocation: u32 = pci_find_device_location(6900 as u16, 4161 as u16)
     let intelLocation: u32 = pci_find_device_location(32902 as u16, 4110 as u16)
