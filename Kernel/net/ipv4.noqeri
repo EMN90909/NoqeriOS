@@ -2,6 +2,7 @@ module os.kernel.net.ipv4
 
 import "../../Drivers/virtio_net.noqeri"
 import "../../Drivers/e1000.noqeri"
+import "../../Drivers/rtl8139.noqeri"
 import "../../Drivers/serial.noqeri"
 import "../../Drivers/pci.noqeri"
 import "../../Arch/x86_64/api.noqeri"
@@ -11,6 +12,7 @@ import "../../Arch/x86_64/api.noqeri"
 record Network {
     nic: *VirtioNet;
     intel: *E1000;
+    realtek: *Rtl8139;
     mac: *u8;
     adapterKind: u32;
     frame: usize;
@@ -33,16 +35,19 @@ record Network {
 function network_send(n: *Network, frame: usize, length: usize): bool {
     if n.adapterKind == (1 as u32) { return virtio_net_send(n.nic, frame, length) }
     if n.adapterKind == (2 as u32) { return e1000_send(n.intel, frame, length) }
+    if n.adapterKind == (3 as u32) { return rtl8139_send(n.realtek, frame, length) }
     return false
 }
 function network_receive(n: *Network, output: usize, capacity: usize, timeout: usize): usize {
     if n.adapterKind == (1 as u32) { return virtio_net_receive(n.nic, output, capacity, timeout) }
     if n.adapterKind == (2 as u32) { return e1000_receive(n.intel, output, capacity, timeout) }
+    if n.adapterKind == (3 as u32) { return rtl8139_receive(n.realtek, output, capacity, timeout) }
     return 0 as usize
 }
 function network_close(n: *Network): void {
     if n.adapterKind == (1 as u32) { virtio_net_close(n.nic) }
     if n.adapterKind == (2 as u32) { e1000_close(n.intel) }
+    if n.adapterKind == (3 as u32) { rtl8139_close(n.realtek) }
     n.online = false
 }
 
@@ -399,6 +404,8 @@ function network_console_status(n: *Network): void {
     }
     if n.adapterKind == (2 as u32) {
         serial_write("Network: Intel 82540EM Ethernet linked (IPv4)\nIP: ")
+    } else if n.adapterKind == (3 as u32) {
+        serial_write("Network: Realtek RTL8139 Ethernet linked (IPv4)\nIP: ")
     } else {
         serial_write("Network: VirtIO Ethernet linked (IPv4)\nIP: ")
     }
@@ -415,7 +422,9 @@ function network_console_status(n: *Network): void {
 function network_boot_probe(): *Network {
     let virtioLocation: u32 = pci_find_device_location(6900 as u16, 4161 as u16)
     let intelLocation: u32 = pci_find_device_location(32902 as u16, 4110 as u16)
-    if virtioLocation == (65536 as u32) && intelLocation == (65536 as u32) {
+    let realtekLocation: u32 = pci_find_device_location(4332 as u16, 33081 as u16)
+    if virtioLocation == (65536 as u32) && intelLocation == (65536 as u32) &&
+       realtekLocation == (65536 as u32) {
         serial_write("NoqeriOS: no supported Ethernet NIC; network offline\n")
         return null
     }
@@ -453,6 +462,15 @@ function network_boot_probe(): *Network {
             network.adapterKind = 2 as u32
             network.mac = network.intel.mac
             serial_write("NoqeriOS: Intel 82540EM Ethernet DMA RX/TX queues online\n")
+        }
+    }
+    if !opened && realtekLocation != (65536 as u32) {
+        network.realtek = driverPage as *Rtl8139
+        opened = rtl8139_open(realtekLocation, network.realtek)
+        if opened {
+            network.adapterKind = 3 as u32
+            network.mac = network.realtek.mac
+            serial_write("NoqeriOS: Realtek RTL8139 Ethernet DMA RX/TX online\n")
         }
     }
     if !opened {
