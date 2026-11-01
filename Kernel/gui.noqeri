@@ -117,18 +117,233 @@ function gui_letter(g: *GuiDesktop, code: u8, x: usize, y: usize, color: u32): v
         row = row + (1 as usize)
     }
 }
-function gui_label(g: *GuiDesktop, title: string, x: usize, y: usize, color: u32): void {
-    // No dynamic font or host string conversion is required; Noqeri's
-    // freestanding strings are NUL terminated in this compiler backend.
-    let ptr: *u8 = title as *u8
-    let index: usize = 0 as usize
-    while index < (70 as usize) && ptr[index] != (0 as u8) {
-        gui_letter(g, ptr[index], x + index * (12 as usize), y, color)
-        index = index + (1 as usize)
+// Static, precompiled labels avoid unsupported freestanding string-pointer casts.
+function gui_label(g: *GuiDesktop, labelId: u32, x: usize, y: usize, color: u32): void {
+    if labelId == (1 as u32) {
+        gui_letter(g, 87 as u8, x + (0 as usize), y, color)
+        gui_letter(g, 69 as u8, x + (12 as usize), y, color)
+        gui_letter(g, 76 as u8, x + (24 as usize), y, color)
+        gui_letter(g, 67 as u8, x + (36 as usize), y, color)
+        gui_letter(g, 79 as u8, x + (48 as usize), y, color)
+        gui_letter(g, 77 as u8, x + (60 as usize), y, color)
+        gui_letter(g, 69 as u8, x + (72 as usize), y, color)
+    }
+    else if labelId == (2 as u32) {
+        gui_letter(g, 83 as u8, x + (0 as usize), y, color)
+        gui_letter(g, 89 as u8, x + (12 as usize), y, color)
+        gui_letter(g, 83 as u8, x + (24 as usize), y, color)
+        gui_letter(g, 84 as u8, x + (36 as usize), y, color)
+        gui_letter(g, 69 as u8, x + (48 as usize), y, color)
+        gui_letter(g, 77 as u8, x + (60 as usize), y, color)
+    }
+    else if labelId == (3 as u32) {
+        gui_letter(g, 78 as u8, x + (0 as usize), y, color)
+        gui_letter(g, 79 as u8, x + (12 as usize), y, color)
+        gui_letter(g, 81 as u8, x + (24 as usize), y, color)
+        gui_letter(g, 69 as u8, x + (36 as usize), y, color)
+        gui_letter(g, 82 as u8, x + (48 as usize), y, color)
+        gui_letter(g, 73 as u8, x + (60 as usize), y, color)
+        gui_letter(g, 79 as u8, x + (72 as usize), y, color)
+        gui_letter(g, 83 as u8, x + (84 as usize), y, color)
+    }
+    else if labelId == (4 as u32) {
+        gui_letter(g, 69 as u8, x + (0 as usize), y, color)
+        gui_letter(g, 88 as u8, x + (12 as usize), y, color)
+        gui_letter(g, 80 as u8, x + (24 as usize), y, color)
+        gui_letter(g, 69 as u8, x + (36 as usize), y, color)
+        gui_letter(g, 82 as u8, x + (48 as usize), y, color)
+        gui_letter(g, 73 as u8, x + (60 as usize), y, color)
+        gui_letter(g, 77 as u8, x + (72 as usize), y, color)
+        gui_letter(g, 69 as u8, x + (84 as usize), y, color)
+        gui_letter(g, 78 as u8, x + (96 as usize), y, color)
+        gui_letter(g, 84 as u8, x + (108 as usize), y, color)
+        gui_letter(g, 65 as u8, x + (120 as usize), y, color)
+        gui_letter(g, 76 as u8, x + (132 as usize), y, color)
+        gui_letter(g, 32 as u8, x + (144 as usize), y, color)
+        gui_letter(g, 68 as u8, x + (156 as usize), y, color)
+        gui_letter(g, 69 as u8, x + (168 as usize), y, color)
+        gui_letter(g, 83 as u8, x + (180 as usize), y, color)
+        gui_letter(g, 75 as u8, x + (192 as usize), y, color)
+        gui_letter(g, 84 as u8, x + (204 as usize), y, color)
+        gui_letter(g, 79 as u8, x + (216 as usize), y, color)
+        gui_letter(g, 80 as u8, x + (228 as usize), y, color)
+    }
+    else if labelId == (5 as u32) {
+        gui_letter(g, 78 as u8, x + (0 as usize), y, color)
+        gui_letter(g, 79 as u8, x + (12 as usize), y, color)
+        gui_letter(g, 81 as u8, x + (24 as usize), y, color)
+        gui_letter(g, 69 as u8, x + (36 as usize), y, color)
+        gui_letter(g, 82 as u8, x + (48 as usize), y, color)
+        gui_letter(g, 73 as u8, x + (60 as usize), y, color)
+        gui_letter(g, 79 as u8, x + (72 as usize), y, color)
+        gui_letter(g, 83 as u8, x + (84 as usize), y, color)
+        gui_letter(g, 32 as u8, x + (96 as usize), y, color)
+        gui_letter(g, 68 as u8, x + (108 as usize), y, color)
+        gui_letter(g, 69 as u8, x + (120 as usize), y, color)
+        gui_letter(g, 83 as u8, x + (132 as usize), y, color)
+        gui_letter(g, 75 as u8, x + (144 as usize), y, color)
+        gui_letter(g, 84 as u8, x + (156 as usize), y, color)
+        gui_letter(g, 79 as u8, x + (168 as usize), y, color)
+        gui_letter(g, 80 as u8, x + (180 as usize), y, color)
+    }
+    else if labelId == (6 as u32) {
+        gui_letter(g, 65 as u8, x + (0 as usize), y, color)
+        gui_letter(g, 32 as u8, x + (12 as usize), y, color)
+        gui_letter(g, 47 as u8, x + (24 as usize), y, color)
+        gui_letter(g, 32 as u8, x + (36 as usize), y, color)
+        gui_letter(g, 83 as u8, x + (48 as usize), y, color)
+        gui_letter(g, 32 as u8, x + (60 as usize), y, color)
+        gui_letter(g, 58 as u8, x + (72 as usize), y, color)
+        gui_letter(g, 32 as u8, x + (84 as usize), y, color)
+        gui_letter(g, 67 as u8, x + (96 as usize), y, color)
+        gui_letter(g, 72 as u8, x + (108 as usize), y, color)
+        gui_letter(g, 65 as u8, x + (120 as usize), y, color)
+        gui_letter(g, 78 as u8, x + (132 as usize), y, color)
+        gui_letter(g, 71 as u8, x + (144 as usize), y, color)
+        gui_letter(g, 69 as u8, x + (156 as usize), y, color)
+        gui_letter(g, 32 as u8, x + (168 as usize), y, color)
+        gui_letter(g, 70 as u8, x + (180 as usize), y, color)
+        gui_letter(g, 79 as u8, x + (192 as usize), y, color)
+        gui_letter(g, 67 as u8, x + (204 as usize), y, color)
+        gui_letter(g, 85 as u8, x + (216 as usize), y, color)
+        gui_letter(g, 83 as u8, x + (228 as usize), y, color)
+    }
+    else if labelId == (7 as u32) {
+        gui_letter(g, 90 as u8, x + (0 as usize), y, color)
+        gui_letter(g, 32 as u8, x + (12 as usize), y, color)
+        gui_letter(g, 58 as u8, x + (24 as usize), y, color)
+        gui_letter(g, 32 as u8, x + (36 as usize), y, color)
+        gui_letter(g, 83 as u8, x + (48 as usize), y, color)
+        gui_letter(g, 69 as u8, x + (60 as usize), y, color)
+        gui_letter(g, 76 as u8, x + (72 as usize), y, color)
+        gui_letter(g, 69 as u8, x + (84 as usize), y, color)
+        gui_letter(g, 67 as u8, x + (96 as usize), y, color)
+        gui_letter(g, 84 as u8, x + (108 as usize), y, color)
+    }
+    else if labelId == (8 as u32) {
+        gui_letter(g, 83 as u8, x + (0 as usize), y, color)
+        gui_letter(g, 69 as u8, x + (12 as usize), y, color)
+        gui_letter(g, 82 as u8, x + (24 as usize), y, color)
+        gui_letter(g, 73 as u8, x + (36 as usize), y, color)
+        gui_letter(g, 65 as u8, x + (48 as usize), y, color)
+        gui_letter(g, 76 as u8, x + (60 as usize), y, color)
+        gui_letter(g, 32 as u8, x + (72 as usize), y, color)
+        gui_letter(g, 67 as u8, x + (84 as usize), y, color)
+        gui_letter(g, 79 as u8, x + (96 as usize), y, color)
+        gui_letter(g, 77 as u8, x + (108 as usize), y, color)
+        gui_letter(g, 49 as u8, x + (120 as usize), y, color)
+        gui_letter(g, 32 as u8, x + (132 as usize), y, color)
+        gui_letter(g, 65 as u8, x + (144 as usize), y, color)
+        gui_letter(g, 67 as u8, x + (156 as usize), y, color)
+        gui_letter(g, 84 as u8, x + (168 as usize), y, color)
+        gui_letter(g, 73 as u8, x + (180 as usize), y, color)
+        gui_letter(g, 86 as u8, x + (192 as usize), y, color)
+        gui_letter(g, 69 as u8, x + (204 as usize), y, color)
+    }
+    else if labelId == (9 as u32) {
+        gui_letter(g, 67 as u8, x + (0 as usize), y, color)
+        gui_letter(g, 80 as u8, x + (12 as usize), y, color)
+        gui_letter(g, 85 as u8, x + (24 as usize), y, color)
+        gui_letter(g, 32 as u8, x + (36 as usize), y, color)
+        gui_letter(g, 83 as u8, x + (48 as usize), y, color)
+        gui_letter(g, 76 as u8, x + (60 as usize), y, color)
+        gui_letter(g, 79 as u8, x + (72 as usize), y, color)
+        gui_letter(g, 84 as u8, x + (84 as usize), y, color)
+        gui_letter(g, 83 as u8, x + (96 as usize), y, color)
+        gui_letter(g, 58 as u8, x + (108 as usize), y, color)
+        gui_letter(g, 32 as u8, x + (120 as usize), y, color)
+        gui_letter(g, 50 as u8, x + (132 as usize), y, color)
+        gui_letter(g, 53 as u8, x + (144 as usize), y, color)
+        gui_letter(g, 48 as u8, x + (156 as usize), y, color)
+    }
+    else if labelId == (10 as u32) {
+        gui_letter(g, 79 as u8, x + (0 as usize), y, color)
+        gui_letter(g, 78 as u8, x + (12 as usize), y, color)
+        gui_letter(g, 76 as u8, x + (24 as usize), y, color)
+        gui_letter(g, 73 as u8, x + (36 as usize), y, color)
+        gui_letter(g, 78 as u8, x + (48 as usize), y, color)
+        gui_letter(g, 69 as u8, x + (60 as usize), y, color)
+        gui_letter(g, 58 as u8, x + (72 as usize), y, color)
+        gui_letter(g, 32 as u8, x + (84 as usize), y, color)
+        gui_letter(g, 66 as u8, x + (96 as usize), y, color)
+        gui_letter(g, 83 as u8, x + (108 as usize), y, color)
+        gui_letter(g, 80 as u8, x + (120 as usize), y, color)
+        gui_letter(g, 32 as u8, x + (132 as usize), y, color)
+        gui_letter(g, 79 as u8, x + (144 as usize), y, color)
+        gui_letter(g, 78 as u8, x + (156 as usize), y, color)
+        gui_letter(g, 76 as u8, x + (168 as usize), y, color)
+        gui_letter(g, 89 as u8, x + (180 as usize), y, color)
+    }
+    else if labelId == (11 as u32) {
+        gui_letter(g, 85 as u8, x + (0 as usize), y, color)
+        gui_letter(g, 69 as u8, x + (12 as usize), y, color)
+        gui_letter(g, 70 as u8, x + (24 as usize), y, color)
+        gui_letter(g, 73 as u8, x + (36 as usize), y, color)
+        gui_letter(g, 32 as u8, x + (48 as usize), y, color)
+        gui_letter(g, 71 as u8, x + (60 as usize), y, color)
+        gui_letter(g, 82 as u8, x + (72 as usize), y, color)
+        gui_letter(g, 65 as u8, x + (84 as usize), y, color)
+        gui_letter(g, 80 as u8, x + (96 as usize), y, color)
+        gui_letter(g, 72 as u8, x + (108 as usize), y, color)
+        gui_letter(g, 73 as u8, x + (120 as usize), y, color)
+        gui_letter(g, 67 as u8, x + (132 as usize), y, color)
+        gui_letter(g, 83 as u8, x + (144 as usize), y, color)
+        gui_letter(g, 32 as u8, x + (156 as usize), y, color)
+        gui_letter(g, 82 as u8, x + (168 as usize), y, color)
+        gui_letter(g, 69 as u8, x + (180 as usize), y, color)
+        gui_letter(g, 65 as u8, x + (192 as usize), y, color)
+        gui_letter(g, 68 as u8, x + (204 as usize), y, color)
+        gui_letter(g, 89 as u8, x + (216 as usize), y, color)
+    }
+    else if labelId == (12 as u32) {
+        gui_letter(g, 78 as u8, x + (0 as usize), y, color)
+        gui_letter(g, 65 as u8, x + (12 as usize), y, color)
+        gui_letter(g, 84 as u8, x + (24 as usize), y, color)
+        gui_letter(g, 73 as u8, x + (36 as usize), y, color)
+        gui_letter(g, 86 as u8, x + (48 as usize), y, color)
+        gui_letter(g, 69 as u8, x + (60 as usize), y, color)
+        gui_letter(g, 32 as u8, x + (72 as usize), y, color)
+        gui_letter(g, 78 as u8, x + (84 as usize), y, color)
+        gui_letter(g, 79 as u8, x + (96 as usize), y, color)
+        gui_letter(g, 81 as u8, x + (108 as usize), y, color)
+        gui_letter(g, 69 as u8, x + (120 as usize), y, color)
+        gui_letter(g, 82 as u8, x + (132 as usize), y, color)
+        gui_letter(g, 73 as u8, x + (144 as usize), y, color)
+    }
+    else if labelId == (13 as u32) {
+        gui_letter(g, 72 as u8, x + (0 as usize), y, color)
+        gui_letter(g, 79 as u8, x + (12 as usize), y, color)
+        gui_letter(g, 77 as u8, x + (24 as usize), y, color)
+        gui_letter(g, 69 as u8, x + (36 as usize), y, color)
+    }
+    else if labelId == (14 as u32) {
+        gui_letter(g, 65 as u8, x + (0 as usize), y, color)
+        gui_letter(g, 32 as u8, x + (12 as usize), y, color)
+        gui_letter(g, 47 as u8, x + (24 as usize), y, color)
+        gui_letter(g, 32 as u8, x + (36 as usize), y, color)
+        gui_letter(g, 83 as u8, x + (48 as usize), y, color)
+        gui_letter(g, 32 as u8, x + (60 as usize), y, color)
+        gui_letter(g, 70 as u8, x + (72 as usize), y, color)
+        gui_letter(g, 79 as u8, x + (84 as usize), y, color)
+        gui_letter(g, 67 as u8, x + (96 as usize), y, color)
+        gui_letter(g, 85 as u8, x + (108 as usize), y, color)
+        gui_letter(g, 83 as u8, x + (120 as usize), y, color)
+        gui_letter(g, 32 as u8, x + (132 as usize), y, color)
+        gui_letter(g, 32 as u8, x + (144 as usize), y, color)
+        gui_letter(g, 90 as u8, x + (156 as usize), y, color)
+        gui_letter(g, 32 as u8, x + (168 as usize), y, color)
+        gui_letter(g, 65 as u8, x + (180 as usize), y, color)
+        gui_letter(g, 67 as u8, x + (192 as usize), y, color)
+        gui_letter(g, 84 as u8, x + (204 as usize), y, color)
+        gui_letter(g, 73 as u8, x + (216 as usize), y, color)
+        gui_letter(g, 86 as u8, x + (228 as usize), y, color)
+        gui_letter(g, 65 as u8, x + (240 as usize), y, color)
+        gui_letter(g, 84 as u8, x + (252 as usize), y, color)
+        gui_letter(g, 69 as u8, x + (264 as usize), y, color)
     }
 }
 function gui_panel(g: *GuiDesktop, x: usize, y: usize,
-                   w: usize, h: usize, title: string, active: bool): void {
+                   w: usize, h: usize, title: u32, active: bool): void {
     gui_fill(g, x + (5 as usize), y + (6 as usize), w, h, 0x0d1121 as u32)
     gui_fill(g, x, y, w, h, 0x202d44 as u32)
     let edge: u32 = 0x465775 as u32
@@ -157,9 +372,9 @@ function gui_paint(g: *GuiDesktop): void {
     }
     gui_fill(g, 0 as usize, 0 as usize, g.width, 55 as usize, 0x0c1426 as u32)
     gui_fill(g, 0 as usize, 52 as usize, g.width, 3 as usize, 0x58d6d0 as u32)
-    gui_label(g, "NOQERIOS", 24 as usize, 18 as usize, 0xffffff as u32)
+    gui_label(g, 3 as u32, 24 as usize, 18 as usize, 0xffffff as u32)
     if g.width >= (650 as usize) {
-        gui_label(g, "EXPERIMENTAL DESKTOP", g.width - (302 as usize),
+        gui_label(g, 4 as u32, g.width - (302 as usize),
                   19 as usize, 0x9caec6 as u32)
     }
 
@@ -178,38 +393,38 @@ function gui_paint(g: *GuiDesktop): void {
         secondY = g.height - panelH - (56 as usize)
     }
     if g.focused == (0 as usize) {
-        gui_panel(g, secondX, secondY, panelW, panelH, "SYSTEM", false)
-        gui_panel(g, left, top, panelW, panelH, "WELCOME", true)
+        gui_panel(g, secondX, secondY, panelW, panelH, 2 as u32, false)
+        gui_panel(g, left, top, panelW, panelH, 1 as u32, true)
     } else {
-        gui_panel(g, left, top, panelW, panelH, "WELCOME", false)
-        gui_panel(g, secondX, secondY, panelW, panelH, "SYSTEM", true)
+        gui_panel(g, left, top, panelW, panelH, 1 as u32, false)
+        gui_panel(g, secondX, secondY, panelW, panelH, 2 as u32, true)
     }
     if g.focused == (0 as usize) {
-        gui_label(g, "NOQERIOS DESKTOP", left + (18 as usize),
+        gui_label(g, 5 as u32, left + (18 as usize),
                   top + (57 as usize), 0xf2f7ff as u32)
-        gui_label(g, "A / S : CHANGE FOCUS", left + (18 as usize),
+        gui_label(g, 6 as u32, left + (18 as usize),
                   top + (91 as usize), 0x9ab2ce as u32)
-        gui_label(g, "Z : SELECT", left + (18 as usize),
+        gui_label(g, 7 as u32, left + (18 as usize),
                   top + (119 as usize), 0x9ab2ce as u32)
-        gui_label(g, "SERIAL COM1 ACTIVE", left + (18 as usize),
+        gui_label(g, 8 as u32, left + (18 as usize),
                   top + (151 as usize), 0x58d6d0 as u32)
     } else {
-        gui_label(g, "CPU SLOTS: 250", secondX + (18 as usize),
+        gui_label(g, 9 as u32, secondX + (18 as usize),
                   secondY + (57 as usize), 0xf2f7ff as u32)
-        gui_label(g, "ONLINE: BSP ONLY", secondX + (18 as usize),
+        gui_label(g, 10 as u32, secondX + (18 as usize),
                   secondY + (90 as usize), 0xf6c779 as u32)
-        gui_label(g, "UEFI GRAPHICS READY", secondX + (18 as usize),
+        gui_label(g, 11 as u32, secondX + (18 as usize),
                   secondY + (121 as usize), 0x58d6d0 as u32)
-        gui_label(g, "NATIVE NOQERI", secondX + (18 as usize),
+        gui_label(g, 12 as u32, secondX + (18 as usize),
                   secondY + (151 as usize), 0x9ab2ce as u32)
     }
     let barY: usize = g.height - (45 as usize)
     gui_fill(g, 0 as usize, barY, g.width, 45 as usize, 0x0c1426 as u32)
     gui_fill(g, 20 as usize, barY + (10 as usize), 145 as usize,
              27 as usize, 0x2a6672 as u32)
-    gui_label(g, "HOME", 36 as usize, barY + (17 as usize), 0xffffff as u32)
+    gui_label(g, 13 as u32, 36 as usize, barY + (17 as usize), 0xffffff as u32)
     if g.width >= (500 as usize) {
-        gui_label(g, "A / S FOCUS  Z ACTIVATE", 185 as usize,
+        gui_label(g, 14 as u32, 185 as usize,
                   barY + (17 as usize), 0xaec4db as u32)
     }
     g.redraws = g.redraws + (1 as usize)
