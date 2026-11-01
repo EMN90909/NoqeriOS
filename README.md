@@ -111,4 +111,4 @@ The smoke test creates a deterministic NoqFS disk, boots `build/noqerios.iso` in
 
 ## Compiler baseline
 
-NoqeriOS tracks the current Noqeri systems compiler. The modular-monolith work was started after validating Noqeri 1.5 (`1.5.0-ecosystem-foundation`) and its `x86_64-unknown-none` target against the existing QEMU boot path.
+NoqeriOS tracks the current Noqeri systems compiler. The upstream Noqeri repository currently identifies its compiler as experimental version 0.1.4. The OS boot path predates this update, and compatibility with the present compiler and `x86_64-unknown-none` target still requires a complete compiler build plus QEMU smoke test. Do not treat earlier validation claims as verification of the updated toolchain.
