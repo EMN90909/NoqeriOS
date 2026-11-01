@@ -86,7 +86,8 @@ The batch launcher uses a WSL Linux toolchain so the Windows and Linux builds us
 Build output is written to:
 
 ```text
-build\noqerios.iso
+build
+oqerios.iso
 ```
 
 Windows build diagnostics are retained in `build\windows-build.log`. If the batch build fails, it displays a Windows error dialog containing the last build messages and pauses the console instead of closing immediately. Some first-time WSL installations require a Windows reboot; in that case the dialog explains that setup must be completed before rerunning the batch file.
@@ -160,7 +161,8 @@ network adapter is present; otherwise it boots offline.
 NOQERIOS_NETWORK=1 bash Tests/qemu-smoke.sh
 ```
 
-This uses QEMU user-mode NAT without forwarded host ports. The test only\ncontacts the virtual gateway, not public internet hosts. The project
+This uses QEMU user-mode NAT without forwarded host ports. The test only
+contacts the virtual gateway, not public internet hosts. The project
 does **not** yet provide general browser connectivity, TCP, DNS resolution,
 TLS, real Wi-Fi, mobile hotspot tethering, Bluetooth PAN, USB Ethernet or
 cellular modem drivers. Do not attach this experimental stack to untrusted
