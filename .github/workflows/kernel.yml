@@ -133,6 +133,12 @@ jobs:
           NOQERI: ${{ github.workspace }}/.deps/Noqeri/build/noqeri
         run: bash Tests/uefi-smoke.sh
 
+      - name: Verify GPT UEFI USB image under OVMF
+        env:
+          NOQERI: ${{ github.workspace }}/.deps/Noqeri/build/noqeri
+          NOQERIOS_UEFI_MEDIA: usb
+        run: bash Tests/uefi-smoke.sh
+
       - name: Upload UEFI boot debugging
         if: always()
         uses: actions/upload-artifact@v4
