@@ -1,0 +1,44 @@
+module os.kernel.terminal
+import "../Arch/x86_64/api.noqeri"
+import "../Drivers/serial.noqeri"
+
+// Polling COM1 terminal. Single-key commands keep the first boot shell
+// independent of heap allocation, interrupts, and filesystems.
+function terminal_read_key(): u8 {
+    while (arch_in8(1021 as u16) % (2 as u8)) == (0 as u8) {
+        arch_pause()
+    }
+    return arch_in8(1016 as u16)
+}
+
+function terminal_prompt(): void {
+    serial_write("\nnoqerios> ")
+}
+
+function terminal_run(): void {
+    serial_write("\nNoqeriOS serial terminal ready (COM1)\n")
+    serial_write("h=help, i=info, m=memory, p=processes, c=clear, r=reboot hint\n")
+    terminal_prompt()
+    while true {
+        let key: u8 = terminal_read_key()
+        if key == (104 as u8) || key == (72 as u8) {
+            serial_write("\nCommands: h help | i info | m memory | p processes | c clear | r reboot\n")
+            terminal_prompt()
+        } else if key == (105 as u8) || key == (73 as u8) {
+            serial_write("\nNoqeriOS experimental x86_64 kernel; Noqeri native services\n")
+            terminal_prompt()
+        } else if key == (109 as u8) || key == (77 as u8) {
+            serial_write("\nMemory: physical allocator and virtual memory initialized at boot\n")
+            terminal_prompt()
+        } else if key == (112 as u8) || key == (80 as u8) {
+            serial_write("\nProcesses: kernel scheduler initialized; interactive user processes pending\n")
+            terminal_prompt()
+        } else if key == (99 as u8) || key == (67 as u8) {
+            serial_write("\x1b[2J\x1b[H")
+            terminal_prompt()
+        } else if key == (114 as u8) || key == (82 as u8) {
+            serial_write("\nReboot requires QEMU reset; no destructive action was performed\n")
+            terminal_prompt()
+        }
+    }
+}
