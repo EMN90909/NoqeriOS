@@ -113,7 +113,7 @@ The smoke test creates a deterministic NoqFS disk, boots `build/noqerios.iso` in
 
 ## Compiler baseline
 
-NoqeriOS tracks the current Noqeri systems compiler. The upstream Noqeri repository currently identifies its compiler as experimental version 0.1.4. On November 1, 2026 the native BIOS ISO passed QEMU smoke gates with 128 MB, 256 MB, and 768 MB RAM, including E820, PCI/VirtIO, VFS and serial terminal entry. New code must pass the same gates. This does not establish UEFI support or physical-hardware compatibility.
+NoqeriOS tracks the current Noqeri systems compiler. The upstream Noqeri repository currently identifies its compiler as experimental version 0.1.4. On November 1, 2026 the native BIOS ISO passed QEMU smoke gates with 128 MB, 256 MB, and 768 MB RAM, including E820, PCI/VirtIO, VFS and serial terminal entry. New code must pass the same gates. UEFI now passes QEMU OVMF optical boot tests. This is not physical-hardware compatibility certification.
 
 ## Experimental custom x86-64 UEFI boot
 
@@ -146,3 +146,5 @@ before experimenting on any real machine. Secure Boot, USB input,
 modern display text output and general hardware drivers are **not yet
 supported**, so OVMF boot success alone does not establish laptop or
 desktop usability.
+
+To verify the UEFI GPT removable-media image through virtual USB xHCI, run `bash Tests/uefi-usb-smoke.sh` after building with `--uefi`. Actual machine firmware, xHCI, NVMe, graphics and keyboard support still require device-specific validation. Never erase your system disk when preparing boot media.
