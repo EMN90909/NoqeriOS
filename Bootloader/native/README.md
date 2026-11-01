@@ -1,16 +1,11 @@
-# NoqeriOS native bootloader (early development)
+# NoqeriOS custom BIOS kernel bootloader
 
-This is **original NoqeriOS bootloader code**. Unlike the separate Limine compatibility ISO, the custom BIOS image contains no Limine or GRUB code.
+This repository owns the BIOS boot sector, second-stage ELF loader and Noqeri boot-information validator. No Limine or GRUB binary is included in the custom raw disk image.
 
-- `stage0.S`: a 512-byte BIOS boot sector, checks INT 13h extensions and loads 32 sectors at 0x8000.
-- `stage1.S`: an independently loaded, observable second-stage entry.
-- `image.py`: strict disk-image packaging.
-- `build.sh`: build and assemble an independent raw BIOS disk image.
+The BIOS boot sector reads stage1 from LBA 1. Stage1 queries BIOS E820, constructs a minimal Multiboot2 memory-map tag, uses INT 13h extended reads to load a fixed 512 KiB ELF64 region from LBA 33, enables A20, enters 32-bit protected mode, copies ELF PT_LOAD segments to physical addresses, zero-fills BSS and jumps to the original kernel's 32-bit Multiboot2 entry with EAX magic and EBX boot-info pointer. The kernel itself enters long mode and runs the Noqeri entry.
 
-Build: `bash Bootloader/native/build.sh`.
+The loader intentionally has tight restrictions: BIOS x86 only, fixed image offsets, x86-64 executable ELF with 32-bit physical segment addresses, image <=512 KiB, no disk filesystem or general-purpose boot menu. UEFI, framebuffer mode negotiation, ACPI and Limine protocol parity are not implemented.
 
-Optional emulator check: `qemu-system-x86_64 -drive format=raw,file=build/native-boot/noqerios-native.img -display curses`.
+Build the existing kernel first with `bash build.sh --bootstrap`, then `bash Bootloader/native/build.sh`. Boot in QEMU using `qemu-system-x86_64 -drive format=raw,file=build/native-boot/noqerios-native.img -serial stdio -display none`.
 
-**Not yet a kernel-booting loader.** Stage1 still needs a physical memory map (E820), A20 handling, storage/filesystem support, an ELF64 PT_LOAD loader, protected-mode handoff with a correct Multiboot2-compatible information structure, error paths, and automated QEMU serial assertions. UEFI remains a separate native implementation milestone.
-
-Existing Limine ISO tooling is retained only as a compatibility/reference path until native handoff can demonstrably boot the full Noqeri kernel. Do not mistake this bootstrap milestone for Limine feature parity.
+**Do not treat these code paths as verified until compilation, ELF checking and the QEMU serial smoke test pass.** The legacy Limine ISO remains a fallback while custom boot verification is incomplete.
