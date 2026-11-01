@@ -142,9 +142,6 @@ jobs:
       - name: Boot GPT UEFI media over emulated USB
         run: bash Tests/uefi-usb-smoke.sh
 
-      - name: Verify UEFI GPT removable disk via emulated USB xHCI
-        run: bash Tests/uefi-usb-smoke.sh
-
       - name: Upload UEFI boot debugging
         if: always()
         uses: actions/upload-artifact@v4
@@ -153,8 +150,6 @@ jobs:
           path: |
             build/uefi-boot-debug.log
             build/uefi-serial.log
-            build/uefi-usb-debug.log
-            build/uefi-usb-serial.log
             build/uefi-usb-debug.log
             build/uefi-usb-serial.log
           if-no-files-found: ignore
