@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Boot native NoqeriOS UEFI ISO under OVMF. Requires GNU-EFI, OVMF, QEMU.
+set -Eeuo pipefail
+ROOT="$(cd "$(dirname "\${BASH_SOURCE[0]}")/.." && pwd)"
+OUT="$ROOT/build"
+mkdir -p "$OUT"
+bash "$ROOT/build.sh" --uefi
+LOG="$OUT/uefi-serial.log"
+DEBUG="$OUT/uefi-boot-debug.log"
+: >"$LOG"
+: >"$DEBUG"
+CODE=""
+VARS=""
+for p in /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd /usr/share/ovmf/OVMF.fd; do
+    if [[ -f "$p" ]]; then CODE="$p"; break; fi
+done
+for p in /usr/share/OVMF/OVMF_VARS_4M.fd /usr/share/OVMF/OVMF_VARS.fd; do
+    if [[ -f "$p" ]]; then VARS="$p"; break; fi
+done
+[[ -n "$CODE" && -n "$VARS" ]] || { echo "OVMF firmware missing (install ovmf)" >&2; exit 3; }
+cp "$VARS" "$OUT/uefi-vars-test.fd"
+set +e
+timeout 25s qemu-system-x86_64 \
+    -machine q35 -m "\${NOQERIOS_MEMORY:-256M}" \
+    -drive if=pflash,format=raw,unit=0,readonly=on,file="$CODE" \
+    -drive if=pflash,format=raw,unit=1,file="$OUT/uefi-vars-test.fd" \
+    -cdrom "$OUT/noqerios.iso" -boot order=d \
+    -serial file:"$LOG" \
+    -debugcon file:"$DEBUG" -global isa-debugcon.iobase=0xe9 \
+    -display none -no-reboot -no-shutdown >/dev/null 2>&1
+result=$?
+set -e
+if [[ $result -ne 124 && $result -ne 0 ]]; then
+    echo "QEMU failed with exit $result" >&2
+    cat "$DEBUG" "$LOG" >&2
+    exit 1
+fi
+if ! grep -q 'NoqeriOS UEFI: ExitBootServices OK' "$DEBUG" || \
+   ! grep -q 'NoqeriOS: entered 64-bit Noqeri kernel' "$LOG" || \
+   ! grep -q 'NoqeriOS serial terminal ready' "$LOG"; then
+    echo "UEFI did not reach NoqeriOS serial terminal:" >&2
+    cat "$DEBUG" "$LOG" >&2
+    exit 1
+fi
+echo "PASS: custom NoqeriOS UEFI bootloader reached the Noqeri kernel and serial terminal"
