@@ -1,6 +1,7 @@
 module os.kernel.terminal
 import "../Arch/x86_64/api.noqeri"
 import "../Drivers/serial.noqeri"
+import "net/ipv4.noqeri"
 
 // Polling COM1 terminal. Single-key commands keep the first boot shell
 // independent of heap allocation, interrupts, and filesystems.
@@ -15,14 +16,14 @@ function terminal_prompt(): void {
     serial_write("\nnoqerios> ")
 }
 
-function terminal_run(): void {
+function terminal_run(network: *Network): void {
     serial_write("\nNoqeriOS serial terminal ready (COM1)\n")
-    serial_write("h=help, i=info, m=memory, p=processes, c=clear, r=reboot hint\n")
+    serial_write("h=help, i=info, m=memory, p=processes, n=network, g=gateway ping, c=clear, r=reboot hint\n")
     terminal_prompt()
     while true {
         let key: u8 = terminal_read_key()
         if key == (104 as u8) || key == (72 as u8) {
-            serial_write("\nCommands: h help | i info | m memory | p processes | c clear | r reboot\n")
+            serial_write("\nCommands: h help | i info | m memory | p processes | n network | g gateway ping | c clear | r reboot\n")
             terminal_prompt()
         } else if key == (105 as u8) || key == (73 as u8) {
             serial_write("\nNoqeriOS experimental x86_64 kernel; Noqeri native services\n")
@@ -32,6 +33,19 @@ function terminal_run(): void {
             terminal_prompt()
         } else if key == (112 as u8) || key == (80 as u8) {
             serial_write("\nProcesses: kernel scheduler initialized; interactive user processes pending\n")
+            terminal_prompt()
+        } else if key == (110 as u8) || key == (78 as u8) {
+            serial_write("\n")
+            network_console_status(network)
+            terminal_prompt()
+        } else if key == (103 as u8) || key == (71 as u8) {
+            if network == null || !network.online {
+                serial_write("\nNetwork: no configured gateway\n")
+            } else if network_icmp_echo(network) {
+                serial_write("\nNetwork: IPv4 gateway ICMP echo succeeded\n")
+            } else {
+                serial_write("\nNetwork: gateway ICMP echo timed out\n")
+            }
             terminal_prompt()
         } else if key == (99 as u8) || key == (67 as u8) {
             serial_write("\x1b[2J\x1b[H")

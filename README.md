@@ -86,7 +86,8 @@ The batch launcher uses a WSL Linux toolchain so the Windows and Linux builds us
 Build output is written to:
 
 ```text
-build\noqerios.iso
+build
+oqerios.iso
 ```
 
 Windows build diagnostics are retained in `build\windows-build.log`. If the batch build fails, it displays a Windows error dialog containing the last build messages and pauses the console instead of closing immediately. Some first-time WSL installations require a Windows reboot; in that case the dialog explains that setup must be completed before rerunning the batch file.
@@ -148,3 +149,21 @@ supported**, so OVMF boot success alone does not establish laptop or
 desktop usability.
 
 To verify the UEFI GPT removable-media image through virtual USB xHCI, run `bash Tests/uefi-usb-smoke.sh` after building with `--uefi`. Actual machine firmware, xHCI, NVMe, graphics and keyboard support still require device-specific validation. Never erase your system disk when preparing boot media.
+
+## Experimental VirtIO Ethernet and IPv4 boot networking
+
+A Noqeri-native modern VirtIO NIC driver and minimal Ethernet/ARP/IPv4/UDP/
+DHCP/ICMP bootstrap are available on the networking feature branch. The kernel
+tries to obtain an IPv4 lease and resolve its gateway when an emulated VirtIO
+network adapter is present; otherwise it boots offline.
+
+```bash
+NOQERIOS_NETWORK=1 bash Tests/qemu-smoke.sh
+```
+
+This uses QEMU user-mode NAT without forwarded host ports. The test only
+contacts the virtual gateway, not public internet hosts. The project
+does **not** yet provide general browser connectivity, TCP, DNS resolution,
+TLS, real Wi-Fi, mobile hotspot tethering, Bluetooth PAN, USB Ethernet or
+cellular modem drivers. Do not attach this experimental stack to untrusted
+networks. See [Networking feature/status matrix](Docs/NETWORKING.md).

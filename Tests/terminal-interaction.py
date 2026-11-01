@@ -52,6 +52,8 @@ def verify(iso: Path, disk: Path, memory: str) -> None:
             (b"i", b"experimental x86_64 kernel"),
             (b"m", b"Memory: physical allocator"),
             (b"p", b"Processes: kernel scheduler"),
+            (b"n", b"Network: no configured Ethernet interface"),
+            (b"g", b"Network: no configured gateway"),
             (b"c", b"noqerios> "),
             (b"r", b"Reboot requires QEMU reset"),
         ]

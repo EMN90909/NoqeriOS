@@ -1,0 +1,226 @@
+module os.drivers.virtio_net
+
+import "virtio.noqeri"
+import "../Arch/x86_64/api.noqeri"
+
+// Polling modern VirtIO PCI network interface. Exactly one RX descriptor and
+// one TX descriptor are outstanding; no multiqueue, MSI-X or offload features.
+// DMA pages must be identity-mapped and held until the device has been reset.
+record VirtioNet {
+    location: u32;
+    mac: *u8;
+    rxDesc: usize;
+    rxAvail: usize;
+    rxUsed: usize;
+    rxBuffer: usize;
+    txDesc: usize;
+    txAvail: usize;
+    txUsed: usize;
+    txBuffer: usize;
+    rxNotify: u32;
+    txNotify: u32;
+    rxPosted: u16;
+    rxSeen: u16;
+    txPosted: u16;
+    txSeen: u16;
+    ready: bool;
+}
+
+function net_zero(page: usize, count: usize): void {
+    let bytes: *u8 = page as *u8
+    let i: usize = 0 as usize
+    while i < count {
+        bytes[i] = 0 as u8
+        i = i + (1 as usize)
+    }
+}
+
+function net_desc(page: usize, addr: usize, bytes: u32, flags: u16): void {
+    let address: *u64 = page as *u64
+    let length: *u32 = (page + (8 as usize)) as *u32
+    let flag: *u16 = (page + (12 as usize)) as *u16
+    let next: *u16 = (page + (14 as usize)) as *u16
+    address[0] = addr as u64
+    length[0] = bytes
+    flag[0] = flags
+    next[0] = 0 as u16
+}
+
+// Modern VirtIO 1.x: negotiate VERSION_1 plus MAC, and no checksumming,
+// merged buffers, multiqueue or guest offloading.
+function virtio_net_begin(location: u32): bool {
+    let common: u32 = virtio_find_capability(location, 1 as u8)
+    let config: u32 = virtio_find_capability(location, 4 as u8)
+    if common == (0 as u32) || config == (0 as u32) { return false }
+    pci_enable_device(location)
+    virtio_pci_cfg_write8(location, common, 20 as u32, 0 as u8)
+    if virtio_pci_cfg_read8(location, common, 20 as u32) != (0 as u8) { return false }
+    virtio_pci_cfg_write8(location, common, 20 as u32, 1 as u8)
+    virtio_pci_cfg_write8(location, common, 20 as u32, 3 as u8)
+    virtio_pci_cfg_write32(location, common, 0 as u32, 0 as u32)
+    let low: u32 = virtio_pci_cfg_read32(location, common, 4 as u32)
+    // VIRTIO_NET_F_MAC is feature bit 5; this first driver requires it.
+    if ((low / (32 as u32)) % (2 as u32)) != (1 as u32) {
+        virtio_reset(location)
+        return false
+    }
+    virtio_pci_cfg_write32(location, common, 0 as u32, 1 as u32)
+    let high: u32 = virtio_pci_cfg_read32(location, common, 4 as u32)
+    if (high % (2 as u32)) != (1 as u32) {
+        virtio_reset(location)
+        return false
+    }
+    virtio_pci_cfg_write32(location, common, 8 as u32, 0 as u32)
+    virtio_pci_cfg_write32(location, common, 12 as u32, 32 as u32)
+    virtio_pci_cfg_write32(location, common, 8 as u32, 1 as u32)
+    virtio_pci_cfg_write32(location, common, 12 as u32, 1 as u32)
+    virtio_pci_cfg_write8(location, common, 20 as u32, 11 as u8)
+    let status: u8 = virtio_pci_cfg_read8(location, common, 20 as u32)
+    if ((status as u32) / (8 as u32)) % (2 as u32) != (1 as u32) {
+        virtio_reset(location)
+        return false
+    }
+    return true
+}
+
+function virtio_net_open(location: u32, net: *VirtioNet): bool {
+    if net == null || location == (65536 as u32) { return false }
+    net.ready = false
+    net.location = location
+    if !virtio_net_begin(location) { return false }
+
+    let config: u32 = virtio_find_capability(location, 4 as u8)
+    let state: usize = arch_alloc_page()
+    net.rxDesc = arch_alloc_page()
+    net.rxAvail = arch_alloc_page()
+    net.rxUsed = arch_alloc_page()
+    net.rxBuffer = arch_alloc_page()
+    net.txDesc = arch_alloc_page()
+    net.txAvail = arch_alloc_page()
+    net.txUsed = arch_alloc_page()
+    net.txBuffer = arch_alloc_page()
+    if state == 0 || net.rxDesc == 0 || net.rxAvail == 0 ||
+       net.rxUsed == 0 || net.rxBuffer == 0 || net.txDesc == 0 ||
+       net.txAvail == 0 || net.txUsed == 0 || net.txBuffer == 0 {
+        virtio_reset(location)
+        return false
+    }
+    net.mac = state as *u8
+    let i: usize = 0 as usize
+    while i < (6 as usize) {
+        net.mac[i] = virtio_pci_cfg_read8(location, config, i as u32)
+        i = i + (1 as usize)
+    }
+    net_zero(net.rxDesc, 4096 as usize)
+    net_zero(net.rxAvail, 4096 as usize)
+    net_zero(net.rxUsed, 4096 as usize)
+    net_zero(net.rxBuffer, 4096 as usize)
+    net_zero(net.txDesc, 4096 as usize)
+    net_zero(net.txAvail, 4096 as usize)
+    net_zero(net.txUsed, 4096 as usize)
+    net_zero(net.txBuffer, 4096 as usize)
+
+    net_desc(net.rxDesc, net.rxBuffer, 2048 as u32, 2 as u16)
+    net_desc(net.txDesc, net.txBuffer, 2048 as u32, 0 as u16)
+    net.rxNotify = virtio_queue_setup(location, 0 as u16, net.rxDesc, net.rxAvail, net.rxUsed)
+    net.txNotify = virtio_queue_setup(location, 1 as u16, net.txDesc, net.txAvail, net.txUsed)
+    if net.rxNotify == (4294967295 as u32) || net.txNotify == (4294967295 as u32) {
+        virtio_reset(location)
+        return false
+    }
+    net.rxSeen = 0 as u16
+    net.rxPosted = 0 as u16
+    net.txSeen = 0 as u16
+    net.txPosted = 0 as u16
+    if !virtio_driver_ok(location) {
+        virtio_reset(location)
+        return false
+    }
+    net.ready = true
+    return virtio_net_post_rx(net)
+}
+
+function virtio_net_post_rx(net: *VirtioNet): bool {
+    if net == null || !net.ready { return false }
+    let ring: *u16 = (net.rxAvail + (4 as usize) + ((net.rxPosted as usize) % (8 as usize)) * (2 as usize)) as *u16
+    let idx: *volatile u16 = (net.rxAvail + (2 as usize)) as *volatile u16
+    ring[0] = 0 as u16
+    atomicFence()
+    net.rxPosted = net.rxPosted + (1 as u16)
+    idx[0] = net.rxPosted
+    atomicFence()
+    return virtio_notify_queue(net.location, 0 as u16, net.rxNotify)
+}
+
+// Frame contains Ethernet L2 bytes (no VirtIO header). One synchronous TX.
+function virtio_net_send(net: *VirtioNet, frame: usize, length: usize): bool {
+    if net == null || !net.ready || frame == 0 ||
+       length < (14 as usize) || length > (1514 as usize) { return false }
+    let data: *u8 = frame as *u8
+    let wire: *u8 = net.txBuffer as *u8
+    net_zero(net.txBuffer, 12 as usize) // virtio_net_hdr, no offloads
+    let i: usize = 0 as usize
+    while i < length {
+        wire[i + (12 as usize)] = data[i]
+        i = i + (1 as usize)
+    }
+    net_desc(net.txDesc, net.txBuffer, (length + (12 as usize)) as u32, 0 as u16)
+    let ring: *u16 = (net.txAvail + (4 as usize) + ((net.txPosted as usize) % (8 as usize)) * (2 as usize)) as *u16
+    let idx: *volatile u16 = (net.txAvail + (2 as usize)) as *volatile u16
+    ring[0] = 0 as u16
+    atomicFence()
+    net.txPosted = net.txPosted + (1 as u16)
+    idx[0] = net.txPosted
+    atomicFence()
+    if !virtio_notify_queue(net.location, 1 as u16, net.txNotify) { return false }
+    let used: *volatile u16 = (net.txUsed + (2 as usize)) as *volatile u16
+    let spins: usize = 0 as usize
+    while used[0] == net.txSeen && spins < (4000000 as usize) {
+        intrinsic("x86.pause")
+        spins = spins + (1 as usize)
+    }
+    atomicFence()
+    if used[0] == net.txSeen { return false }
+    net.txSeen = used[0]
+    return true
+}
+
+// Bounded RX poll. Discards truncated/bad frames and rearms descriptor.
+// Copy out before returning so device may reuse DMA buffer immediately.
+function virtio_net_receive(net: *VirtioNet, destination: usize, capacity: usize, timeout: usize): usize {
+    if net == null || !net.ready || destination == 0 || capacity < (60 as usize) {
+        return 0 as usize
+    }
+    let used: *volatile u16 = (net.rxUsed + (2 as usize)) as *volatile u16
+    let spins: usize = 0 as usize
+    while used[0] == net.rxSeen && spins < timeout {
+        intrinsic("x86.pause")
+        spins = spins + (1 as usize)
+    }
+    if used[0] == net.rxSeen { return 0 as usize }
+    atomicFence()
+    let usedLen: *volatile u32 = (net.rxUsed + (8 as usize) + ((net.rxSeen as usize) % (8 as usize)) * (8 as usize)) as *volatile u32
+    let bytes: usize = usedLen[0] as usize
+    net.rxSeen = net.rxSeen + (1 as u16)
+    let length: usize = 0 as usize
+    if bytes >= (26 as usize) && bytes <= (2048 as usize) &&
+       (bytes - (12 as usize)) <= capacity {
+        length = bytes - (12 as usize)
+        let source: *u8 = (net.rxBuffer + (12 as usize)) as *u8
+        let output: *u8 = destination as *u8
+        let i: usize = 0 as usize
+        while i < length {
+            output[i] = source[i]
+            i = i + (1 as usize)
+        }
+    }
+    virtio_net_post_rx(net)
+    return length
+}
+
+function virtio_net_close(net: *VirtioNet): void {
+    if net != null && net.ready {
+        virtio_reset(net.location)
+        net.ready = false
+    }
+}
