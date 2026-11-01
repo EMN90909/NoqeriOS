@@ -14,6 +14,30 @@ _start:
     movw $0x7b00,%sp
     sti
     movb %dl,drive
+    /* El Torito floppy images may not support EDD. Probe once. */
+    movw $0x55aa,%bx
+    movb $0x41,%ah
+    int $0x13
+    jc .no_edd
+    cmpw $0xaa55,%bx
+    jne .no_edd
+    testw $1,%cx
+    jz .no_edd
+    movb $1,edd
+.no_edd:
+    /* Geometry for CHS fallback (floppy: 18 sectors, 2 heads). */
+    movb drive,%dl
+    movb $0x08,%ah
+    int $0x13
+    jc .default_geometry
+    andb $0x3f,%cl
+    jz .default_geometry
+    movzbw %cl,%ax
+    movw %ax,spt
+    movzbw %dh,%ax
+    incw %ax
+    movw %ax,heads
+.default_geometry:
     /* A20 via fast gate, required before copying PT_LOAD above 1MiB. */
     inb $0x92,%al
     orb $2,%al
@@ -30,7 +54,7 @@ _start:
     movw $0x5018,%di
     xorl %ebx,%ebx
 e820_next:
-    movl $0xe820,%edx
+    movl $0x534d4150,%edx
     movl $0xe820,%eax
     movl $24,%ecx
     movl $1,20(%di)
@@ -63,6 +87,8 @@ e820_done:
     movl $33,sector
     movw $32,%bp
 read_chunk:
+    cmpb $0,edd
+    je read_chs_chunk
     movw buffer_seg,%ax
     movw %ax,dap_seg
     movl sector,%eax
@@ -71,9 +97,42 @@ read_chunk:
     movw $dap,%si
     movb $0x42,%ah
     int $0x13
+    jnc .chunk_complete
+    /* Firmware may advertise EDD but reject this emulated disk. */
+    movb $0,edd
+read_chs_chunk:
+    movw $32,%di
+.read_sector:
+    /* Convert logical sector -> cylinder/head/sector. */
+    movw sector,%ax
+    xorw %dx,%dx
+    divw spt
+    movb %dl,%cl
+    incb %cl
+    xorw %dx,%dx
+    divw heads
+    movb %al,%ch
+    movb %dl,%dh
+    movb %ah,%al
+    andb $3,%al
+    shlb $6,%al
+    orb %al,%cl
+    movw buffer_seg,%ax
+    movw %ax,%es
+    xorw %bx,%bx
+    movb drive,%dl
+    movw $0x0201,%ax
+    int $0x13
     jc boot_error
+    addw $0x20,buffer_seg
+    incl sector
+    decw %di
+    jnz .read_sector
+    jmp .next_chunk
+.chunk_complete:
     addw $0x400,buffer_seg
     addl $32,sector
+.next_chunk:
     decw %bp
     jnz read_chunk
     /* Enter protected mode and process the ELF program headers. */
@@ -97,6 +156,10 @@ halt16:
     hlt
     jmp halt16
 drive: .byte 0
+edd: .byte 0
+.align 2
+spt: .word 18
+heads: .word 2
 buffer_seg: .word 0x1000
 sector: .long 33
 failure: .asciz "NoqeriOS native loader: BIOS failure"
