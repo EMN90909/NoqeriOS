@@ -79,6 +79,30 @@ arch_pause:
     pause
     ret
 
+.global arch_cpu_apic_id
+.type arch_cpu_apic_id, @function
+arch_cpu_apic_id:
+    push %rbx
+    xor %eax, %eax
+    cpuid
+    cmp $11, %eax
+    jb .Lcpu_leaf1
+    mov $11, %eax
+    xor %ecx, %ecx
+    cpuid
+    test %ebx, %ebx
+    jz .Lcpu_leaf1
+    mov %edx, %eax
+    pop %rbx
+    ret
+.Lcpu_leaf1:
+    mov $1, %eax
+    cpuid
+    shr $24, %ebx
+    mov %ebx, %eax
+    pop %rbx
+    ret
+
 .global arch_read_cr2
 .type arch_read_cr2, @function
 arch_read_cr2:
