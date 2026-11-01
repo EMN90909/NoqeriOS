@@ -33,6 +33,19 @@ bash Tests/uefi-smoke.sh
 python3 -m unittest discover -s Tests -p 'test_uefi_usb.py'
 ```
 
+An optional GOP-integration run requires a working video MMIO handoff:
+
+```sh
+NOQERIOS_REQUIRE_GOP=1 bash Tests/uefi-smoke.sh
+bash Tests/bios-cpu-smoke.sh
+```
+
+UEFI firmware now writes a simple startup/error message to the firmware
+screen before `ExitBootServices`. The kernel can receive a Multiboot2
+32-bit RGB framebuffer tag, including a framebuffer mapped above 1 GiB
+up to the 512 GiB identity-map limit. It draws a boot marker, **not**
+a kernel text console, and unsupported GOP pixel formats remain serial-only.
+
 A successful OVMF test verifies **virtual UEFI firmware** boot, not
 physical-hardware functionality. Use the CI logs to confirm that the
 kernel entry and terminal are reached, not only that the PE/COFF image
@@ -46,7 +59,7 @@ is executed.
 | Legacy BIOS | QEMU SeaBIOS smoke-tested |
 | UEFI Secure Boot | **Not supported**: no trusted signature/enrollment |
 | Real keyboard / USB HID | **Not implemented**; terminal uses COM1 |
-| Laptop internal display | **Not guaranteed**; kernel has no full GOP text console |
+| Laptop internal display | GOP RGB framebuffer handoff and boot mark where supported; **no text console yet** |
 | NVMe / AHCI / USB storage | **Not implemented** as general native drivers |
 | ACPI/APIC, SMP and broad hardware discovery | Incomplete |
 | PCI / VirtIO devices | QEMU-tested; not universal hardware drivers |
@@ -80,9 +93,20 @@ properly audited and tested.
 
 ## Next physical-hardware prerequisites
 
-1. GOP framebuffer mapping and a real on-screen text console.
+1. A real kernel GOP on-screen text console (boot-mark-only now), and
+   framebuffer modes beyond supported 32-bit RGB.
 2. USB xHCI + HID keyboards (plus PS/2 fallback where applicable).
 3. ACPI MADT / IOAPIC / interrupt-mode setup and safe PCI enumeration.
 4. Storage drivers (NVMe/AHCI/USB mass storage), with write safety.
 5. Runtime fault handling, memory protection, and hardware regression
    tests across multiple machines.
+
+## CPU and firmware architecture limits
+
+The boot flow uses 16-bit real mode for the BIOS stages, 32-bit protected
+mode for loading ELF64, and 64-bit long mode for the actual kernel. The
+32-bit protected-mode stage **does not** make NoqeriOS run on 32-bit-only
+CPUs. The BIOS loader detects and rejects CPUs lacking x86-64 long mode,
+PAE, PSE or MSR. 32-bit UEFI firmware also is not supported because the
+project only builds BOOTX64.EFI. See [Boot compatibility](BOOT_COMPATIBILITY.md)
+for the exact matrix.
