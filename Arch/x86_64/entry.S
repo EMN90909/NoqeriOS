@@ -128,5 +128,47 @@ halt_forever:
     hlt
     jmp halt_forever
 
+
+/* Native UEFI handoff. The custom PE/COFF firmware adapter calls this
+ * entry with SysV ABI: RDI=Multiboot2 info, RSI=identity PML4 physical.
+ * Unlike _start this enters from x86-64 long mode, NOT 32-bit mode.
+ */
+.section .rodata
+.align 8
+uefi_gdt_ptr:
+    .word gdt64_end - gdt64 - 1
+    .quad gdt64
+
+.section .text
+.code64
+.global uefi_kernel_entry
+.type uefi_kernel_entry, @function
+uefi_kernel_entry:
+    cli
+    mov %rdi, %r12
+    mov %rsi, %r13
+    lgdt uefi_gdt_ptr(%rip)
+    pushq $0x08
+    lea .Luefi_cs_ready(%rip), %rax
+    pushq %rax
+    lretq
+.Luefi_cs_ready:
+    mov $0x10, %ax
+    mov %ax, %ds
+    mov %ax, %es
+    mov %ax, %ss
+    xor %eax, %eax
+    mov %ax, %fs
+    mov %ax, %gs
+    mov %r13, %cr3
+    lea stack_top(%rip), %rsp
+    xor %rbp, %rbp
+    mov %r12, %rdi
+    call kernel_main
+.Luefi_halt:
+    cli
+    hlt
+    jmp .Luefi_halt
+
 /* Explicitly request a non-executable kernel stack from GNU ld. */
 .section .note.GNU-stack,"",@progbits
