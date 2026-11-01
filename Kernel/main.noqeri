@@ -221,7 +221,7 @@ export function kernel_main(multibootInfo: usize): void {
 
     // Optional network adapter: DHCP and ARP use bounded polling, never
     // block kernel boot permanently when networking is absent.
-    network_boot_probe()
+    let activeNetwork: *Network = network_boot_probe()
 
     arch_interrupts_init()
     arch_sti()
@@ -259,6 +259,6 @@ export function kernel_main(multibootInfo: usize): void {
 
     serial_write("NoqeriOS: modular monolith core services online\n")
     serial_write("NoqeriOS: bootstrap milestone complete\n")
-    terminal_run()
+    terminal_run(activeNetwork)
     while true { arch_halt() }
 }
