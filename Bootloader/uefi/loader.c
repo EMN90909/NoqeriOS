@@ -276,7 +276,7 @@ static NOQ_FRAMEBUFFER probe_gop(EFI_SYSTEM_TABLE *st) {
     fb.red_position = info->pixel_format == 0 ? 0 : 16;
     fb.blue_position = info->pixel_format == 0 ? 16 : 0;
     fb.valid = TRUE;
-    log_debug("uefi: supported GOP RGB framebuffer found\\n");
+    log_debug("uefi: supported GOP RGB framebuffer found\n");
     return fb;
 }
 
