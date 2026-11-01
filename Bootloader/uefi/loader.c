@@ -11,6 +11,10 @@
 #define MAX_MEMMAP (128u * 1024u)
 #define MAX_PHDRS 128u
 #define IDENTITY_LIMIT 0x40000000ULL
+/* One PML4 slot covers 512 GiB. Keep the first GiB identity-mapped for
+ * bootstrap code, and map only the extra 2 MiB framebuffer pages required. */
+#define FRAMEBUFFER_LIMIT 0x8000000000ULL
+#define MAX_FRAMEBUFFER (256ULL * 1024ULL * 1024ULL)
 
 typedef struct __attribute__((packed)) {
     UINT8 ident[16];
@@ -41,6 +45,92 @@ typedef struct __attribute__((packed)) {
     UINT32 type, reserved;
 } MB2_ENTRY;
 
+/* Multiboot2 RGB framebuffer tag: 38-byte payload, padded to eight bytes. */
+typedef struct __attribute__((packed)) {
+    UINT32 kind, size;
+    UINT64 address;
+    UINT32 pitch, width, height;
+    UINT8 bpp, framebuffer_type;
+    UINT16 reserved;
+    UINT8 red_position, red_mask_size;
+    UINT8 green_position, green_mask_size;
+    UINT8 blue_position, blue_mask_size;
+} MB2_FRAMEBUFFER;
+
+/* Deliberately use private GOP definitions to avoid gnu-efi header variations.
+ * Only Mode and the mode-info layout are read; no graphics protocol calls
+ * are issued after ExitBootServices. */
+typedef struct {
+    UINT32 version, width, height, pixel_format;
+    struct { UINT32 red, green, blue, reserved; } masks;
+    UINT32 pixels_per_scanline;
+} NOQ_GOP_INFO;
+typedef struct {
+    UINT32 max_mode, mode;
+    NOQ_GOP_INFO *info;
+    UINTN info_size;
+    EFI_PHYSICAL_ADDRESS framebuffer_base;
+    UINTN framebuffer_size;
+} NOQ_GOP_MODE;
+typedef struct {
+    VOID *query_mode, *set_mode, *blt;
+    NOQ_GOP_MODE *mode;
+} NOQ_GOP;
+typedef struct {
+    UINT64 address, length;
+    UINT32 pitch, width, height;
+    UINT8 red_position, blue_position;
+    BOOLEAN valid;
+} NOQ_FRAMEBUFFER;
+
+// Capture the firmware ACPI RSDP in a Multiboot2 tag. ACPI SDTs are
+// inspected by the kernel only when reachable through its low 1 GiB map.
+static EFI_GUID acpi20_guid = {
+    0x8868e871, 0xe4f1, 0x11d3,
+    {0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81}
+};
+static EFI_GUID acpi10_guid = {
+    0xeb9d2d30, 0x2d88, 0x11d3,
+    {0x9a, 0x16, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d}
+};
+static BOOLEAN guid_same(const EFI_GUID *a, const EFI_GUID *b) {
+    const UINT8 *x = (const UINT8 *)a;
+    const UINT8 *y = (const UINT8 *)b;
+    for (UINTN i = 0; i < 16; ++i) if (x[i] != y[i]) return FALSE;
+    return TRUE;
+}
+static BOOLEAN acpi_sum_ok(const UINT8 *bytes, UINTN length) {
+    UINT8 sum = 0;
+    for (UINTN i = 0; i < length; ++i) sum = (UINT8)(sum + bytes[i]);
+    return sum == 0;
+}
+static UINTN capture_acpi(EFI_SYSTEM_TABLE *st, UINT8 out[36]) {
+    for (UINTN i = 0; i < st->NumberOfTableEntries; ++i) {
+        EFI_CONFIGURATION_TABLE *entry = &st->ConfigurationTable[i];
+        BOOLEAN v2 = guid_same(&entry->VendorGuid, &acpi20_guid);
+        if (!v2 && !guid_same(&entry->VendorGuid, &acpi10_guid))
+            continue;
+        const UINT8 *source = (const UINT8 *)entry->VendorTable;
+        if (!source) continue;
+        const UINT8 signature[8] = {'R','S','D',' ','P','T','R',' '};
+        BOOLEAN match = TRUE;
+        for (UINTN j = 0; j < 8; ++j)
+            if (source[j] != signature[j]) match = FALSE;
+        if (!match || !acpi_sum_ok(source, 20)) continue;
+        UINTN count = v2 && source[15] >= 2 ? 36 : 20;
+        if (count == 36 && !acpi_sum_ok(source, 36)) continue;
+        for (UINTN j = 0; j < count; ++j) out[j] = source[j];
+        return count;
+    }
+    return 0;
+}
+
+static EFI_SYSTEM_TABLE *screen_table = NULL;
+static EFI_GUID gop_guid = {
+    0x9042a9de, 0x23dc, 0x4a38,
+    {0x96, 0xfb, 0x7a, 0xde, 0xd0, 0x80, 0x51, 0x6a}
+};
+
 static EFI_GUID loaded_image_guid = EFI_LOADED_IMAGE_PROTOCOL_GUID;
 static EFI_GUID filesystem_guid = EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID;
 
@@ -66,9 +156,16 @@ static void bytes_zero(void *to, UINTN count) {
     UINT8 *d = to;
     for (UINTN i = 0; i < count; ++i) d[i] = 0;
 }
+static void screen_message(const CHAR16 *message) {
+    if (screen_table && screen_table->ConOut && message)
+        uefi_call_wrapper(screen_table->ConOut->OutputString, 2,
+                          screen_table->ConOut, (CHAR16 *)message);
+}
 static EFI_STATUS fail(EFI_STATUS status, const CHAR16 *message, const char *debug) {
-    (void)message;
     log_debug(debug);
+    screen_message(L"NoqeriOS boot error: ");
+    screen_message(message);
+    screen_message(L"\r\n");
     return status;
 }
 
@@ -188,7 +285,45 @@ static EFI_STATUS alloc_low(EFI_BOOT_SERVICES *bs, UINTN pages, EFI_PHYSICAL_ADD
                              EfiLoaderData, pages, address);
 }
 
-static EFI_STATUS paging(EFI_BOOT_SERVICES *bs, EFI_PHYSICAL_ADDRESS *root) {
+/* Prefer a firmware-provided 32-bit RGB framebuffer when one is available.
+ * A 64-bit physical address is not necessarily covered by the kernel's first
+ * GiB bootstrap map, so paging() explicitly maps every additional framebuffer
+ * page before the kernel touches it. Unsupported GOP formats stay serial-only. */
+static NOQ_FRAMEBUFFER probe_gop(EFI_SYSTEM_TABLE *st) {
+    NOQ_FRAMEBUFFER fb = {0};
+    NOQ_GOP *gop = NULL;
+    EFI_STATUS status = uefi_call_wrapper(st->BootServices->LocateProtocol, 3,
+                                          &gop_guid, NULL, (VOID **)&gop);
+    if (EFI_ERROR(status) || !gop || !gop->mode || !gop->mode->info)
+        return fb;
+    const NOQ_GOP_MODE *mode = gop->mode;
+    const NOQ_GOP_INFO *info = mode->info;
+    if (info->pixel_format > 1 || info->width == 0 || info->height == 0 ||
+        info->width > 16384 || info->height > 16384 ||
+        info->pixels_per_scanline < info->width ||
+        info->pixels_per_scanline > 16384)
+        return fb;
+    UINT64 pitch = (UINT64)info->pixels_per_scanline * 4;
+    UINT64 visible_bytes = pitch * info->height;
+    if (mode->framebuffer_base < 0x100000 ||
+        visible_bytes == 0 || visible_bytes > MAX_FRAMEBUFFER ||
+        visible_bytes > mode->framebuffer_size ||
+        !bounds(mode->framebuffer_base, visible_bytes, FRAMEBUFFER_LIMIT))
+        return fb;
+    fb.address = mode->framebuffer_base;
+    fb.length = visible_bytes;
+    fb.pitch = (UINT32)pitch;
+    fb.width = info->width;
+    fb.height = info->height;
+    fb.red_position = info->pixel_format == 0 ? 0 : 16;
+    fb.blue_position = info->pixel_format == 0 ? 16 : 0;
+    fb.valid = TRUE;
+    log_debug("uefi: supported GOP RGB framebuffer found\n");
+    return fb;
+}
+
+static EFI_STATUS paging(EFI_BOOT_SERVICES *bs, EFI_PHYSICAL_ADDRESS *root,
+                         const NOQ_FRAMEBUFFER *fb) {
     EFI_PHYSICAL_ADDRESS addr;
     EFI_STATUS status = alloc_low(bs, 3, &addr);
     if (EFI_ERROR(status)) return status;
@@ -202,6 +337,27 @@ static EFI_STATUS paging(EFI_BOOT_SERVICES *bs, EFI_PHYSICAL_ADDRESS *root) {
     /* Retain the kernel's existing ring-3 self-test text and stack windows. */
     pd[2] |= 4;
     pd[3] |= 4;
+
+    if (fb && fb->valid) {
+        UINT64 first = fb->address >> 21;
+        UINT64 last = (fb->address + fb->length - 1) >> 21;
+        for (UINT64 page = first; page <= last; ++page) {
+            UINTN pdpt_index = (UINTN)(page >> 9);
+            UINTN pd_index = (UINTN)(page & 511u);
+            if (pdpt_index >= 512) return EFI_UNSUPPORTED;
+            if (!pdpt[pdpt_index]) {
+                EFI_PHYSICAL_ADDRESS extra;
+                status = alloc_low(bs, 1, &extra);
+                if (EFI_ERROR(status)) return status;
+                bytes_zero((VOID *)(UINTN)extra, 4096);
+                pdpt[pdpt_index] = extra | 7;
+            }
+            UINT64 *entries = (UINT64 *)(UINTN)(pdpt[pdpt_index] & ~4095ULL);
+            /* Write-through/cache-disabled MMIO prevents framebuffer writes
+             * from being cached as ordinary RAM, including for 2 MiB pages. */
+            entries[pd_index] = (page << 21) | 0x9b;
+        }
+    }
     *root = addr;
     return EFI_SUCCESS;
 }
@@ -216,7 +372,9 @@ static UINT32 map_type(UINT32 t) {
     return 2;
 }
 static BOOLEAN make_mb2(UINT8 *dest, UINTN capacity, EFI_MEMORY_DESCRIPTOR *map,
-                        UINTN size, UINTN descriptor_size) {
+                        UINTN size, UINTN descriptor_size,
+                        const NOQ_FRAMEBUFFER *fb,
+                        const UINT8 *rsdp, UINTN rsdp_size) {
     if (descriptor_size < sizeof(EFI_MEMORY_DESCRIPTOR) || size % descriptor_size != 0)
         return FALSE;
     UINTN count = size / descriptor_size;
@@ -237,6 +395,37 @@ static BOOLEAN make_mb2(UINT8 *dest, UINTN capacity, EFI_MEMORY_DESCRIPTOR *map,
         out[i].reserved = 0;
     }
     UINTN end = 24 + count * sizeof(MB2_ENTRY);
+    if (fb && fb->valid) {
+        if (end + 48 > capacity) return FALSE;
+        MB2_FRAMEBUFFER *tag_fb = (MB2_FRAMEBUFFER *)(dest + end);
+        tag_fb->kind = 8;
+        tag_fb->size = sizeof(MB2_FRAMEBUFFER);
+        tag_fb->address = fb->address;
+        tag_fb->pitch = fb->pitch;
+        tag_fb->width = fb->width;
+        tag_fb->height = fb->height;
+        tag_fb->bpp = 32;
+        tag_fb->framebuffer_type = 1; /* Direct RGB */
+        tag_fb->reserved = 0;
+        tag_fb->red_position = fb->red_position;
+        tag_fb->red_mask_size = 8;
+        tag_fb->green_position = 8;
+        tag_fb->green_mask_size = 8;
+        tag_fb->blue_position = fb->blue_position;
+        tag_fb->blue_mask_size = 8;
+        end += (sizeof(MB2_FRAMEBUFFER) + 7u) & ~7u;
+    }
+    if (rsdp && (rsdp_size == 20 || rsdp_size == 36)) {
+        UINTN padded = (8 + rsdp_size + 7u) & ~7u;
+        if (end + padded + 8 > capacity) return FALSE;
+        UINT32 *acpi_tag = (UINT32 *)(dest + end);
+        acpi_tag[0] = rsdp_size == 36 ? 15u : 14u;
+        acpi_tag[1] = (UINT32)(8 + rsdp_size);
+        for (UINTN j = 0; j < rsdp_size; ++j)
+            dest[end + 8 + j] = rsdp[j];
+        end += padded;
+    }
+    if (end + 8 > capacity) return FALSE;
     ((UINT32 *)(dest + end))[0] = 0;
     ((UINT32 *)(dest + end))[1] = 8;
     header[0] = (UINT32)(end + 8);
@@ -246,6 +435,8 @@ static BOOLEAN make_mb2(UINT8 *dest, UINTN capacity, EFI_MEMORY_DESCRIPTOR *map,
 
 EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st) {
     InitializeLib(image, st);
+    screen_table = st;
+    screen_message(L"NoqeriOS UEFI x64: loading kernel...\r\n");
     log_debug("NoqeriOS UEFI: entered firmware application\n");
     log_debug("uefi:before-console-print\n");
     log_debug("NoqeriOS UEFI: reading kernel file\n");
@@ -261,8 +452,13 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st) {
     status = load_elf(st, kernel, kernel_size, &kernel_entry);
     log_debug("uefi:after-elf-load\n");
     if (EFI_ERROR(status)) return fail(status, L"ELF load rejected or memory occupied", "uefi:bad-elf\n");
+    NOQ_FRAMEBUFFER framebuffer = probe_gop(st);
+    UINT8 acpi_rsdp[36] = {0};
+    UINTN acpi_rsdp_size = capture_acpi(st, acpi_rsdp);
+    if (acpi_rsdp_size) log_debug("uefi: ACPI RSDP boot tag available\n");
+
     EFI_PHYSICAL_ADDRESS pml4, boot_info;
-    status = paging(st->BootServices, &pml4);
+    status = paging(st->BootServices, &pml4, &framebuffer);
     if (EFI_ERROR(status)) return fail(status, L"Cannot reserve identity-map pages", "uefi:no-paging\n");
     status = alloc_low(st->BootServices, MAX_BOOT_INFO / 4096, &boot_info);
     if (EFI_ERROR(status)) return fail(status, L"Cannot reserve boot information", "uefi:no-mb2\n");
@@ -270,6 +466,10 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st) {
     status = uefi_call_wrapper(st->BootServices->AllocatePool, 3, EfiLoaderData,
                                MAX_MEMMAP, (VOID **)&map);
     if (EFI_ERROR(status)) return fail(status, L"Cannot reserve firmware memory map", "uefi:no-map\n");
+    if (framebuffer.valid)
+        screen_message(L"NoqeriOS: GOP framebuffer ready; entering kernel...\r\n");
+    else
+        screen_message(L"NoqeriOS: kernel ready (serial console only).\r\n");
     log_debug("NoqeriOS UEFI: kernel loaded, exiting boot services\n");
     log_debug("NoqeriOS UEFI: ELF loaded, preparing handoff\n");
     UINTN key = 0, desc_size = 0, map_size = 0;
@@ -279,7 +479,8 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st) {
         status = uefi_call_wrapper(st->BootServices->GetMemoryMap, 5,
                                    &map_size, map, &key, &desc_size, &desc_version);
         if (EFI_ERROR(status)) return fail(status, L"GetMemoryMap failed", "uefi:bad-map\n");
-        if (!make_mb2((UINT8 *)(UINTN)boot_info, MAX_BOOT_INFO, map, map_size, desc_size))
+        if (!make_mb2((UINT8 *)(UINTN)boot_info, MAX_BOOT_INFO, map, map_size, desc_size,
+                      &framebuffer, acpi_rsdp, acpi_rsdp_size))
             return fail(EFI_LOAD_ERROR, L"Memory map exceeds boot-info capacity", "uefi:map-overflow\n");
         status = uefi_call_wrapper(st->BootServices->ExitBootServices, 2, image, key);
         if (!EFI_ERROR(status)) {

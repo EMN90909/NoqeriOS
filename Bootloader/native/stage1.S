@@ -148,6 +148,37 @@ read_chs_chunk:
     jnz read_chunk
     movb $82,%al
     outb %al,$0xe9
+    /* The BIOS stages execute 16-bit real-mode instructions and the ELF
+     * loader uses 32-bit protected mode, but the NoqeriOS kernel requires
+     * an x86-64 processor. Reject 386/486 and 32-bit-only CPUs here rather
+     * than faulting at RDMSR or while enabling long mode. Save/restore
+     * EFLAGS.ID before executing CPUID (386 has no CPUID instruction). */
+    pushfl
+    popl %eax
+    movl %eax,%esi
+    xorl $0x00200000,%eax
+    pushl %eax
+    popfl
+    pushfl
+    popl %eax
+    pushl %esi
+    popfl
+    xorl %esi,%eax
+    testl $0x00200000,%eax
+    jz cpu_unsupported
+    movl $0x80000000,%eax
+    cpuid
+    cmpl $0x80000001,%eax
+    jb cpu_unsupported
+    movl $0x80000001,%eax
+    cpuid
+    testl $0x20000000,%edx /* long mode */
+    jz cpu_unsupported
+    movl $1,%eax
+    cpuid
+    andl $0x68,%edx        /* PAE, PSE, MSR */
+    cmpl $0x68,%edx
+    jne cpu_unsupported
     /* Enter protected mode and process the ELF program headers. */
     cli
     lgdt gdt_ptr
@@ -155,9 +186,15 @@ read_chs_chunk:
     orl $1,%eax
     movl %eax,%cr0
     ljmp $0x08,$protected
+cpu_unsupported:
+    movb $67,%al
+    outb %al,$0xe9
+    movw $cpu_failure,%si
+    jmp print_error
 boot_error:
     movw $failure,%si
 print_error:
+    xorw %bx,%bx
     lodsb
     testb %al,%al
     jz halt16
@@ -176,6 +213,7 @@ heads: .word 2
 buffer_seg: .word 0x1000
 sector: .long 33
 failure: .asciz "NoqeriOS native loader: BIOS failure"
+cpu_failure: .asciz "NoqeriOS requires a 64-bit x86 CPU (long mode/PAE/MSR)."
 .align 4
 dap:
     .byte 16,0

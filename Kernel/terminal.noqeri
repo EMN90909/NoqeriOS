@@ -4,16 +4,18 @@ import "../Drivers/serial.noqeri"
 import "net/ipv4.noqeri"
 import "net/dns.noqeri"
 import "net/tcp.noqeri"
+import "gui.noqeri"
 
 // Polling COM1 terminal. Single-key commands keep the first boot shell
 // independent of heap allocation, interrupts, and filesystems.
-function terminal_read_key(network: *Network): u8 {
+function terminal_read_key(network: *Network, desktop: *GuiDesktop): u8 {
     let spins: usize = 0 as usize
     while (arch_in8(1021 as u16) % (2 as u8)) == (0 as u8) {
         arch_pause()
         spins = spins + (1 as usize)
         if spins == (8192 as usize) {
             network_service_poll(network)
+            gui_keyboard_poll(desktop)
             spins = 0 as usize
         }
     }
@@ -24,14 +26,14 @@ function terminal_prompt(): void {
     serial_write("\nnoqerios> ")
 }
 
-function terminal_run(network: *Network): void {
+function terminal_run(network: *Network, desktop: *GuiDesktop): void {
     serial_write("\nNoqeriOS serial terminal ready (COM1)\n")
-    serial_write("h=help, i=info, m=memory, p=processes, n=network, g=gateway ping, d=DNS example.com, t=local TCP probe, c=clear, r=reboot hint\n")
+    serial_write("h=help, i=info, m=memory, p=processes, n=network, g=gateway ping, d=DNS example.com, t=local TCP probe, a/s/z=GUI focus, c=clear, r=reboot hint\n")
     terminal_prompt()
     while true {
-        let key: u8 = terminal_read_key(network)
+        let key: u8 = terminal_read_key(network, desktop)
         if key == (104 as u8) || key == (72 as u8) {
-            serial_write("\nCommands: h help | i info | m memory | p processes | n network | g gateway ping | d DNS example.com | t TCP fixture | c clear | r reboot\n")
+            serial_write("\nCommands: h help | i info | m memory | p processes | n network | g gateway ping | d DNS example.com | t TCP fixture | a/s/z GUI | c clear | r reboot\n")
             terminal_prompt()
         } else if key == (105 as u8) || key == (73 as u8) {
             serial_write("\nNoqeriOS experimental x86_64 kernel; Noqeri native services\n")
@@ -76,6 +78,15 @@ function terminal_run(network: *Network): void {
                 serial_write("\nTCP: local HTTP fixture response verified\n")
             } else {
                 serial_write("\nTCP: local HTTP fixture unavailable\n")
+            }
+            terminal_prompt()
+        } else if key == (97 as u8) || key == (65 as u8) ||
+                  key == (115 as u8) || key == (83 as u8) ||
+                  key == (122 as u8) || key == (90 as u8) {
+            if !gui_key(desktop, key) {
+                serial_write("\nGUI: no active graphical desktop\n")
+            } else {
+                serial_write("\nGUI: focus changed\n")
             }
             terminal_prompt()
         } else if key == (99 as u8) || key == (67 as u8) {

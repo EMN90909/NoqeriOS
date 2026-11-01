@@ -13,6 +13,8 @@ import "Memory/pmm.noqeri"
 import "Memory/vmm.noqeri"
 import "Memory/heap.noqeri"
 import "scheduler.noqeri"
+import "cpu_topology.noqeri"
+import "gui.noqeri"
 import "syscall.noqeri"
 import "fs/vfs.noqeri"
 import "terminal.noqeri"
@@ -28,6 +30,14 @@ export function kernel_main(multibootInfo: usize): void {
     }
     serial_write("NoqeriOS: entered 64-bit Noqeri kernel\n")
     serial_write("NoqeriOS: serial driver online\n")
+
+    // Draw a boot marker as soon as GOP is available, before chipset probes.
+    if framebuffer_probe(multibootInfo) {
+        if framebuffer_draw_boot_mark(multibootInfo) {
+            serial_write("NoqeriOS: early framebuffer boot marker displayed\n")
+        }
+    }
+
 
     let memoryReady: bool = false
     let pmmAddress: usize = 0 as usize
@@ -154,6 +164,22 @@ export function kernel_main(multibootInfo: usize): void {
         }
     }
 
+    let cpuRegistry: *CpuRegistry = null
+    if memoryReady {
+        cpuRegistry = cpu_registry_boot(multibootInfo)
+        if cpuRegistry != null {
+            serial_write("NoqeriOS: CPU topology capacity 250 validated\n")
+            if cpuRegistry.hasMadt {
+                serial_write("NoqeriOS: ACPI MADT CPU topology discovered\n")
+            } else {
+                serial_write("NoqeriOS: ACPI CPU topology unavailable; BSP fallback\n")
+            }
+            serial_write("NoqeriOS: only boot processor online (SMP pending)\n")
+        } else {
+            serial_write("NoqeriOS: CPU registry initialization failed\n")
+        }
+    }
+
     let pciDevices: usize = pci_count_devices()
     if pciDevices > 0 {
         serial_write("NoqeriOS: PCI configuration space enumerated\n")
@@ -254,10 +280,18 @@ export function kernel_main(multibootInfo: usize): void {
         serial_write("NoqeriOS: TSS/userspace initialization failed\n")
     }
 
+    let desktop: *GuiDesktop = null
     if framebuffer_probe(multibootInfo) {
         serial_write("NoqeriOS: 32-bit framebuffer discovered\n")
         if framebuffer_draw_boot_mark(multibootInfo) {
             serial_write("NoqeriOS: framebuffer MMIO write succeeded\n")
+        }
+        if memoryReady {
+            desktop = gui_open(multibootInfo)
+            if desktop != null {
+                serial_write("NoqeriOS: GUI compositor frame presented\n")
+                serial_write("NoqeriOS: PS/2 keyboard navigation enabled when present\n")
+            }
         }
     } else {
         serial_write("NoqeriOS: no supported framebuffer; serial remains active\n")
@@ -265,6 +299,6 @@ export function kernel_main(multibootInfo: usize): void {
 
     serial_write("NoqeriOS: modular monolith core services online\n")
     serial_write("NoqeriOS: bootstrap milestone complete\n")
-    terminal_run(activeNetwork)
+    terminal_run(activeNetwork, desktop)
     while true { arch_halt() }
 }

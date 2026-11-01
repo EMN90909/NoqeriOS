@@ -41,7 +41,7 @@ jobs:
         run: |
           test -f Kernel/main.noqeri
           test -z "$(find Arch Drivers Kernel -type f -name '*.nqr' -print -quit)"
-          bash -n build.sh Tests/qemu-smoke.sh
+          bash -n build.sh Tests/qemu-smoke.sh Tests/bios-cpu-smoke.sh
           test -f Bootloader/native/stage0.S
           test -f Bootloader/native/stage1.S
           test -f Bootloader/handoff.noqeri
@@ -56,7 +56,7 @@ jobs:
           ld -m elf_i386 -Ttext 0x7c00 --oformat binary -o build/native-check/stage0.bin build/native-check/stage0.o
           as --32 Bootloader/native/stage1.S -o build/native-check/stage1.o
           ld -m elf_i386 -Ttext 0x8000 --oformat binary -o build/native-check/stage1.bin build/native-check/stage1.o
-          python3 -m py_compile Bootloader/native/image.py Tests/terminal-interaction.py
+          python3 -m py_compile Bootloader/native/image.py Tests/terminal-interaction.py Tests/gui-smoke.py
           python3 - <<'PY'
           from pathlib import Path
           s0 = Path('build/native-check/stage0.bin').read_bytes()
@@ -71,6 +71,10 @@ jobs:
           NOQERI: ${{ github.workspace }}/.deps/Noqeri/build/noqeri
           NOQERIOS_MEMORY: ${{ matrix.memory }}
         run: bash Tests/qemu-smoke.sh
+
+      - name: Reject unsupported 32-bit-only BIOS CPUs
+        if: matrix.memory == '256M'
+        run: bash Tests/bios-cpu-smoke.sh
 
       - name: Boot VirtIO Ethernet and acquire IPv4 DHCP lease
         if: matrix.memory == '256M'
@@ -163,6 +167,15 @@ jobs:
         env:
           NOQERI: ${{ github.workspace }}/.deps/Noqeri/build/noqeri
         run: bash Tests/uefi-smoke.sh
+
+      - name: Verify GOP framebuffer handoff under OVMF
+        env:
+          NOQERI: ${{ github.workspace }}/.deps/Noqeri/build/noqeri
+          NOQERIOS_REQUIRE_GOP: '1'
+        run: bash Tests/uefi-smoke.sh
+
+      - name: Verify on-screen compositor and PS/2 keyboard focus
+        run: python3 Tests/gui-smoke.py
 
       - name: Verify GPT UEFI USB image under OVMF
         env:
