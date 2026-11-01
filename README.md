@@ -160,7 +160,7 @@ network adapter is present; otherwise it boots offline.
 NOQERIOS_NETWORK=1 bash Tests/qemu-smoke.sh
 ```
 
-This uses an **isolated QEMU network**, not the public internet. The project
+This uses QEMU user-mode NAT without forwarded host ports. The test only\ncontacts the virtual gateway, not public internet hosts. The project
 does **not** yet provide general browser connectivity, TCP, DNS resolution,
 TLS, real Wi-Fi, mobile hotspot tethering, Bluetooth PAN, USB Ethernet or
 cellular modem drivers. Do not attach this experimental stack to untrusted
