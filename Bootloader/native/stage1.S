@@ -66,6 +66,10 @@ e820_next:
     jne boot_error
     cmpw $20,%cx
     jb boot_error
+    /* Record each E820 entry type to QEMU's debug port. */
+    movb 16(%di),%al
+    addb $48,%al
+    outb %al,$0xe9
     addw $24,%di
     cmpw $0x6fc0,%di
     jae boot_error
