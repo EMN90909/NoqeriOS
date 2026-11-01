@@ -56,7 +56,7 @@ jobs:
           ld -m elf_i386 -Ttext 0x7c00 --oformat binary -o build/native-check/stage0.bin build/native-check/stage0.o
           as --32 Bootloader/native/stage1.S -o build/native-check/stage1.o
           ld -m elf_i386 -Ttext 0x8000 --oformat binary -o build/native-check/stage1.bin build/native-check/stage1.o
-          python3 -m py_compile Bootloader/native/image.py
+          python3 -m py_compile Bootloader/native/image.py Tests/terminal-interaction.py
           python3 - <<'PY'
           from pathlib import Path
           s0 = Path('build/native-check/stage0.bin').read_bytes()
@@ -71,6 +71,10 @@ jobs:
           NOQERI: ${{ github.workspace }}/.deps/Noqeri/build/noqeri
           NOQERIOS_MEMORY: ${{ matrix.memory }}
         run: bash Tests/qemu-smoke.sh
+
+      - name: Verify interactive NoqeriOS terminal
+        if: matrix.memory == '256M'
+        run: python3 Tests/terminal-interaction.py --memory 256M
 
       - name: Upload serial log
         if: always()

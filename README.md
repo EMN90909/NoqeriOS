@@ -100,7 +100,7 @@ bash build.sh --bootstrap
 qemu-system-x86_64 -m 256M -cdrom build/noqerios.iso -boot d -serial mon:stdio -display none
 ```
 
-The COM1 terminal uses single-letter commands: `h`, `i`, `m`, `p`, `c`, and `r`. UEFI and a graphical desktop are not yet supported.
+The COM1 terminal uses single-letter commands: `h`, `i`, `m`, `p`, `c`, and `r`. The CI suite also sends each command to the running kernel and checks its response. UEFI and a graphical desktop are not yet supported.
 
 
 On Linux or WSL with QEMU installed:
@@ -109,8 +109,8 @@ On Linux or WSL with QEMU installed:
 bash Tests/qemu-smoke.sh
 ```
 
-The smoke test creates a deterministic NoqFS disk, boots `build/noqerios.iso` in QEMU with modern VirtIO RNG and block devices, and requires serial milestones for memory, scheduling, PCI/VirtIO DMA, VFS file reads, interrupts, ring 3, and the Noqeri syscall dispatcher.
+The smoke test creates a deterministic NoqFS disk, boots `build/noqerios.iso` in QEMU with modern VirtIO RNG and block devices, and requires serial milestones for memory, scheduling, PCI/VirtIO DMA, VFS file reads, interrupts, ring 3, and the Noqeri syscall dispatcher. After that test, run `python3 Tests/terminal-interaction.py` to verify the COM1 terminal commands using real QEMU serial input.
 
 ## Compiler baseline
 
-NoqeriOS tracks the current Noqeri systems compiler. The upstream Noqeri repository currently identifies its compiler as experimental version 0.1.4. The OS boot path predates this update, and a Linux source build and QEMU terminal-entry boot have been observed. Extended boot smoke gates are still under active repair, particularly E820 memory discovery and VirtIO I/O. Check the current GitHub Actions matrix for final qualification.
+NoqeriOS tracks the current Noqeri systems compiler. The upstream Noqeri repository currently identifies its compiler as experimental version 0.1.4. On November 1, 2026 the native BIOS ISO passed QEMU smoke gates with 128 MB, 256 MB, and 768 MB RAM, including E820, PCI/VirtIO, VFS and serial terminal entry. New code must pass the same gates. This does not establish UEFI support or physical-hardware compatibility.

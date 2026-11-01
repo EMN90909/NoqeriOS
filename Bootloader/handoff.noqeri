@@ -1,7 +1,7 @@
 module os.bootloader.handoff
 
-// Pure Noqeri boot information validation. GRUB supplies the Multiboot2
-// handoff and the tiny CPU-mode assembly stub calls the kernel entry.
+// Noqeri boot information validation for our original BIOS Multiboot2 loader.
+// The tiny CPU-mode assembly stub invokes the exported kernel entry.
 // Caller must ensure the Multiboot2 header resides in mapped memory.
 export function boot_info_valid(address: usize): bool {
     if address == (0 as usize) { return false }
