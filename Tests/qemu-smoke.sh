@@ -8,6 +8,17 @@ DEBUG_LOG="$OUT/qemu-boot-debug.log"
 DISK="$OUT/virtio-test.img"
 MEMORY="${NOQERIOS_MEMORY:-256M}"
 
+on_exit() {
+    local status=$?
+    if (( status != 0 )); then
+        echo "QEMU boot test failed (status $status). Serial log:" >&2
+        if [[ -f "$LOG" ]]; then cat "$LOG" >&2; fi
+        echo "BIOS stage debug port:" >&2
+        if [[ -f "$DEBUG_LOG" ]]; then cat "$DEBUG_LOG" >&2; fi
+    fi
+}
+trap on_exit EXIT
+
 bash "$ROOT/build.sh" --native
 
 if [[ ! -s "$OUT/noqerios.iso" ]]; then
