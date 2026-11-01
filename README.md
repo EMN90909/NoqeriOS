@@ -178,3 +178,31 @@ modem interfaces. Do not put the prototype on an untrusted network.
 
 See [networking architecture and current feature matrix](Docs/NETWORK_MILESTONE_2.md)
 and [original IPv4 bootstrap notes](Docs/NETWORKING.md).
+
+### UEFI desktop and 250-CPU topology capacity (experimental)
+
+NoqeriOS now contains a basic software-composited framebuffer desktop
+for x86-64 UEFI systems exposing a 32-bit RGB GOP framebuffer. Legacy
+PS/2 keyboards (and QEMU's emulated keyboard) use **A / S** to change
+the focused window and **Z / Enter** to activate; the same letters work
+via COM1. USB keyboards, mice, modern laptop touchpads and GPU drivers
+are not supported yet.
+
+The ACPI topology registry accommodates up to **250 logical CPU APIC
+IDs**, including x2APIC entries, but **only the bootstrap processor
+currently executes**. This is not a 250-core SMP kernel.
+
+Build on Linux/WSL and test using:
+
+```sh
+bash build.sh --uefi-bootstrap
+NOQERIOS_REQUIRE_GOP=1 bash Tests/uefi-smoke.sh
+python3 Tests/gui-smoke.py
+```
+
+The build also provides a GPT removable-device UEFI image:
+`build/noqerios-uefi-usb.img`. Physical motherboard boot, boot-device
+drivers and real USB input are not validated or complete. Do not use
+the experimental system on disks containing important data.
+
+See [GUI and physical boot limitations](Docs/GUI_SMP_BOOT.md).
