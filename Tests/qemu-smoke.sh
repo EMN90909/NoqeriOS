@@ -7,10 +7,10 @@ LOG="$OUT/qemu-serial.log"
 DISK="$OUT/virtio-test.img"
 MEMORY="${NOQERIOS_MEMORY:-256M}"
 
-bash "$ROOT/build.sh" --no-bootstrap
+bash "$ROOT/build.sh" --native
 
-if [[ ! -f "$OUT/noqerios.iso" ]]; then
-    echo "ERROR: noqerios.iso was not produced" >&2
+if [[ ! -f "$OUT/native-boot/noqerios-native.img" ]]; then
+    echo "ERROR: native BIOS boot image was not produced" >&2
     exit 1
 fi
 if ! command -v qemu-system-x86_64 >/dev/null 2>&1; then
@@ -40,7 +40,7 @@ set +e
 timeout 12s qemu-system-x86_64 \
     -machine q35 \
     -m "$MEMORY" \
-    -cdrom "$OUT/noqerios.iso" \
+    -drive if=ide,format=raw,file="$OUT/native-boot/noqerios-native.img" \\
     -device virtio-rng-pci,disable-legacy=on \
     -drive if=none,format=raw,file="$DISK",id=noqerios-test-disk \
     -device virtio-blk-pci,drive=noqerios-test-disk,disable-legacy=on \
@@ -81,6 +81,7 @@ grep -q "NoqeriOS: ring-3 transition and syscall gate active" "$LOG"
 grep -q "NoqeriOS: ring-3 syscall reached Noqeri dispatcher" "$LOG"
 grep -q "NoqeriOS: modular monolith core services online" "$LOG"
 grep -q "NoqeriOS: bootstrap milestone complete" "$LOG"
+grep -q "NoqeriOS serial terminal ready" "$LOG"
 
 echo "NoqeriOS QEMU smoke test passed with $MEMORY RAM"
 cat "$LOG"
