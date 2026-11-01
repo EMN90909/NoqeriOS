@@ -55,6 +55,7 @@ fi
 # a GOP handoff so graphics regressions cannot hide behind serial success.
 if [[ "${NOQERIOS_REQUIRE_GOP:-0}" == 1 ]]; then
     if ! grep -q 'uefi: supported GOP RGB framebuffer found' "$DEBUG" || \
+       ! grep -q 'NoqeriOS: early framebuffer boot marker displayed' "$LOG" || \
        ! grep -q 'NoqeriOS: 32-bit framebuffer discovered' "$LOG" || \
        ! grep -q 'NoqeriOS: framebuffer MMIO write succeeded' "$LOG"; then
         echo "UEFI graphics framebuffer handoff failed:" >&2
