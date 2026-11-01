@@ -42,7 +42,8 @@ jobs:
           test -f Kernel/main.noqeri
           test -z "$(find Arch Drivers Kernel -type f -name '*.nqr' -print -quit)"
           bash -n build.sh Tests/qemu-smoke.sh
-          test -f Bootloader/limine.conf
+          test -f Bootloader/native/stage0.S
+          test -f Bootloader/native/stage1.S
           test -f Bootloader/handoff.noqeri
           test -f Bootloader/README.md
           grep -q -- '--unsafe' build.sh
@@ -65,15 +66,6 @@ jobs:
           print('Custom BIOS loader assembly and signature OK')
           PY
 
-      - name: Prepare Limine bootloader
-        if: false
-        run: |
-          git clone --depth 1 --branch v12.x https://github.com/limine-bootloader/limine.git .deps/limine
-          cd .deps/limine
-          ./bootstrap
-          ./configure --enable-bios --enable-bios-cd --enable-uefi-x86-64 --enable-uefi-cd
-          make -j2
-
       - name: Compile and boot NoqeriOS
         env:
           NOQERI: ${{ github.workspace }}/.deps/Noqeri/build/noqeri
@@ -85,5 +77,15 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: noqerios-serial-log-${{ matrix.memory }}
-          path: build/qemu-serial.log
+          path: |
+            build/qemu-serial.log
+            build/qemu-boot-debug.log
           if-no-files-found: ignore
+
+      - name: Upload BIOS ISO
+        if: ${{ success() && matrix.memory == '256M' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: noqerios-custom-bios-iso
+          path: build/noqerios.iso
+          if-no-files-found: error
