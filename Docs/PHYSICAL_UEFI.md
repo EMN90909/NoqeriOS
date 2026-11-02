@@ -86,3 +86,34 @@ properly audited and tested.
 4. Storage drivers (NVMe/AHCI/USB mass storage), with write safety.
 5. Runtime fault handling, memory protection, and hardware regression
    tests across multiple machines.
+
+## Native Noqeri UEFI loader (experimental, opt-in)
+
+The firmware-facing loader now has a **Noqeri source** implementation at
+`Bootloader/uefi/noqeri/loader.noqeri`, with a small assembly-only
+`efi_bridge.S` for the required UEFI Microsoft-x64 to Noqeri SysV ABI boundary.
+No C, libc, GNU-EFI startup or `gnu-efi` library is linked on this path.
+Compile with a Noqeri compiler supporting `x86_64-unknown-uefi` and build:
+
+```sh
+bash build.sh --uefi-noqeri
+NOQERIOS_UEFI_LOADER=noqeri bash Tests/uefi-smoke.sh
+NOQERIOS_UEFI_LOADER=noqeri NOQERIOS_UEFI_MEDIA=usb bash Tests/uefi-smoke.sh
+```
+
+The opt-in build produces a PE32+ `build/uefi/BOOTX64.EFI`, FAT ESP,
+hybrid ISO and removable-media GPT image. A separate
+`build/kernel-uefi.elf` uses the 64-bit `uefi_kernel_entry`, while BIOS
+retains `_start`. A packaging test verifies AMD64 EFI subsystem 10, base
+relocations, and the ELF entry. OVMF must additionally show ExitBootServices
+success **and** the kernel/terminal serial markers.
+
+Native Noqeri support currently covers firmware file loading from the boot
+ESP, validated ELF64 segments, low identity page tables, GetMemoryMap,
+Multiboot2 memory-map construction, and ExitBootServices retry/handoff.
+The **native path is serial-only**: its GOP framebuffer handoff, ACPI tag
+and alternate-OS boot picker have not yet been ported. Use `--uefi` for the
+legacy GNU-EFI loader if you need those capabilities. Do not replace an
+existing laptop's EFI boot configuration or overwrite a disk based solely
+on virtual-machine results; preserve backups and use a dedicated USB drive.
+Native UEFI is not certified on physical hardware.

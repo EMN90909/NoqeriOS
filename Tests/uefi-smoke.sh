@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# Boot native NoqeriOS UEFI ISO under OVMF. Requires GNU-EFI, OVMF, QEMU.
+# Boot NoqeriOS UEFI ISO under OVMF. Select Noqeri or legacy GNU-EFI loader.
 set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/build"
 mkdir -p "$OUT"
-bash "$ROOT/build.sh" --uefi
+if [[ "${NOQERIOS_UEFI_LOADER:-legacy}" == noqeri ]]; then
+    bash "$ROOT/build.sh" --uefi-noqeri
+else
+    bash "$ROOT/build.sh" --uefi
+fi
 LOG="$OUT/uefi-serial.log"
 DEBUG="$OUT/uefi-boot-debug.log"
 : >"$LOG"
@@ -54,6 +58,7 @@ fi
 # The framebuffer is optional on real machines. CI explicitly asks for
 # a GOP handoff so graphics regressions cannot hide behind serial success.
 if [[ "${NOQERIOS_REQUIRE_GOP:-0}" == 1 ]]; then
+    [[ "${NOQERIOS_UEFI_LOADER:-legacy}" != noqeri ]] || { echo "Native Noqeri UEFI path is currently serial-only; GOP smoke belongs to the legacy path" >&2; exit 3; }
     if ! grep -q 'uefi: supported GOP RGB framebuffer found' "$DEBUG" || \
        ! grep -q 'NoqeriOS: early framebuffer boot marker displayed' "$LOG" || \
        ! grep -q 'NoqeriOS: 32-bit framebuffer discovered' "$LOG" || \
