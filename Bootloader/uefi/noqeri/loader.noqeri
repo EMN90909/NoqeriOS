@@ -59,6 +59,26 @@ function zero_bytes(dest: usize, count: usize): void {
 function within(offset: usize, size: usize, limit: usize): bool {
     return offset <= limit && size <= limit - offset
 }
+
+// UEFI console uses UTF-16. This fallback remains visible on real PCs
+// without QEMU's debugcon, and never calls firmware after ExitBootServices.
+function firmware_text(system: usize, message: string): void {
+    if system == 0 as usize { return }
+    let console: usize = at64(system + 64 as usize)
+    if console == 0 as usize { return }
+    let output: usize = at64(console + 8 as usize)
+    if output == 0 as usize { return }
+    let chars: [u16; 160]
+    let bytes: *u8 = message as *u8
+    let i: usize = 0 as usize
+    while i < 159 as usize && bytes[i] != 0 as u8 {
+        chars[i] = bytes[i] as u16
+        i = i + 1 as usize
+    }
+    chars[i] = 0 as u16
+    efi_call2(output, console, &chars as usize)
+}
+
 function err_status(): usize {
     // EFI_ERROR bit set; cannot accidentally return a firmware warning.
     return (0 as usize) - (1 as usize)
@@ -295,13 +315,21 @@ function synthesize_multiboot(dest: usize, map: usize, map_size: usize, desc_siz
 export function noqeri_uefi_main(image: usize, system: usize): usize {
     efi_debug("NoqeriOS UEFI: native Noqeri loader entered\n")
     if image == 0 as usize || system == 0 as usize { return err_status() }
+    firmware_text(system, "NoqeriOS native UEFI loader\\r\\n")
     let bs: usize = at64(system + 96 as usize)
     if bs == 0 as usize { return err_status() }
     let kernel: usize = 0 as usize
     let size: usize = 0 as usize
-    if !kernel_from_esp(image, bs, &kernel, &size) { return err_status() }
+    if !kernel_from_esp(image, bs, &kernel, &size) {
+        firmware_text(system, "NoqeriOS: KERNEL.ELF unavailable\\r\\n")
+        return err_status()
+    }
     let entry: usize = load_kernel_elf(bs, kernel, size)
-    if entry == 0 as usize { efi_debug("noqeri-uefi: bad kernel ELF\n") return err_status() }
+    if entry == 0 as usize {
+        efi_debug("noqeri-uefi: bad kernel ELF\n")
+        firmware_text(system, "NoqeriOS: invalid kernel ELF\\r\\n")
+        return err_status()
+    }
     let pml4: usize = make_identity_tables(bs)
     if pml4 == 0 as usize { efi_debug("noqeri-uefi: page table allocation failed\n") return err_status() }
     let boot_info: usize = low_pages(bs, 32 as usize)
