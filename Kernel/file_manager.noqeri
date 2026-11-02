@@ -68,7 +68,7 @@ function files_open(blockLocation: u32): *FileManager {
     while i < mount.rootEntryCount && m.count < (128 as usize) {
         // 25 bytes per name, 128 entries occupy 3200 bytes.
         let nameAt: usize = namesPage + (m.count * (25 as usize))
-        if vfs_entry_at(mount, i, node, nameAt) {
+        if vfs_entry_at(m.mount, i, node, nameAt) {
             m.keys[m.count] = node.key
             m.sizes[m.count] = node.size
             m.parents[m.count] = node.parentKey
