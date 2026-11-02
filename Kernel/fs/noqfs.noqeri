@@ -175,8 +175,23 @@ function noqfs_entry_at(mount: *VfsMount, index: u32, node: *VfsNode, nameOutput
         }
         dst[k] = 0 as u8
     } else {
-        node.nameLength = 0 as u32
-        dst[0] = 0 as u8
+        // Legacy v1 has no filename: display an unambiguous numeric key.
+        dst[0] = 75 as u8
+        dst[1] = 69 as u8
+        dst[2] = 89 as u8
+        dst[3] = 45 as u8
+        let value: u64 = node.key
+        let n: usize = 0 as usize
+        while n < (16 as usize) {
+            let digit: u8 = (value % (16 as u64)) as u8
+            if digit < (10 as u8) { digit = digit + (48 as u8) }
+            else { digit = digit + (55 as u8) }
+            dst[(19 as usize) - n] = digit
+            value = value / (16 as u64)
+            n = n + (1 as usize)
+        }
+        dst[20] = 0 as u8
+        node.nameLength = 20 as u32
     }
     return true
 }
