@@ -4,6 +4,7 @@ import "../Arch/x86_64/api.noqeri"
 import "../Drivers/serial.noqeri"
 import "../Drivers/framebuffer.noqeri"
 import "file_manager.noqeri"
+import "compositor.noqeri"
 
 // Initial single-process layered software compositor. UI surfaces are
 // rectangles/text redrawn into GOP/MB2 framebuffer on selection changes.
@@ -42,6 +43,36 @@ function gui_fill(g: *GuiDesktop, left: usize, top: usize,
         let x: usize = 0 as usize
         while x < w {
             g.pixels[row + x] = packed
+            x = x + (1 as usize)
+        }
+        y = y + (1 as usize)
+    }
+}
+// 4-sample corner antialiasing and clipped pixel blending.
+// Only panels use this path; large wallpaper fills stay on the fast path.
+function gui_round_fill(g: *GuiDesktop, left: usize, top: usize,
+                        width: usize, height: usize, radius: usize,
+                        color: u32): void {
+    if g == null || left >= g.width || top >= g.height { return }
+    let w: usize = width
+    let h: usize = height
+    if w > g.width - left { w = g.width - left }
+    if h > g.height - top { h = g.height - top }
+    if w == (0 as usize) || h == (0 as usize) { return }
+    let r: usize = radius
+    if r > w / (2 as usize) { r = w / (2 as usize) }
+    if r > h / (2 as usize) { r = h / (2 as usize) }
+    let paint: u32 = gui_color(g, color)
+    let y: usize = 0 as usize
+    while y < h {
+        let x: usize = 0 as usize
+        while x < w {
+            let coverage: u32 = compositor_corner_coverage(x, y, w, h, r)
+            if coverage != (0 as u32) {
+                let index: usize = (top + y) * g.stride + left + x
+                if coverage == (255 as u32) { g.pixels[index] = paint }
+                else { g.pixels[index] = compositor_blend(g.pixels[index], paint, coverage) }
+            }
             x = x + (1 as usize)
         }
         y = y + (1 as usize)
@@ -349,8 +380,8 @@ function gui_panel(g: *GuiDesktop, x: usize, y: usize,
                    w: usize, h: usize, title: u32): void {
     let active: bool = (title == (1 as u32) && g.focused == (0 as usize)) ||
                        (title == (2 as u32) && g.focused == (1 as usize))
-    gui_fill(g, x + (5 as usize), y + (6 as usize), w, h, 0x0d1121 as u32)
-    gui_fill(g, x, y, w, h, 0x202d44 as u32)
+    gui_round_fill(g, x + (5 as usize), y + (6 as usize), w, h, 9 as usize, 0x0d1121 as u32)
+    gui_round_fill(g, x, y, w, h, 8 as usize, 0x202d44 as u32)
     let edge: u32 = 0x465775 as u32
     if active { edge = 0x58d6d0 as u32 }
     gui_fill(g, x, y, w, 3 as usize, edge)
