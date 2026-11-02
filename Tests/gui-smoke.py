@@ -153,7 +153,7 @@ def main():
                     hmp(sock, f"sendkey {key}")
                     time.sleep(0.15)
                 observe(proc, b"Noqeri Shell - Windows-style", 8, output)
-                observe(proc, b"N:\\\\> ", 5, output)
+                observe(proc, b"N:\\> ", 5, output)
                 terminal_help = screenshot(sock, str(working / "terminal-help.ppm"))
                 if terminal_help == terminal_open:
                     raise AssertionError("PS/2 shell command did not update visible terminal")
