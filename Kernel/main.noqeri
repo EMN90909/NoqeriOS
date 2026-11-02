@@ -5,6 +5,7 @@ import "../Bootloader/handoff.noqeri"
 import "../Drivers/serial.noqeri"
 import "../Drivers/framebuffer.noqeri"
 import "../Drivers/gpu.noqeri"
+import "../Drivers/virtio_gpu_display.noqeri"
 import "../Drivers/pci.noqeri"
 import "../Drivers/virtio.noqeri"
 import "../Drivers/virtio_rng.noqeri"
@@ -289,12 +290,14 @@ export function kernel_main(multibootInfo: usize): void {
 
     // Probe VirtIO GPU, but keep CPU framebuffer composition until native
     // resource creation, DMA and fence handling are implemented.
+    let gpuLocation: u32 = 65536 as u32
     let gpuPage: usize = arch_alloc_page()
     if gpuPage != (0 as usize) {
         let gpu: *GpuCapability = gpuPage as *GpuCapability
         if gpu_detect(gpu) {
             if gpu_query_display(gpu.pciLocation) {
                 serial_write("NoqeriOS: VirtIO GPU control queue display-info handshake passed\n")
+                gpuLocation = gpu.pciLocation
             } else {
                 serial_write("NoqeriOS: VirtIO GPU commands unavailable; CPU fallback active\n")
             }
