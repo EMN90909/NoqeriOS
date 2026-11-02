@@ -27,3 +27,12 @@ BIOS x86-64 is supported. A native UEFI bootloader, full filesystem loading,
 boot menu, SMP and higher-half Limine protocol are separate future projects.
 The ordinary x86 processor bring-up code is assembly; the kernel and
 interactive terminal are written in Noqeri.
+
+## Experimental all-Noqeri UEFI loader
+
+`Bootloader/uefi/noqeri/loader.noqeri` now handles EFI file I/O, ELF64 loading,
+paging, memory-map conversion and ExitBootServices. The only non-Noqeri boot
+piece is `efi_bridge.S`, needed for the Win64 firmware calling convention.
+Run `bash build.sh --uefi-noqeri` for the independent PE32+ EFI application.
+The legacy `--uefi` gnu-efi path remains the default and supports the GOP
+and dual-boot menu features not yet present in the serial-only Noqeri loader.
