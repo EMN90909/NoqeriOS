@@ -136,6 +136,7 @@ def main():
         output = bytearray()
         try:
             observe(proc, b"NoqeriOS: GUI compositor frame presented", 25, output)
+            observe(proc, b"NoqeriOS: boot splash active", 5, output)
             observe(proc, b"NoqeriOS serial terminal ready", 5, output)
             end = time.monotonic() + 5
             while not mon.exists() and time.monotonic() < end:

@@ -1,0 +1,115 @@
+module os.kernel.boot_splash
+
+import "../Drivers/framebuffer.noqeri"
+
+// Native Noqeri boot splash, entirely software-rendered to a validated
+// Multiboot2/GOP linear framebuffer. No firmware services needed after handoff.
+// The bar represents completed kernel milestones, not a fabricated timer.
+function boot_splash_pack(rgb: u32, redLow: bool): u32 {
+    if !redLow { return rgb }
+    let red: u32 = rgb / (65536 as u32)
+    let green: u32 = (rgb / (256 as u32)) % (256 as u32)
+    let blue: u32 = rgb % (256 as u32)
+    return blue * (65536 as u32) + green * (256 as u32) + red
+}
+
+function boot_splash_fill(fb: *Mb2FramebufferTag, redLow: bool,
+                          left: usize, top: usize, width: usize,
+                          height: usize, color: u32): void {
+    let maxWidth: usize = fb.width as usize
+    let maxHeight: usize = fb.height as usize
+    if left >= maxWidth || top >= maxHeight { return }
+    let w: usize = width
+    let h: usize = height
+    if w > maxWidth - left { w = maxWidth - left }
+    if h > maxHeight - top { h = maxHeight - top }
+    let pitchPixels: usize = (fb.pitch as usize) / (4 as usize)
+    let pixels: *volatile u32 = (fb.address as usize) as *volatile u32
+    let ink: u32 = boot_splash_pack(color, redLow)
+    let y: usize = 0 as usize
+    while y < h {
+        let row: usize = (top + y) * pitchPixels + left
+        let x: usize = 0 as usize
+        while x < w {
+            pixels[row + x] = ink
+            x = x + (1 as usize)
+        }
+        y = y + (1 as usize)
+    }
+}
+
+// Six five-by-seven glyphs spelling "Noqeri" in title case.
+function boot_splash_glyph(index: usize): u64 {
+    if index == (0 as usize) { return 18842507057 as u64 }
+    if index == (1 as usize) { return 15621211584 as u64 }
+    if index == (2 as usize) { return 1597556160 as u64 }
+    if index == (3 as usize) { return 15620621760 as u64 }
+    if index == (4 as usize) { return 17734067904 as u64 }
+    if index == (5 as usize) { return 15170940932 as u64 }
+    return 0 as u64
+}
+
+function boot_splash_logo(fb: *Mb2FramebufferTag, redLow: bool): void {
+    let scale: usize = 5 as usize
+    let textWidth: usize = (6 as usize) * (6 as usize) * scale
+    let x0: usize = ((fb.width as usize) - textWidth) / (2 as usize)
+    let y0: usize = ((fb.height as usize) / (2 as usize)) - (82 as usize)
+    let letter: usize = 0 as usize
+    while letter < (6 as usize) {
+        let glyph: u64 = boot_splash_glyph(letter)
+        let line: usize = 0 as usize
+        let divisor: u64 = 1 as u64
+        while line < (7 as usize) {
+            let bits: u64 = (glyph / divisor) % (32 as u64)
+            let column: usize = 0 as usize
+            let mask: u64 = 16 as u64
+            while column < (5 as usize) {
+                if (bits / mask) % (2 as u64) == (1 as u64) {
+                    boot_splash_fill(fb, redLow,
+                                     x0 + letter * (6 as usize) * scale + column * scale,
+                                     y0 + line * scale, scale, scale, 0xf7f7f7 as u32)
+                }
+                mask = mask / (2 as u64)
+                column = column + (1 as usize)
+            }
+            divisor = divisor * (32 as u64)
+            line = line + (1 as usize)
+        }
+        letter = letter + (1 as usize)
+    }
+}
+
+function boot_splash_update(info: usize, progress: usize): void {
+    let tag: usize = mb2_find_framebuffer(info)
+    if !framebuffer_valid(tag) { return }
+    let fb: *Mb2FramebufferTag = tag as *Mb2FramebufferTag
+    let channels: *u8 = (tag + (32 as usize)) as *u8
+    let redLow: bool = channels[0] == (0 as u8)
+    let barWidth: usize = 380 as usize
+    if (fb.width as usize) < (460 as usize) {
+        barWidth = (fb.width as usize) - (80 as usize)
+    }
+    let left: usize = ((fb.width as usize) - barWidth) / (2 as usize)
+    let top: usize = ((fb.height as usize) / (2 as usize)) + (28 as usize)
+    // Redraw the track at every milestone so the width never depends on
+    // stale firmware pixels or incremental rounding errors.
+    boot_splash_fill(fb, redLow, left, top, barWidth, 9 as usize, 0x454545 as u32)
+    let done: usize = progress
+    if done > (100 as usize) { done = 100 as usize }
+    boot_splash_fill(fb, redLow, left, top,
+                     (barWidth * done) / (100 as usize),
+                     9 as usize, 0xfb5607 as u32)
+}
+
+function boot_splash_begin(info: usize): bool {
+    let tag: usize = mb2_find_framebuffer(info)
+    if !framebuffer_valid(tag) { return false }
+    let fb: *Mb2FramebufferTag = tag as *Mb2FramebufferTag
+    let channels: *u8 = (tag + (32 as usize)) as *u8
+    let redLow: bool = channels[0] == (0 as u8)
+    boot_splash_fill(fb, redLow, 0 as usize, 0 as usize,
+                     fb.width as usize, fb.height as usize, 0x101010 as u32)
+    boot_splash_logo(fb, redLow)
+    boot_splash_update(info, 8 as usize)
+    return true
+}

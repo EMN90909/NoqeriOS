@@ -56,6 +56,7 @@ fi
 if [[ "${NOQERIOS_REQUIRE_GOP:-0}" == 1 ]]; then
     if ! grep -q 'uefi: supported GOP RGB framebuffer found' "$DEBUG" || \
        ! grep -q 'NoqeriOS: early framebuffer boot marker displayed' "$LOG" || \
+       ! grep -q 'NoqeriOS: boot splash active' "$LOG" || \
        ! grep -q 'NoqeriOS: 32-bit framebuffer discovered' "$LOG" || \
        ! grep -q 'NoqeriOS: framebuffer MMIO write succeeded' "$LOG" || \
        ! grep -q 'NoqeriOS: GUI compositor frame presented' "$LOG"; then

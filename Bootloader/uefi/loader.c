@@ -76,6 +76,10 @@ typedef struct {
     VOID *query_mode, *set_mode, *blt;
     NOQ_GOP_MODE *mode;
 } NOQ_GOP;
+/* Calling firmware GOP methods requires the UEFI ABI, not a void* call.
+ * GNU-EFI's uefi_call_wrapper in GNU_EFI_USE_MS_ABI mode invokes the
+ * function pointer directly; give it the correct typed signature. */
+typedef EFI_STATUS (EFIAPI *NOQ_GOP_SET_MODE)(NOQ_GOP *, UINT32);
 typedef struct {
     UINT64 address, length;
     UINT32 pitch, width, height;
@@ -306,7 +310,7 @@ static NOQ_FRAMEBUFFER probe_gop(EFI_SYSTEM_TABLE *st) {
     const NOQ_GOP_INFO *info = mode->info;
     if (info->pixel_format <= 2 && info->width && info->height &&
         mode->mode < mode->max_mode && gop->set_mode) {
-        EFI_STATUS mode_status = uefi_call_wrapper(gop->set_mode, 2, gop, mode->mode);
+        EFI_STATUS mode_status = uefi_call_wrapper(((NOQ_GOP_SET_MODE)gop->set_mode), 2, gop, mode->mode);
         if (!EFI_ERROR(mode_status)) {
             log_debug("uefi: GOP graphics scanout mode reinitialized\n");
             if (!gop->mode || !gop->mode->info) return fb;

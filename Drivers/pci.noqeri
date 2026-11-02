@@ -65,15 +65,32 @@ function pci_enable_device(location: u32): void {
     pci_write16(bus, slot, fn, 4 as u32, command)
 }
 
+// The PCI header's multifunction flag determines whether functions 1..7
+// may exist. A missing function 0 means the entire slot is absent. This
+// avoids probing 65536 functions on machines with only a few devices.
+function pci_slot_function_count(bus: u32, slot: u32): u32 {
+    let vendor: u16 = pci_vendor_id(bus, slot, 0 as u32)
+    if vendor == (65535 as u16) || vendor == (0 as u16) { return 0 as u32 }
+    let header: u32 = pci_read8(bus, slot, 0 as u32, 14 as u32) as u32
+    if (header / (128 as u32)) % (2 as u32) == (1 as u32) {
+        return 8 as u32
+    }
+    return 1 as u32
+}
+
 function pci_count_devices(): usize {
     let count: usize = 0 as usize
     let bus: u32 = 0 as u32
     while bus < (256 as u32) {
         let slot: u32 = 0 as u32
         while slot < (32 as u32) {
+            let functions: u32 = pci_slot_function_count(bus, slot)
             let fn: u32 = 0 as u32
-            while fn < (8 as u32) {
-                if pci_vendor_id(bus, slot, fn) != (65535 as u16) { count = count + (1 as usize) }
+            while fn < functions {
+                let vendor: u16 = pci_vendor_id(bus, slot, fn)
+                if vendor != (65535 as u16) && vendor != (0 as u16) {
+                    count = count + (1 as usize)
+                }
                 fn = fn + (1 as u32)
             }
             slot = slot + (1 as u32)
@@ -88,9 +105,12 @@ function pci_find_vendor_location(vendorWanted: u16): u32 {
     while bus < (256 as u32) {
         let slot: u32 = 0 as u32
         while slot < (32 as u32) {
+            let functions: u32 = pci_slot_function_count(bus, slot)
             let fn: u32 = 0 as u32
-            while fn < (8 as u32) {
-                if pci_vendor_id(bus, slot, fn) == vendorWanted { return (bus * (256 as u32)) + (slot * (8 as u32)) + fn }
+            while fn < functions {
+                if pci_vendor_id(bus, slot, fn) == vendorWanted {
+                    return (bus * (256 as u32)) + (slot * (8 as u32)) + fn
+                }
                 fn = fn + (1 as u32)
             }
             slot = slot + (1 as u32)
@@ -105,9 +125,11 @@ function pci_find_device_location(vendorWanted: u16, deviceWanted: u16): u32 {
     while bus < (256 as u32) {
         let slot: u32 = 0 as u32
         while slot < (32 as u32) {
+            let functions: u32 = pci_slot_function_count(bus, slot)
             let fn: u32 = 0 as u32
-            while fn < (8 as u32) {
-                if pci_vendor_id(bus, slot, fn) == vendorWanted && pci_device_id(bus, slot, fn) == deviceWanted {
+            while fn < functions {
+                if pci_vendor_id(bus, slot, fn) == vendorWanted &&
+                   pci_device_id(bus, slot, fn) == deviceWanted {
                     return (bus * (256 as u32)) + (slot * (8 as u32)) + fn
                 }
                 fn = fn + (1 as u32)

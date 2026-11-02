@@ -17,6 +17,7 @@ import "Memory/heap.noqeri"
 import "scheduler.noqeri"
 import "cpu_topology.noqeri"
 import "gui.noqeri"
+import "boot_splash.noqeri"
 import "file_manager.noqeri"
 import "syscall.noqeri"
 import "fs/vfs.noqeri"
@@ -34,10 +35,17 @@ export function kernel_main(multibootInfo: usize): void {
     serial_write("NoqeriOS: entered 64-bit Noqeri kernel\n")
     serial_write("NoqeriOS: serial driver online\n")
 
-    // Draw a boot marker as soon as GOP is available, before chipset probes.
+    // Present branded loading UI before any expensive hardware or memory work.
+    // Keep early marker for MMIO regression diagnostics, then replace it with
+    // the Noqeri progress screen. Serial-only BIOS remains supported.
+    let splashActive: bool = false
     if framebuffer_probe(multibootInfo) {
         if framebuffer_draw_boot_mark(multibootInfo) {
             serial_write("NoqeriOS: early framebuffer boot marker displayed\n")
+        }
+        splashActive = boot_splash_begin(multibootInfo)
+        if splashActive {
+            serial_write("NoqeriOS: boot splash active\n")
         }
     }
 
@@ -155,6 +163,7 @@ export function kernel_main(multibootInfo: usize): void {
     if pmmAddress == (0 as usize) {
         serial_write("NoqeriOS: native memory core unavailable\n")
     }
+    if splashActive { boot_splash_update(multibootInfo, 30 as usize) }
 
     if memoryReady {
         let schedulerPage: usize = arch_alloc_page()
@@ -183,12 +192,16 @@ export function kernel_main(multibootInfo: usize): void {
         }
     }
 
+    if splashActive { boot_splash_update(multibootInfo, 48 as usize) }
+
     let pciDevices: usize = pci_count_devices()
     if pciDevices > 0 {
         serial_write("NoqeriOS: PCI configuration space enumerated\n")
     } else {
         serial_write("NoqeriOS: PCI enumeration found no devices\n")
     }
+
+    if splashActive { boot_splash_update(multibootInfo, 62 as usize) }
 
     let rngLocation: u32 = pci_find_device_location(6900 as u16, 4164 as u16)
     if rngLocation != (65536 as u32) {
@@ -262,6 +275,7 @@ export function kernel_main(multibootInfo: usize): void {
         serial_write("NoqeriOS: DNS wire parser fixture failed\n")
     }
     let activeNetwork: *Network = network_boot_probe()
+    if splashActive { boot_splash_update(multibootInfo, 79 as usize) }
 
     arch_interrupts_init()
     arch_sti()
@@ -279,6 +293,8 @@ export function kernel_main(multibootInfo: usize): void {
     } else {
         serial_write("NoqeriOS: PIT interrupts unavailable; continuing in polled mode\n")
     }
+
+    if splashActive { boot_splash_update(multibootInfo, 89 as usize) }
 
     if arch_userspace_init() {
         if arch_enter_user_test() {
@@ -316,7 +332,12 @@ export function kernel_main(multibootInfo: usize): void {
     let desktop: *GuiDesktop = null
     if framebuffer_probe(multibootInfo) {
         serial_write("NoqeriOS: 32-bit framebuffer discovered\n")
-        if framebuffer_draw_boot_mark(multibootInfo) {
+        if splashActive {
+            // All boot dependencies are initialized; desktop paint replaces
+            // this final frame, without a blank-screen transition.
+            boot_splash_update(multibootInfo, 100 as usize)
+            serial_write("NoqeriOS: framebuffer MMIO write succeeded\n")
+        } else if framebuffer_draw_boot_mark(multibootInfo) {
             serial_write("NoqeriOS: framebuffer MMIO write succeeded\n")
         }
         if memoryReady {
