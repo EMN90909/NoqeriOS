@@ -694,19 +694,19 @@ function explorer_label_9(g: *GuiDesktop, x: usize, y: usize, color: u32): void 
     gui_letter(g, 84 as u8, x + (156 as usize), y, color)
 }
 function explorer_paint(g: *GuiDesktop): void {
-    gui_fill(g, 0 as usize, 55 as usize, g.width, g.height - (100 as usize), 0xf4f6fa as u32)
+    gui_fill(g, 0 as usize, 55 as usize, g.width, g.height - (100 as usize), 0xf2f2f2 as u32)
     gui_fill(g, 18 as usize, 72 as usize, g.width - (36 as usize), g.height - (132 as usize), 0xffffff as u32)
-    gui_fill(g, 18 as usize, 72 as usize, g.width - (36 as usize), 44 as usize, 0xe8edf5 as u32)
-    explorer_label_0(g, 34 as usize, 86 as usize, 0x182438 as u32)
-    gui_fill(g, 18 as usize, 116 as usize, 174 as usize, g.height - (176 as usize), 0xf0f3f8 as u32)
-    explorer_label_1(g, 38 as usize, 144 as usize, 0x283c58 as u32)
-    explorer_label_2(g, 38 as usize, 184 as usize, 0x283c58 as u32)
-    explorer_label_3(g, 216 as usize, 144 as usize, 0x283c58 as u32)
-    gui_fill(g, 207 as usize, 180 as usize, g.width - (250 as usize), 36 as usize, 0xf0f3f8 as u32)
-    explorer_label_4(g, 226 as usize, 192 as usize, 0x283c58 as u32)
-    if g.width > (610 as usize) { explorer_label_5(g, g.width - (125 as usize), 192 as usize, 0x283c58 as u32) }
+    gui_fill(g, 18 as usize, 72 as usize, g.width - (36 as usize), 44 as usize, 0xe5e5e5 as u32)
+    explorer_label_0(g, 34 as usize, 86 as usize, 0x242424 as u32)
+    gui_fill(g, 18 as usize, 116 as usize, 174 as usize, g.height - (176 as usize), 0xececec as u32)
+    explorer_label_1(g, 38 as usize, 144 as usize, 0x454545 as u32)
+    explorer_label_2(g, 38 as usize, 184 as usize, 0x454545 as u32)
+    explorer_label_3(g, 216 as usize, 144 as usize, 0x454545 as u32)
+    gui_fill(g, 207 as usize, 180 as usize, g.width - (250 as usize), 36 as usize, 0xececec as u32)
+    explorer_label_4(g, 226 as usize, 192 as usize, 0x454545 as u32)
+    if g.width > (610 as usize) { explorer_label_5(g, g.width - (125 as usize), 192 as usize, 0x454545 as u32) }
     if g.explorer == null {
-        explorer_label_7(g, 226 as usize, 245 as usize, 0x5e708a as u32)
+        explorer_label_7(g, 226 as usize, 245 as usize, 0x777777 as u32)
     } else {
         // Real NoqFS names, not template entries. Clip text to column width.
         let explorer: *FileManager = g.explorer
@@ -718,26 +718,26 @@ function explorer_paint(g: *GuiDesktop): void {
             let y: usize = 238 as usize + index * (29 as usize)
             if y + (22 as usize) < g.height - (85 as usize) {
                 if explorer.selected == index {
-                    gui_fill(g, 210 as usize, y - (5 as usize), g.width - (255 as usize), 27 as usize, 0xd7e9fc as u32)
+                    gui_fill(g, 210 as usize, y - (5 as usize), g.width - (255 as usize), 27 as usize, 0xd7d7d7 as u32)
                 }
                 let text: *u8 = explorer.names + (entry * (25 as usize))
                 let j: usize = 0 as usize
                 while j < (24 as usize) && text[j] != (0 as u8) && (226 as usize) + j * (12 as usize) < g.width - (48 as usize) {
                     let letter: u8 = text[j]
                     if letter >= (97 as u8) && letter <= (122 as u8) { letter = letter - (32 as u8) }
-                    gui_letter(g, letter, (226 as usize) + j * (12 as usize), y, 0x283c58 as u32)
+                    gui_letter(g, letter, (226 as usize) + j * (12 as usize), y, 0x454545 as u32)
                     j = j + (1 as usize)
                 }
                 if explorer.flags[entry] == (2 as u32) {
-                    gui_fill(g, 213 as usize, y + (3 as usize), 8 as usize, 11 as usize, 0xe9b44a as u32)
+                    gui_fill(g, 213 as usize, y + (3 as usize), 8 as usize, 11 as usize, 0xaaaaaa as u32)
                 } else {
-                    gui_fill(g, 213 as usize, y + (3 as usize), 7 as usize, 11 as usize, 0x69a9e5 as u32)
+                    gui_fill(g, 213 as usize, y + (3 as usize), 7 as usize, 11 as usize, 0x888888 as u32)
                 }
             }
             index = index + (1 as usize)
         }
     }
-    explorer_label_8(g, 226 as usize, g.height - (85 as usize), 0x283c58 as u32)
+    explorer_label_8(g, 226 as usize, g.height - (85 as usize), 0x454545 as u32)
 }
 
 function gui_attach_files(g: *GuiDesktop, filesAddress: usize): void {
