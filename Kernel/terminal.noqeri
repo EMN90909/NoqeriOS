@@ -187,7 +187,7 @@ function shell_exec(buffer: *u8, size: usize, network: *Network, desktop: *GuiDe
                 let scratch: usize = arch_alloc_page()
                 if scratch == (0 as usize) { serial_write("\nOut of memory\n") }
                 else {
-                    let count: usize = files_read_selected(m,scratch,(512 as usize))
+                    let count: usize = files_read_selected(m as usize,scratch,(512 as usize))
                     serial_write("\n")
                     shell_print(scratch as *u8,count)
                     serial_write("\n")
