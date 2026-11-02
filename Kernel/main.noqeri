@@ -295,7 +295,7 @@ export function kernel_main(multibootInfo: usize): void {
         if memoryReady {
             desktop = gui_open(multibootInfo)
             if desktop != null {
-                gui_attach_files(desktop, explorerFiles)
+                gui_attach_files(desktop, explorerFiles as usize)
                 serial_write("NoqeriOS: GUI compositor frame presented\n")
                 serial_write("NoqeriOS: PS/2 keyboard navigation enabled when present\n")
             }
