@@ -82,6 +82,14 @@ def run():
         subprocess.run(["bash", str(ROOT / "Bootloader/uefi/build.sh")],
                        cwd=ROOT, env=env, check=True,
                        stdout=subprocess.DEVNULL)
+        # Headless OVMF may connect only the selected boot volume and not
+        # every secondary PCI filesystem. The fixture loader is therefore
+        # placed on the same test ESP for reliable execution verification.
+        probe_esp = OUT / "uefi/esp.img"
+        command("mmd", "-i", str(probe_esp),
+                "::/EFI/Microsoft", "::/EFI/Microsoft/Boot")
+        command("mcopy", "-i", str(probe_esp), str(tmp / "alternate.efi"),
+                "::/EFI/Microsoft/Boot/bootmgfw.efi")
         probe = tmp / "ci-uefi-usb.img"
         command("python3", str(ROOT / "Bootloader/uefi/make_usb.py"),
                 str(OUT / "uefi/esp.img"), str(probe))
@@ -110,7 +118,7 @@ def run():
             wait_for(debug, b"NoqeriOS boot menu: CI direct chainload probe", 10)
             wait_for(debug, b"NOQERI_ALT_EFI_EXECUTED", 12)
             wait_for(debug, b"NoqeriOS UEFI: ExitBootServices OK", 12)
-            print("PASS: cross-volume EFI discovery, test-only direct chainload and safe return")
+            print("PASS: EFI path discovery, test-only direct chainload and safe return")
         finally:
             proc.kill()
             proc.communicate(timeout=5)
