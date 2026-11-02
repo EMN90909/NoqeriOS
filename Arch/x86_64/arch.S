@@ -4,6 +4,8 @@ early_alloc_next:
     .quad 0
 early_alloc_end:
     .quad 0
+console_surface_ptr:
+    .quad 0
 
 .section .text
 .code64
@@ -172,6 +174,23 @@ arch_alloc_page:
     xor %eax, %eax
     ret
 
+.global arch_console_attach
+.type arch_console_attach, @function
+arch_console_attach:
+    mov %rdi, console_surface_ptr(%rip)
+    ret
+
+.global arch_console_echo
+.type arch_console_echo, @function
+arch_console_echo:
+    movzbl %dil, %esi
+    mov console_surface_ptr(%rip), %rdi
+    test %rdi, %rdi
+    jz .Lconsole_echo_end
+    jmp gui_terminal_char
+.Lconsole_echo_end:
+    ret
+
 .global arch_serial_write
 .type arch_serial_write, @function
 arch_serial_write:
@@ -190,6 +209,14 @@ arch_serial_write:
     pop %rax
     mov $0x3f8, %dx
     out %al, %dx
+    push %rdi
+    mov console_surface_ptr(%rip), %rdi
+    test %rdi, %rdi
+    jz .Lserial_no_mirror
+    movzbl %al, %esi
+    call gui_terminal_char
+.Lserial_no_mirror:
+    pop %rdi
     inc %rdi
     jmp 3b
 5:
