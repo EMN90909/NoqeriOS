@@ -1,0 +1,29 @@
+module os.drivers.gpu
+
+import "pci.noqeri"
+import "virtio.noqeri"
+
+// GPU capability selection is intentionally conservative. A UEFI GOP
+// framebuffer is CPU-mapped display memory and NOT 3D GPU acceleration.
+// A supported VirtIO GPU must have a working control virtqueue, resource
+// allocation, DMA backing and scanout/flush before it can be selected.
+record GpuCapability {
+    pciLocation: u32;
+    kind: u32;
+    enabled: bool;
+}
+
+function gpu_detect(capability: *GpuCapability): bool {
+    if capability == null { return false }
+    capability.pciLocation = 65536 as u32
+    capability.kind = 0 as u32
+    capability.enabled = false
+    // VirtIO GPU PCI device ID is 0x1050 (modern GPU).
+    let location: u32 = pci_find_device_location(6900 as u16, 4176 as u16)
+    if location == (65536 as u32) { return false }
+    if !virtio_modern_transport_present(location) { return false }
+    capability.pciLocation = location
+    capability.kind = 1 as u32
+    // GPU is discoverable, but NOT yet enabled for accelerated rendering.
+    return true
+}
