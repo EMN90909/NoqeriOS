@@ -16,6 +16,11 @@ function vfs_open_root_key(mount: *VfsMount, key: u64, node: *VfsNode): bool {
     return false
 }
 
+function vfs_entry_at(mount: *VfsMount, index: u32, node: *VfsNode, nameOutput: usize): bool {
+    if mount == null || mount.driverKind != (1 as u32) { return false }
+    return noqfs_entry_at(mount, index, node, nameOutput)
+}
+
 function vfs_read(node: *VfsNode, offset: usize, requested: usize, output: usize): usize {
     if node == null || node.mount == null { return 0 as usize }
     let mount: *VfsMount = node.mount
