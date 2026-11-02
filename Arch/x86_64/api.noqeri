@@ -23,6 +23,8 @@ extern function arch_early_allocator_set(start: usize, end: usize): bool;
 extern function arch_alloc_page(): usize;
 
 extern function arch_serial_write(text: string): void;
+extern function arch_console_attach(displayAddress: usize): void;
+extern function arch_console_echo(ch: u8): void;
 extern function arch_interrupts_init(): void;
 extern function arch_timer_ticks(): usize;
 extern function arch_userspace_init(): bool;
