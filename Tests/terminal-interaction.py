@@ -46,17 +46,23 @@ def verify(iso: Path, disk: Path, memory: str) -> None:
                             stderr=subprocess.PIPE, bufsize=0)
     try:
         collect_until(proc, b"NoqeriOS serial terminal ready (COM1)", 15.0, output)
-        collect_until(proc, b"noqerios> ", 5.0, output)
+        collect_until(proc, b"N:\\> ", 5.0, output)
         cases = [
-            (b"h", b"Commands: h help"),
-            (b"i", b"experimental x86_64 kernel"),
-            (b"m", b"Memory: physical allocator"),
-            (b"p", b"Processes: kernel scheduler"),
-            (b"n", b"Network: no configured Ethernet interface"),
-            (b"g", b"Network: no configured gateway"),
-            (b"d", b"DNS: network offline"),
-            (b"c", b"noqerios> "),
-            (b"r", b"Reboot requires QEMU reset"),
+            (b"help\r", b"Noqeri Shell - Windows-style"),
+            (b"ver\r", b"NoqeriOS x86_64"),
+            (b"mem\r", b"Physical allocator"),
+            (b"tasks\r", b"Kernel scheduler online"),
+            (b"net\r", b"Network: no configured Ethernet interface"),
+            (b"ping\r", b"Network: no configured gateway"),
+            (b"dns\r", b"DNS: network offline"),
+            (b"dir\r", b"Directory of N:"),
+            (b"ls\r", b"Items:"),
+            (b"pwd\r", b"N:\\\\"),
+            (b"type KEY-0000000000000001\r", b"HELO from NoqFS"),
+            (b"echo HELLO TERMINAL\r", b"HELLO TERMINAL"),
+            (b"cd UNKNOWN\r", b"Folder not found"),
+            (b"badcommand\r", b"Unknown command"),
+            (b"cls\r", b"N:\\\\> "),
         ]
         for key, response in cases:
             # Only look at output produced after this command, not earlier text.
