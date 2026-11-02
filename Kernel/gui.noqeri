@@ -668,8 +668,8 @@ function explorer_paint(g: *GuiDesktop): void {
     explorer_label_8(g, 226 as usize, g.height - (85 as usize), 0x283c58 as u32)
 }
 
-function gui_attach_files(g: *GuiDesktop, files: *FileManager): void {
+function gui_attach_files(g: *GuiDesktop, filesAddress: usize): void {
     if g == null { return }
-    g.explorer = files
+    g.explorer = filesAddress as *FileManager
     if g.explorerVisible { gui_paint(g) }
 }
