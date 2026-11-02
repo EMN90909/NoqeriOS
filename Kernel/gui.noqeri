@@ -5,6 +5,7 @@ import "../Drivers/serial.noqeri"
 import "../Drivers/framebuffer.noqeri"
 import "file_manager.noqeri"
 import "compositor.noqeri"
+import "../Drivers/virtio_gpu_display.noqeri"
 
 // Initial single-process layered software compositor. UI surfaces are
 // rectangles/text redrawn into GOP/MB2 framebuffer on selection changes.
@@ -20,6 +21,9 @@ record GuiDesktop {
     redraws: usize;
     explorerVisible: bool;
     explorer: *FileManager;
+    gpuDisplay: *GpuDisplay;
+    fallbackPixels: *volatile u32;
+    fallbackSwap: bool;
 }
 
 function gui_color(g: *GuiDesktop, rgb: u32): u32 {
@@ -465,6 +469,14 @@ function gui_paint(g: *GuiDesktop): void {
     }
     if g.explorerVisible && g.width >= (520 as usize) && g.height >= (360 as usize) { explorer_paint(g) }
     g.redraws = g.redraws + (1 as usize)
+    if g.gpuDisplay != null {
+        if !gpu_display_present(g.gpuDisplay) {
+            g.gpuDisplay = null
+            g.pixels = g.fallbackPixels
+            g.swapRedBlue = g.fallbackSwap
+            gui_paint(g)
+        }
+    }
 }
 function gui_open(info: usize): *GuiDesktop {
     let tag: usize = mb2_find_framebuffer(info)
@@ -496,6 +508,9 @@ function gui_open(info: usize): *GuiDesktop {
     g.redraws = 0 as usize
     g.explorerVisible = false
     g.explorer = null
+    g.gpuDisplay = null
+    g.fallbackPixels = g.pixels
+    g.fallbackSwap = g.swapRedBlue
     gui_paint(g)
     return g
 }
@@ -703,4 +718,16 @@ function gui_attach_files(g: *GuiDesktop, filesAddress: usize): void {
     if g == null { return }
     g.explorer = filesAddress as *FileManager
     if g.explorerVisible { gui_paint(g) }
+}
+
+function gui_enable_gpu(g: *GuiDesktop, gpuAddress: usize, framebuffer: usize): bool {
+    if g == null || gpuAddress == (0 as usize) ||
+       framebuffer == (0 as usize) { return false }
+    g.fallbackPixels = g.pixels
+    g.fallbackSwap = g.swapRedBlue
+    g.gpuDisplay = gpuAddress as *GpuDisplay
+    g.pixels = framebuffer as *volatile u32
+    g.swapRedBlue = false
+    gui_paint(g)
+    return g.gpuDisplay != null
 }
