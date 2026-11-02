@@ -69,7 +69,7 @@ function kernel_from_esp(image: usize, bs: usize, output: *usize, length: *usize
     image_guid.first = 0x11d295625b1b31a1 as u64
     image_guid.second = 0x3b7269c9a0003f8e as u64
     let fs_guid: Guid
-    fs_guid.first = 0x11d264590964e5b2 as u64
+    fs_guid.first = 0x11d26459964e5b22 as u64
     fs_guid.second = 0x3b7269c9a000398e as u64
 
     let loaded: usize = 0 as usize
