@@ -384,7 +384,7 @@ static EFI_STATUS paging(EFI_BOOT_SERVICES *bs, EFI_PHYSICAL_ADDRESS *root,
             /* Present, writable, write-through, cache disabled (UC). */
             pt[pt_index] = (page << 12) | 0x1bULL;
         }
-        log_debug("uefi: framebuffer mapped with 4 KiB uncached pages\\n");
+        log_debug("uefi: framebuffer mapped with 4 KiB uncached pages\n");
     }
     *root = addr;
     return EFI_SUCCESS;
