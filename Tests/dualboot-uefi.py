@@ -75,6 +75,16 @@ def run():
     with tempfile.TemporaryDirectory(prefix="noqeri-dualboot-") as scratch:
         tmp = Path(scratch)
         disk = build_fixture(tmp)
+        # Build a SEPARATE CI-only UEFI image. The release ISO remains
+        # unmodified and never enables automatic chainloading.
+        env = os.environ.copy()
+        env["NOQERI_CI_CHAINLOAD"] = "1"
+        subprocess.run(["bash", str(ROOT / "Bootloader/uefi/build.sh")],
+                       cwd=ROOT, env=env, check=True,
+                       stdout=subprocess.DEVNULL)
+        probe = tmp / "ci-uefi-usb.img"
+        command("python3", str(ROOT / "Bootloader/uefi/make_usb.py"),
+                str(OUT / "uefi/esp.img"), str(probe))
         vars_copy = tmp / "vars.fd"
         shutil.copyfile(vars_file, vars_copy)
         monitor = tmp / "hmp.sock"
@@ -83,11 +93,12 @@ def run():
             "qemu-system-x86_64", "-machine", "q35", "-m", "256M",
             "-drive", f"if=pflash,format=raw,unit=0,readonly=on,file={code}",
             "-drive", f"if=pflash,format=raw,unit=1,file={vars_copy}",
-            "-cdrom", str(OUT / "noqerios.iso"), "-boot", "order=d",
+            "-device", "qemu-xhci,id=ci-usb",
+            "-drive", f"if=none,format=raw,file={probe},id=ci-loader",
+            "-device", "usb-storage,bus=ci-usb.0,drive=ci-loader,bootindex=1",
             "-drive", f"if=none,format=raw,file={disk},id=alternate",
             "-device", "virtio-blk-pci,drive=alternate",
-            "-device", "qemu-xhci,id=keyboard-controller",
-            "-device", "usb-kbd,bus=keyboard-controller.0",
+
             "-serial", "none", "-display", "none",
             "-debugcon", f"file:{debug}", "-global", "isa-debugcon.iobase=0xe9",
             "-monitor", f"unix:{monitor},server,nowait",
@@ -106,9 +117,10 @@ def run():
                 for attempt in range(8):
                     sock.sendall(b"sendkey 1\n")
                     time.sleep(0.2)
+            wait_for(debug, b"NoqeriOS boot menu: CI direct chainload probe", 10)
             wait_for(debug, b"NOQERI_ALT_EFI_EXECUTED", 12)
             wait_for(debug, b"NoqeriOS UEFI: ExitBootServices OK", 12)
-            print("PASS: cross-volume EFI loader discovery, selection, chainload and safe return")
+            print("PASS: cross-volume EFI discovery, test-only direct chainload and safe return")
         finally:
             proc.kill()
             proc.communicate(timeout=5)
