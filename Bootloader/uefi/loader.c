@@ -296,8 +296,26 @@ static NOQ_FRAMEBUFFER probe_gop(EFI_SYSTEM_TABLE *st) {
                                           &gop_guid, NULL, (VOID **)&gop);
     if (EFI_ERROR(status) || !gop || !gop->mode || !gop->mode->info)
         return fb;
+    /*
+     * Some physical firmware leaves a mode description in place while the
+     * display engine is still using the boot-console state. Reassert the
+     * current supported GOP scanout while UEFI boot services are available
+     * and recapture all mode metadata before constructing the handoff.
+     */
     const NOQ_GOP_MODE *mode = gop->mode;
     const NOQ_GOP_INFO *info = mode->info;
+    if (info->pixel_format <= 2 && info->width && info->height &&
+        mode->mode < mode->max_mode && gop->set_mode) {
+        EFI_STATUS mode_status = uefi_call_wrapper(gop->set_mode, 2, gop, mode->mode);
+        if (!EFI_ERROR(mode_status)) {
+            log_debug("uefi: GOP graphics scanout mode reinitialized\n");
+            if (!gop->mode || !gop->mode->info) return fb;
+            mode = gop->mode;
+            info = mode->info;
+        } else {
+            log_debug("uefi: GOP SetMode unavailable; using existing scanout\n");
+        }
+    }
     if (info->pixel_format > 2 || info->width == 0 || info->height == 0 ||
         info->width > 4096 || info->height > 2160 ||
         info->pixels_per_scanline < info->width ||

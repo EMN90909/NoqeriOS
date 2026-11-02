@@ -32,68 +32,47 @@ function mb2_find_memory_map(info: usize): usize {
     return 0
 }
 
-function usable_region_start(info: usize, kernelEnd: usize): usize {
+// Choose the largest contiguous usable low-memory window for bootstrap
+// metadata instead of the first tiny region in a fragmented firmware map.
+function usable_region_best(info: usize, kernelEnd: usize, wantEnd: bool): usize {
     let tagAddress: usize = mb2_find_memory_map(info)
-    if tagAddress == 0 {
-        return 0
-    }
+    if tagAddress == (0 as usize) { return 0 as usize }
 
     let tag: *Mb2MmapTag = tagAddress as *Mb2MmapTag
-    let cursor: usize = tagAddress + 16
+    let cursor: usize = tagAddress + (16 as usize)
     let tagEnd: usize = tagAddress + (tag.size as usize)
-    let identityLimit: usize = 1073741824 as usize
+    let identityLimit: u64 = 1073741824 as u64
+    let bestStart: usize = 0 as usize
+    let bestEnd: usize = 0 as usize
 
     while cursor < tagEnd {
         let entry: *Mb2MmapEntry = cursor as *Mb2MmapEntry
         if entry.kind == (1 as u32) {
-            let start: usize = entry.baseAddress as usize
-            let end: usize = (entry.baseAddress + entry.length) as usize
-
-            if start < kernelEnd {
-                start = kernelEnd
-            }
-            if end > identityLimit {
-                end = identityLimit
-            }
-
-            if start < end && (end - start) >= 4096 {
-                return start
+            let first: u64 = entry.baseAddress
+            let last: u64 = first + entry.length
+            if last > first && first < identityLimit {
+                if first < (kernelEnd as u64) { first = kernelEnd as u64 }
+                if last > identityLimit { last = identityLimit }
+                if last > first && last - first >= (4096 as u64) {
+                    let candidateStart: usize = first as usize
+                    let candidateEnd: usize = last as usize
+                    if candidateEnd - candidateStart > bestEnd - bestStart {
+                        bestStart = candidateStart
+                        bestEnd = candidateEnd
+                    }
+                }
             }
         }
         cursor = cursor + (tag.entrySize as usize)
     }
-    return 0
+    if wantEnd { return bestEnd }
+    return bestStart
+}
+
+function usable_region_start(info: usize, kernelEnd: usize): usize {
+    return usable_region_best(info, kernelEnd, false)
 }
 
 function usable_region_end(info: usize, kernelEnd: usize): usize {
-    let tagAddress: usize = mb2_find_memory_map(info)
-    if tagAddress == 0 {
-        return 0
-    }
-
-    let tag: *Mb2MmapTag = tagAddress as *Mb2MmapTag
-    let cursor: usize = tagAddress + 16
-    let tagEnd: usize = tagAddress + (tag.size as usize)
-    let identityLimit: usize = 1073741824 as usize
-
-    while cursor < tagEnd {
-        let entry: *Mb2MmapEntry = cursor as *Mb2MmapEntry
-        if entry.kind == (1 as u32) {
-            let start: usize = entry.baseAddress as usize
-            let end: usize = (entry.baseAddress + entry.length) as usize
-
-            if start < kernelEnd {
-                start = kernelEnd
-            }
-            if end > identityLimit {
-                end = identityLimit
-            }
-
-            if start < end && (end - start) >= 4096 {
-                return end
-            }
-        }
-        cursor = cursor + (tag.entrySize as usize)
-    }
-    return 0
+    return usable_region_best(info, kernelEnd, true)
 }

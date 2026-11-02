@@ -123,3 +123,9 @@ never an internal disk.
 The framebuffer region is explicitly reserved in the kernel PMM, even when firmware accidentally describes overlapping pages as usable memory. The UEFI loader maps the actual framebuffer pages as UC. A missing legacy PIT IRQ no longer causes an unbounded `hlt` wait: the kernel uses a TSC-bounded polling probe, then continues with its existing polled terminal and keyboard paths.
 
 These changes address genuine corruption and hang conditions, but **do not prove** the Lenovo's display is fixed. A fresh physical USB boot test, with photos showing whether the initial boot marker and desktop appear, is still necessary.
+
+## Active GOP scanout and fragmented RAM maps
+
+Before exiting UEFI boot services, the loader tries reapplying the current supported GOP graphics mode and refreshes the mode pointer and framebuffer metadata. The existing framebuffer remains usable if firmware refuses the mode reset. The kernel bootstrap allocator now selects the largest contiguous usable region below 1 GiB rather than blindly selecting the first small firmware memory descriptor, reducing GUI initialization failures on fragmented physical UEFI maps.
+
+A successful OVMF/QEMU test still does not validate the Lenovo's physical Intel scanout. Rebooting fresh built media on that hardware remains the acceptance test.
