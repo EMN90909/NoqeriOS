@@ -359,6 +359,64 @@ static NOQ_FRAMEBUFFER probe_gop(EFI_SYSTEM_TABLE *st) {
     return fb;
 }
 
+
+#ifdef NOQERIOS_LENOVO_VERIFY
+/* Diagnostic mode is built only for a dedicated Lenovo G500 USB image.
+ * Draw into firmware's actual linear GOP framebuffer BEFORE ExitBootServices.
+ * A clean pattern followed by broken kernel graphics isolates the problem
+ * to the handoff/mapping/renderer rather than the pre-kernel GOP scanout.
+ * Do not depend on serial ports or storage writes on physical laptops.
+ */
+static UINT32 lenovo_pack_rgb(const NOQ_FRAMEBUFFER *fb,
+                              UINT8 red, UINT8 green, UINT8 blue) {
+    return ((UINT32)red << fb->red_position) |
+           ((UINT32)green << 8) |
+           ((UINT32)blue << fb->blue_position);
+}
+
+static void lenovo_gop_diagnostic(EFI_SYSTEM_TABLE *st,
+                                  const NOQ_FRAMEBUFFER *fb) {
+    if (!fb || !fb->valid) {
+        screen_message(L"LENOVO VERIFY: unsupported GOP mode. No graphics test.\r\n");
+        log_debug("uefi: Lenovo GOP diagnostic unsupported\n");
+        uefi_call_wrapper(st->BootServices->Stall, 1, 3000000);
+        return;
+    }
+    screen_message(L"LENOVO VERIFY: eight-color linear framebuffer test follows.\r\n");
+    screen_message(L"Photograph bars. They should be vertical with straight white rules.\r\n");
+    uefi_call_wrapper(st->BootServices->Stall, 1, 1500000);
+
+    /* Exclude scanline padding from the visible width, but honor GOP pitch. */
+    const UINT8 bars[8][3] = {
+        {255, 0, 0}, {0, 255, 0}, {0, 0, 255}, {0, 255, 255},
+        {255, 0, 255}, {255, 255, 0}, {255, 255, 255}, {0, 0, 0}
+    };
+    volatile UINT32 *pixels = (volatile UINT32 *)(UINTN)fb->address;
+    const UINTN stride = fb->pitch / sizeof(UINT32);
+    for (UINTN y = 0; y < fb->height; ++y) {
+        for (UINTN x = 0; x < fb->width; ++x) {
+            UINTN band = (x * 8u) / fb->width;
+            if (band > 7u) band = 7u;
+            UINT32 pixel = lenovo_pack_rgb(fb, bars[band][0],
+                                            bars[band][1], bars[band][2]);
+            /* Straight 3px-wide horizontal lines reveal damaged scanlines. */
+            if (y == fb->height/4u || y == fb->height/2u ||
+                y == (fb->height*3u)/4u ||
+                y == fb->height/4u + 1u || y == fb->height/2u + 1u ||
+                y == (fb->height*3u)/4u + 1u)
+                pixel = lenovo_pack_rgb(fb, 255, 255, 255);
+            pixels[y * stride + x] = pixel;
+        }
+    }
+    log_debug("uefi: Lenovo GOP diagnostic pattern drawn\n");
+    /* Leave it visible long enough for a physical-hardware photograph.
+       Stall runs before GetMemoryMap/ExitBootServices. */
+    for (UINTN i = 0; i < 12u; ++i)
+        uefi_call_wrapper(st->BootServices->Stall, 1, 500000);
+    log_debug("uefi: Lenovo GOP diagnostic handoff starting\n");
+}
+#endif
+
 static EFI_STATUS paging(EFI_BOOT_SERVICES *bs, EFI_PHYSICAL_ADDRESS *root,
                          const NOQ_FRAMEBUFFER *fb) {
     EFI_PHYSICAL_ADDRESS addr;
@@ -535,6 +593,9 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st) {
     status = uefi_call_wrapper(st->BootServices->AllocatePool, 3, EfiLoaderData,
                                MAX_MEMMAP, (VOID **)&map);
     if (EFI_ERROR(status)) return fail(status, L"Cannot reserve firmware memory map", "uefi:no-map\n");
+#ifdef NOQERIOS_LENOVO_VERIFY
+    lenovo_gop_diagnostic(st, &framebuffer);
+#endif
     if (framebuffer.valid)
         screen_message(L"NoqeriOS: GOP framebuffer ready; entering kernel...\r\n");
     else

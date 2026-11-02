@@ -20,9 +20,14 @@ for dir in /usr/lib /usr/lib64 /usr/lib/gnuefi /usr/lib/x86_64-linux-gnu; do
 done
 [[ -n "$EFI_CRT" ]] || { echo "GNU-EFI CRT/linker script missing (install gnu-efi)" >&2; exit 3; }
 
+LOADER_DEFINES=()
+if [[ "${NOQERIOS_LENOVO_VERIFY:-0}" == 1 ]]; then
+  LOADER_DEFINES+=(-DNOQERIOS_LENOVO_VERIFY)
+  echo "Building dedicated Lenovo G500 GOP verification loader"
+fi
 gcc -std=gnu11 -O2 -fpic -ffreestanding -fshort-wchar \
   -fno-stack-protector -fno-stack-check -fno-builtin -mno-red-zone \
-  -DGNU_EFI_USE_MS_ABI -Wall -Wextra \
+  -DGNU_EFI_USE_MS_ABI -Wall -Wextra "${LOADER_DEFINES[@]}" \
   -I/usr/include/efi -I/usr/include/efi/x86_64 \
   -c "$ROOT/Bootloader/uefi/loader.c" -o "$UEFI_OUT/loader.o"
 

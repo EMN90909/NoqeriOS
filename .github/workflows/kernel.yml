@@ -213,3 +213,23 @@ jobs:
             build/noqerios.iso
             build/noqerios-uefi-usb.img
           if-no-files-found: error
+
+      - name: Build separate Lenovo G500 physical display verification image
+        env:
+          NOQERI: ${{ github.workspace }}/.deps/Noqeri/build/noqeri
+          NOQERIOS_LENOVO_VERIFY: '1'
+        run: |
+          bash build.sh --uefi
+          python3 Tests/lenovo-g500-smoke.py
+          mkdir -p build/lenovo-g500
+          cp build/noqerios-uefi-usb.img build/lenovo-g500/noqerios-lenovo-g500-verify.img
+          cd build/lenovo-g500
+          sha256sum noqerios-lenovo-g500-verify.img > SHA256SUMS
+
+      - name: Upload Lenovo G500 diagnostic USB image
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noqerios-lenovo-g500-verify
+          path: build/lenovo-g500/
+          if-no-files-found: error
