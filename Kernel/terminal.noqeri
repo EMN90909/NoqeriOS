@@ -29,19 +29,15 @@ function shell_print(data: *u8, length: usize): void {
     }
 }
 function shell_number(number: u64): void {
-    let digits: *u8 = arch_alloc_page() as *u8
-    if digits == null { return }
-    let n: u64 = number
-    let count: usize = 0 as usize
-    while n > (0 as u64) {
-        digits[count] = (48 as u8) + ((n % (10 as u64)) as u8)
-        n = n / (10 as u64)
-        count = count + (1 as usize)
+    // Allocation-free decimal output, safe even for large directory listings.
+    let place: u64 = 1 as u64
+    while number / place >= (10 as u64) &&
+          place < (1000000000000000000 as u64) {
+        place = place * (10 as u64)
     }
-    if count == (0 as usize) { shell_putchar(48 as u8) }
-    while count > (0 as usize) {
-        count = count - (1 as usize)
-        shell_putchar(digits[count])
+    while place > (0 as u64) {
+        shell_putchar((48 as u8) + (((number / place) % (10 as u64)) as u8))
+        place = place / (10 as u64)
     }
 }
 function shell_word_hash(bytes: *u8, length: usize): u32 {
