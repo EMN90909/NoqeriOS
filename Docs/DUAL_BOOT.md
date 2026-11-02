@@ -73,7 +73,7 @@ python3 Tests/dualboot-uefi.py
 ```
 
 The test builds a harmless alternate EFI application, places it on a
-second *virtual* FAT volume at the Windows EFI path, boots an isolated CI-only variant of the NoqeriOS UEFI image, invokes the\nsame chainloading routine directly, confirms the alternate EFI application\nexecuted, and verifies NoqeriOS can still boot after it returns. The release\nbuild retains normal keyboard selection; headless OVMF keyboard selection is\nnot established by this fixture. No host disk or Windows installation changes.
+*virtual* FAT EFI system partition at the Windows EFI path, boots an isolated CI-only variant of the NoqeriOS UEFI image, invokes the\nsame chainloading routine directly, confirms the alternate EFI application\nexecuted, and verifies NoqeriOS can still boot after it returns. The release\nbuild retains normal keyboard selection; headless OVMF keyboard selection is\nnot established by this fixture. Cross-volume discovery is supported by the implementation but physical-drive coverage is not established by the same-ESP test. No host disk or Windows installation changes.
 
 Do not flash or replace your existing EFI System Partition to experiment
 with dual boot. Boot NoqeriOS from a separate USB drive using the firmware
