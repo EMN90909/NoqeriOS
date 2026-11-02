@@ -427,7 +427,14 @@ function gui_metro_tile(g: *GuiDesktop, x: usize, y: usize, w: usize,
         gui_fill(g, centerX - (24 as usize), centerY - (18 as usize), 49 as usize, 34 as usize, 0xeaeaea as u32)
         gui_fill(g, centerX - (21 as usize), centerY - (15 as usize), 43 as usize, 28 as usize, 0x444444 as u32)
         gui_fill(g, centerX - (13 as usize), centerY, 20 as usize, 2 as usize, 0xfefefe as u32)
-        gui_label(g, 8 as u32, x + (14 as usize), y + h - (23 as usize), 0xffffff as u32)
+        gui_letter(g, 84 as u8, x + (14 as usize), y + h - (23 as usize), 0xffffff as u32)
+        gui_letter(g, 69 as u8, x + (26 as usize), y + h - (23 as usize), 0xffffff as u32)
+        gui_letter(g, 82 as u8, x + (38 as usize), y + h - (23 as usize), 0xffffff as u32)
+        gui_letter(g, 77 as u8, x + (50 as usize), y + h - (23 as usize), 0xffffff as u32)
+        gui_letter(g, 73 as u8, x + (62 as usize), y + h - (23 as usize), 0xffffff as u32)
+        gui_letter(g, 78 as u8, x + (74 as usize), y + h - (23 as usize), 0xffffff as u32)
+        gui_letter(g, 65 as u8, x + (86 as usize), y + h - (23 as usize), 0xffffff as u32)
+        gui_letter(g, 76 as u8, x + (98 as usize), y + h - (23 as usize), 0xffffff as u32)
     } else if tile == (2 as usize) {
         // System: three horizontal sliders.
         gui_fill(g, centerX - (27 as usize), centerY - (13 as usize), 55 as usize, 3 as usize, 0xf4f4f4 as u32)
