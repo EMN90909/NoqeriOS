@@ -16,7 +16,9 @@ function vfs_open_root_key(mount: *VfsMount, key: u64, node: *VfsNode): bool {
     return false
 }
 
-function vfs_entry_at(mount: *VfsMount, index: u32, node: *VfsNode, nameOutput: usize): bool {
+function vfs_entry_at(mountAddress: usize, index: u32, nodeAddress: usize, nameOutput: usize): bool {
+    let mount: *VfsMount = mountAddress as *VfsMount
+    let node: *VfsNode = nodeAddress as *VfsNode
     if mount == null || mount.driverKind != (1 as u32) { return false }
     return noqfs_entry_at(mount, index, node, nameOutput)
 }
