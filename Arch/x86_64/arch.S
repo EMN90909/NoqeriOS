@@ -81,6 +81,14 @@ arch_pause:
     pause
     ret
 
+.global arch_read_tsc
+.type arch_read_tsc, @function
+arch_read_tsc:
+    rdtsc
+    shl $32, %rdx
+    or %rdx, %rax
+    ret
+
 .global arch_cpu_apic_id
 .type arch_cpu_apic_id, @function
 arch_cpu_apic_id:

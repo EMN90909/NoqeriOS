@@ -117,3 +117,9 @@ UEFI/QEMU graphics gates pass; inside are `noqerios.iso` and
 `noqerios-uefi-usb.img`. Compare SHA-256 checksums before booting.
 Only write the USB image to a verified expendable removable device,
 never an internal disk.
+
+## Physical GOP memory and IRQ resilience
+
+The framebuffer region is explicitly reserved in the kernel PMM, even when firmware accidentally describes overlapping pages as usable memory. The UEFI loader maps the actual framebuffer pages as UC. A missing legacy PIT IRQ no longer causes an unbounded `hlt` wait: the kernel uses a TSC-bounded polling probe, then continues with its existing polled terminal and keyboard paths.
+
+These changes address genuine corruption and hang conditions, but **do not prove** the Lenovo's display is fixed. A fresh physical USB boot test, with photos showing whether the initial boot marker and desktop appear, is still necessary.

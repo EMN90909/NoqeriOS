@@ -266,12 +266,19 @@ export function kernel_main(multibootInfo: usize): void {
     arch_interrupts_init()
     arch_sti()
     let ticks: usize = arch_timer_ticks()
-    while ticks < 3 {
-        arch_halt()
+    let timerStart: u64 = arch_read_tsc()
+    // A real UEFI PC may have its legacy PIC masked or routed through an
+    // IOAPIC. Never HLT forever waiting for a PIT IRQ that cannot arrive.
+    while ticks < (3 as usize) && arch_read_tsc() - timerStart < (1500000000 as u64) {
+        arch_pause()
         ticks = arch_timer_ticks()
     }
     arch_cli()
-    serial_write("NoqeriOS: IDT and PIT timer interrupts active\n")
+    if ticks >= (3 as usize) {
+        serial_write("NoqeriOS: IDT and PIT timer interrupts active\n")
+    } else {
+        serial_write("NoqeriOS: PIT interrupts unavailable; continuing in polled mode\n")
+    }
 
     if arch_userspace_init() {
         if arch_enter_user_test() {

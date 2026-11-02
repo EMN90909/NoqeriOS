@@ -1,6 +1,7 @@
 module os.kernel.memory.pmm
 
 import "../memory.noqeri"
+import "../../Drivers/framebuffer.noqeri"
 
 record PhysicalMemoryManager {
     usedBitmap: *u8;
@@ -187,6 +188,18 @@ function pmm_initialize(info: usize, kernelStart: usize, bootstrapEnd: usize, bi
             pmm_raw_release_usable_range(pmm, entry.baseAddress, entry.length)
         }
         cursor = cursor + (tag.entrySize as usize)
+    }
+
+    // Some physical firmware reports the GOP aperture inside otherwise usable
+    // memory. Never hand display pages to the PMM as ordinary RAM.
+    let framebufferTag: usize = mb2_find_framebuffer(info)
+    if framebuffer_valid(framebufferTag) {
+        let screen: *Mb2FramebufferTag = framebufferTag as *Mb2FramebufferTag
+        let start: usize = screen.address as usize
+        let length: usize = (screen.pitch as usize) * (screen.height as usize)
+        if length > (0 as usize) && start + length >= start {
+            pmm_raw_reserve_range(pmm, start, length)
+        }
     }
 
     pmm_raw_reserve_range(pmm, 0 as usize, 1048576 as usize)
