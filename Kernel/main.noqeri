@@ -316,6 +316,26 @@ export function kernel_main(multibootInfo: usize): void {
             desktop = gui_open(multibootInfo)
             if desktop != null {
                 gui_attach_files(desktop, explorerFiles as usize)
+                if gpuLocation != (65536 as u32) && pmmAddress != (0 as usize) {
+                    let pixelBytes: usize = desktop.width * desktop.height * (4 as usize)
+                    let pages: usize = (pixelBytes + (4095 as usize)) / (4096 as usize)
+                    let physicalBuffer: usize = pmm_alloc_contiguous(pmmAddress as *PhysicalMemoryManager, pages)
+                    if physicalBuffer != (0 as usize) &&
+                       physicalBuffer + pixelBytes <= (1073741824 as usize) {
+                        let display: *GpuDisplay = gpu_display_start(gpuLocation, physicalBuffer, desktop.width, desktop.height)
+                        if display != null {
+                            if gui_enable_gpu(desktop, display as usize, physicalBuffer) {
+                                serial_write("NoqeriOS: VirtIO GPU 2D scanout and DMA presentation active\n")
+                            } else {
+                                serial_write("NoqeriOS: GPU present failed; GOP CPU fallback active\n")
+                            }
+                        } else {
+                            serial_write("NoqeriOS: GPU setup failed; GOP CPU fallback active\n")
+                        }
+                    } else {
+                        serial_write("NoqeriOS: GPU backing allocation failed; GOP CPU fallback active\n")
+                    }
+                }
                 serial_write("NoqeriOS: GUI compositor frame presented\n")
                 serial_write("NoqeriOS: PS/2 keyboard navigation enabled when present\n")
             }
