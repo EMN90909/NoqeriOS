@@ -15,6 +15,7 @@ import "Memory/heap.noqeri"
 import "scheduler.noqeri"
 import "cpu_topology.noqeri"
 import "gui.noqeri"
+import "file_manager.noqeri"
 import "syscall.noqeri"
 import "fs/vfs.noqeri"
 import "terminal.noqeri"
@@ -219,6 +220,10 @@ export function kernel_main(multibootInfo: usize): void {
                 let vfsTest: isize = vfs_boot_file_test(blockLocation)
                 if vfsTest == (1 as isize) {
                     serial_write("NoqeriOS: VFS opened and read a NoqFS file\n")
+                    let explorer: *FileManager = files_open(blockLocation)
+                    if explorer != null {
+                        serial_write("NoqeriOS: NoqFS file explorer ready (read-only)\n")
+                    }
                 } else if vfsTest == (-2 as isize) {
                     serial_write("NoqeriOS: VFS file test remount failed\n")
                 } else if vfsTest == (-4 as isize) {
