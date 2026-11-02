@@ -1,0 +1,82 @@
+module os.kernel.noed
+
+import "../Drivers/serial.noqeri"
+
+// Noed: first stage of the NoqeriOS Windows compatibility layer.
+// Strict, allocation-free PE/COFF x64 recognition. All bytes are UNTRUSTED.
+// The inspector NEVER jumps to PE code and never maps executable pages.
+// This is a prerequisite for a future isolated Win32 userspace runtime.
+
+// Return 0 when a supported-architecture PE32+ image is structurally valid.
+// Nonzero result identifies unsupported or malformed content.
+function noed_u16(data: *u8, pos: usize): usize {
+    return (data[pos] as usize) + ((data[pos + (1 as usize)] as usize) * (256 as usize))
+}
+function noed_u32(data: *u8, pos: usize): usize {
+    return noed_u16(data, pos) + (noed_u16(data, pos + (2 as usize)) * (65536 as usize))
+}
+
+function noed_validate_pe(buffer: usize, available: usize, fileSize: usize): u32 {
+    if buffer == (0 as usize) || available < (64 as usize) || fileSize < (64 as usize) { return 1 as u32 }
+    let bytes: *u8 = buffer as *u8
+    if bytes[0] != (77 as u8) || bytes[1] != (90 as u8) { return 2 as u32 }
+    let peOffset: usize = noed_u32(bytes, 60 as usize)
+    // Limit all reads to the page provided by the VFS, never trust e_lfanew.
+    if peOffset < (64 as usize) || peOffset > available ||
+       available - peOffset < (24 as usize) { return 3 as u32 }
+    if bytes[peOffset] != (80 as u8) ||
+       bytes[peOffset + (1 as usize)] != (69 as u8) ||
+       bytes[peOffset + (2 as usize)] != (0 as u8) ||
+       bytes[peOffset + (3 as usize)] != (0 as u8) { return 4 as u32 }
+    let coff: usize = peOffset + (4 as usize)
+    let machine: usize = noed_u16(bytes, coff)
+    if machine != (34404 as usize) { return 5 as u32 }
+    let sectionCount: usize = noed_u16(bytes, coff + (2 as usize))
+    if sectionCount == (0 as usize) || sectionCount > (96 as usize) { return 6 as u32 }
+    let optionalLength: usize = noed_u16(bytes, coff + (16 as usize))
+    if optionalLength < (112 as usize) || optionalLength > (1024 as usize) { return 7 as u32 }
+    let optional: usize = coff + (20 as usize)
+    if optional > available || optionalLength > available - optional { return 8 as u32 }
+    if noed_u16(bytes, optional) != (523 as usize) { return 9 as u32 }
+    let entryRva: usize = noed_u32(bytes, optional + (16 as usize))
+    let imageSize: usize = noed_u32(bytes, optional + (56 as usize))
+    let headerSize: usize = noed_u32(bytes, optional + (60 as usize))
+    if imageSize == (0 as usize) || imageSize > (268435456 as usize) ||
+       headerSize < (64 as usize) || headerSize > imageSize ||
+       entryRva >= imageSize { return 10 as u32 }
+    let subsystem: usize = noed_u16(bytes, optional + (68 as usize))
+    // 2 = Windows GUI, 3 = Windows CUI. Reject drivers and EFI apps.
+    if subsystem != (2 as usize) && subsystem != (3 as usize) { return 11 as u32 }
+    let sectionOffset: usize = optional + optionalLength
+    if sectionOffset > available ||
+       sectionCount > (available - sectionOffset) / (40 as usize) { return 12 as u32 }
+    let j: usize = 0 as usize
+    while j < sectionCount {
+        let section: usize = sectionOffset + (j * (40 as usize))
+        let virtualSize: usize = noed_u32(bytes, section + (8 as usize))
+        let virtualRva: usize = noed_u32(bytes, section + (12 as usize))
+        let rawSize: usize = noed_u32(bytes, section + (16 as usize))
+        let rawStart: usize = noed_u32(bytes, section + (20 as usize))
+        if rawStart > fileSize || rawSize > fileSize - rawStart { return 13 as u32 }
+        if virtualRva > imageSize || virtualSize > imageSize - virtualRva { return 14 as u32 }
+        j = j + (1 as usize)
+    }
+    return 0 as u32
+}
+
+function noed_report(status: u32): void {
+    if status == (0 as u32) {
+        serial_write("Noed: valid Windows x64 PE32+ image detected (inspection only)\n")
+        serial_write("Noed: launch unavailable: Win32 APIs and isolated PE process not implemented\n")
+    } else if status == (1 as u32) {
+        serial_write("Noed: file too small to contain a PE header\n")
+    } else if status == (2 as u32) || status == (4 as u32) {
+        serial_write("Noed: file is not a Windows PE executable\n")
+    } else if status == (5 as u32) || status == (9 as u32) {
+        serial_write("Noed: unsupported architecture (requires Windows x64 PE32+)\n")
+    } else if status == (11 as u32) {
+        serial_write("Noed: unsupported subsystem (Windows GUI and console only)\n")
+    } else {
+        serial_write("Noed: malformed or incomplete PE image; no execution attempted\n")
+    }
+}
