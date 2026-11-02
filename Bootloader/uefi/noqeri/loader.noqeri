@@ -315,19 +315,19 @@ function synthesize_multiboot(dest: usize, map: usize, map_size: usize, desc_siz
 export function noqeri_uefi_main(image: usize, system: usize): usize {
     efi_debug("NoqeriOS UEFI: native Noqeri loader entered\n")
     if image == 0 as usize || system == 0 as usize { return err_status() }
-    firmware_text(system, "NoqeriOS native UEFI loader\\r\\n")
+    firmware_text(system, "NoqeriOS native UEFI loader\r\n")
     let bs: usize = at64(system + 96 as usize)
     if bs == 0 as usize { return err_status() }
     let kernel: usize = 0 as usize
     let size: usize = 0 as usize
     if !kernel_from_esp(image, bs, &kernel, &size) {
-        firmware_text(system, "NoqeriOS: KERNEL.ELF unavailable\\r\\n")
+        firmware_text(system, "NoqeriOS: KERNEL.ELF unavailable\r\n")
         return err_status()
     }
     let entry: usize = load_kernel_elf(bs, kernel, size)
     if entry == 0 as usize {
         efi_debug("noqeri-uefi: bad kernel ELF\n")
-        firmware_text(system, "NoqeriOS: invalid kernel ELF\\r\\n")
+        firmware_text(system, "NoqeriOS: invalid kernel ELF\r\n")
         return err_status()
     }
     let pml4: usize = make_identity_tables(bs)
