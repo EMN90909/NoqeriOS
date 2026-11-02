@@ -1,51 +1,82 @@
-# NoqeriOS compositor and GPU bring-up
+# NoqeriOS hybrid CPU / GPU compositor
 
-## What is implemented
+## Render paths
 
-NoqeriOS draws the desktop natively into a 32-bit UEFI GOP/Multiboot2
-framebuffer. `Kernel/compositor.noqeri` now provides CPU-side RGB alpha
-compositing and four-by-four subpixel coverage calculations for crisp,
-anti-aliased window corners. `Kernel/gui.noqeri` uses these primitives for
-window surfaces while keeping full-screen opaque fills on the fast path.
-The native Noqeri UI retains the legacy BIOS serial-only fallback.
+**CPU path, always available with a compatible 32-bit GOP framebuffer:**
+The Noqeri software compositor uses native 32-bit RGB pixels, alpha blending,
+clipping and 4×4 coverage antialiasing on rounded window corners. The
+Windows-style desktop and File Explorer are rendered from the same retained
+UI state. CPU-side drawing does not require GPU drivers.
 
-`Drivers/gpu.noqeri` probes the VirtIO 1.0 GPU PCI device (vendor
-0x1AF4, device 0x1050) and checks modern VirtIO capabilities and sends a bounded GET_DISPLAY_INFO command through the device's actual control virtqueue. **Discovery and the command handshake do not enable rendering acceleration.** The compositor deliberately uses CPU GOP
-drawing until the GPU backend passes queue, buffer, fence, resource and
-frame-present tests. This is essential to avoid silently declaring a
-CPU-rendered framebuffer to be GPU accelerated.
+**Virtual GPU scanout path (experimental):**
+NoqeriOS detects VirtIO GPU (PCI vendor 0x1AF4 / device 0x1050), negotiates
+the modern device, and queries its display configuration using its control
+virtqueue. The new `Drivers/virtio_gpu_display.noqeri` driver can create a
+VirtIO-GPU 2D resource, attach contiguous pinned physical memory, set the
+scanout, transfer CPU-rasterized pixel data to the GPU and flush the resource
+to display. The CPU draws into that backing image; the GPU transports and
+presents it.
 
-## GPU implementation requirements
+GPU mode is opt-in at runtime only if the virtual GPU responds correctly
+and there is a low-memory contiguous framebuffer. Failed creation, transfer
+or flush must return to the original GOP framebuffer. The BIOS serial-only
+fallback is unchanged.
 
-A true GPU path needs a kernel-controlled virtual graphics transport.
-For VirtIO GPU 2D, the standards-defined flow is:
+**This is not hardware GPU-accelerated rasterization.** VirtIO GPU's
+unaccelerated 2D protocol still relies on CPU rendering of pixels. True
+shader-accelerated drawing requires 3D command submission (such as Virgl)
+or dedicated physical Intel/AMD/NVIDIA display drivers, resource and fence
+management, memory ownership, and isolation. A GOP framebuffer alone is
+not a GPU driver.
 
-1. Negotiate VirtIO GPU features, build the control virtqueue and validate
-   descriptor, available and used ring behavior with strict timeouts.
-2. Discover connected scanouts, supported dimensions and pixel formats.
-3. Create 2D resources; attach accessible pinned DMA backing memory.
-4. Bind a resource to a scanout.
-5. Transfer changed rectangles into the host resource and flush them.
-6. Wait for completion/fences, track failures, and retain a last-known-good
-   CPU display path. Never access released or firmware-owned memory.
+## Verification
 
-VirtIO GPU's *2D* scanout path is still CPU rasterization plus virtual GPU
-presentation. Actual GPU-rasterized graphics requires a 3D pipeline, for
-example Virgl with appropriate shaders, command submission and isolation.
-Intel/AMD/NVIDIA hardware needs separate native kernel-mode DRM-equivalent
-drivers and memory management. UEFI GOP is not such a driver.
+```bash
+bash build.sh --uefi-bootstrap
+python3 Tests/gui-smoke.py
+python3 Tests/gpu-smoke.py
+```
 
-For sharp visuals irrespective of GPU type, the next CPU compositor stages
-are double-buffering, dirty-rectangle redraws, alpha surfaces, scalable fonts
-with glyph anti-aliasing and correct DPI modes. Current bitmap text is 5x7
-scaled 2x; it will not resemble Windows 11 typography until fonts improve.
+`gui-smoke.py` captures real QEMU screenshots and checks keyboard-triggered
+frame changes. `gpu-smoke.py` runs OVMF with `virtio-gpu-pci` and requires
+the kernel to report a successful GPU control-queue handshake, 2D scanout and
+DMA presentation, and serial terminal boot. The CI workflow gates these
+tests. Read the result of the **latest** CI run rather than assuming the
+new VirtIO scanout works on all GPU models.
 
-## Tests
+## Display quality and current limits
 
-Build the existing hybrid ISO using `bash build.sh --uefi-bootstrap`.
-Use `python3 Tests/gui-smoke.py` to verify the framebuffer changes after
-keyboard navigation in QEMU. A passing GUI test proves display composition,
-not GPU offload. GPU acceleration should be marked verified only after the
-GPU-specific command submission and visual checks pass.
+- Native framebuffer resolution is taken from the validated UEFI GOP mode.
+- RGB channel-order conversion and buffer bounds checking are performed in
+  the software compositor.
+- Rounded panel edges use subpixel alpha coverage. Other shapes and text
+  remain bitmap-based.
+- There is no shader pipeline, GPU blurring, smooth animation scheduler,
+  DPI scaling or full Unicode/scalable text engine.
+- Full-frame GPU transfers are used. Dirty rectangle updates and
+  asynchronous double/triple buffering are still future work.
+- Physical GPU drivers are not implemented. VirtIO GPU is a virtual GPU
+  protocol primarily intended for QEMU/virtual-machine environments.
 
-A dedicated QEMU/OVMF integration test (`python3 Tests/gpu-smoke.py`) now requires a real VirtIO GPU display-info response. The current implementation must never advertise GPU rendering as active because resource-backed scanout and GPU rasterization are not implemented yet.
+## Architecture
+
+```text
+Kernel/gui.noqeri
+  window layout, Explorer, redraw/focus
+        |
+Kernel/compositor.noqeri
+  CPU blending, pixel coverage
+        |
+        +--> GOP/MB2 framebuffer (CPU fallback)
+        |
+        +--> DMA backing image (CPU rasterized)
+                 |
+         Drivers/virtio_gpu_display.noqeri
+          VirtIO 2D resource / transfer / flush
+                 |
+            Virtual GPU scanout
+```
+
+The implementation deliberately prioritizes predictable CPU rendering,
+explicit GPU negotiation, and a safe fallback over mislabeling a BIOS/UEFI
+framebuffer write as GPU acceleration.
