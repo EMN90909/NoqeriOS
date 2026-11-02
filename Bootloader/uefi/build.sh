@@ -26,9 +26,15 @@ gcc -std=gnu11 -O2 -fpic -ffreestanding -fshort-wchar \
   -I/usr/include/efi -I/usr/include/efi/x86_64 \
   -c "$ROOT/Bootloader/uefi/loader.c" -o "$UEFI_OUT/loader.o"
 
+gcc -std=gnu11 -O2 -fpic -ffreestanding -fshort-wchar \
+  -fno-stack-protector -fno-stack-check -fno-builtin -mno-red-zone \
+  -DGNU_EFI_USE_MS_ABI -Wall -Wextra \
+  -I/usr/include/efi -I/usr/include/efi/x86_64 \
+  -c "$ROOT/Bootloader/uefi/boot_menu.c" -o "$UEFI_OUT/boot_menu.o"
+
 ld -nostdlib -znocombreloc -shared -Bsymbolic \
   -T "$EFI_CRT/elf_x86_64_efi.lds" \
-  "$EFI_CRT/crt0-efi-x86_64.o" "$UEFI_OUT/loader.o" \
+  "$EFI_CRT/crt0-efi-x86_64.o" "$UEFI_OUT/loader.o" "$UEFI_OUT/boot_menu.o" \
   -L "$EFI_CRT" -o "$UEFI_OUT/loader.so" \
   -lgnuefi -lefi "$(gcc -print-libgcc-file-name)"
 
