@@ -346,6 +346,6 @@ export function kernel_main(multibootInfo: usize): void {
 
     serial_write("NoqeriOS: modular monolith core services online\n")
     serial_write("NoqeriOS: bootstrap milestone complete\n")
-    terminal_run(activeNetwork, desktop)
+    terminal_run(activeNetwork, desktop, explorerFiles as usize)
     while true { arch_halt() }
 }
