@@ -6,6 +6,7 @@ import "net/dns.noqeri"
 import "net/tcp.noqeri"
 import "gui.noqeri"
 import "file_manager.noqeri"
+import "noed.noqeri"
 
 // Noqeri Shell v1. Bounded line input and a CMD-inspired, case-insensitive
 // command dispatcher. Commands execute only after Enter, never per keystroke.
@@ -98,8 +99,50 @@ function shell_exec(buffer: *u8, size: usize, network: *Network, desktop: *GuiDe
         serial_write("\nNoqeri Shell - Windows-style, fewer commands\n")
         serial_write("help  cls/clear  ver/info  mem  tasks  net  ping  dns  tcp\n")
         serial_write("dir/ls/list  cd/go NAME  up/back  pwd/where\n\n")
-        serial_write("files  start  gui  reboot\n")
+        serial_write("files  start  gui  reboot  noed inspect FILE.EXE\n")
         serial_write("NoqFS browsing is read-only. Press Enter to run.\n")
+    } else if hash == (2090550987 as u32) {
+        if args == size {
+            serial_write("\nNoed Windows compatibility layer\n")
+            serial_write("Usage: noed inspect FILE.EXE | noed run FILE.EXE\n")
+            serial_write("Only PE32+ x64 file inspection is available today.\n")
+        } else {
+            let actionEnd: usize = args
+            while actionEnd < size && buffer[actionEnd] != (32 as u8) {
+                actionEnd = actionEnd + (1 as usize)
+            }
+            let fileStart: usize = actionEnd
+            while fileStart < size && buffer[fileStart] == (32 as u8) {
+                fileStart = fileStart + (1 as usize)
+            }
+            if m == null {
+                serial_write("\nNoed: NoqFS volume is not mounted\n")
+            } else if fileStart == size {
+                serial_write("\nNoed: specify a filename\n")
+            } else {
+                let item: isize = shell_find(m, buffer + fileStart, size - fileStart)
+                if item < (0 as isize) {
+                    serial_write("\nNoed: file not found\n")
+                } else if shell_word_hash(buffer + args, actionEnd - args) != (2196483590 as u32) &&
+                          shell_word_hash(buffer + args, actionEnd - args) != (193505040 as u32) {
+                    serial_write("\nNoed: use inspect or run\n")
+                } else {
+                    m.selected = item as usize
+                    let index: usize = m.visible[m.selected] as usize
+                    if m.flags[index] != (1 as u32) {
+                        serial_write("\nNoed: selected entry is not a file\n")
+                    } else {
+                        let page: usize = arch_alloc_page()
+                        if page == (0 as usize) { serial_write("\nNoed: out of memory\n") }
+                        else {
+                            let count: usize = files_read_selected(m as usize, page, 4096 as usize)
+                            serial_write("\n")
+                            noed_report(noed_validate_pe(page, count, m.sizes[index] as usize))
+                        }
+                    }
+                }
+            }
+        }
     } else if hash == (193488487 as u32) || hash == (255552908 as u32) {
         serial_write("\x1b[2J\x1b[H")
     } else if hash == (193508946 as u32) || hash == (2090370257 as u32) || hash == (2090370257 as u32) {
