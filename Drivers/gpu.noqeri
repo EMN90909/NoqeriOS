@@ -27,3 +27,69 @@ function gpu_detect(capability: *GpuCapability): bool {
     // GPU is discoverable, but NOT yet enabled for accelerated rendering.
     return true
 }
+
+// Actual GPU queue communication: request scanout metadata from VirtIO GPU.
+// A successful GET_DISPLAY_INFO response proves command transport is alive.
+// This is not yet accelerated rasterization or scanout ownership.
+function gpu_query_display(location: u32): bool {
+    if !virtio_begin_driver(location) { return false }
+    let desc: usize = arch_alloc_page()
+    let avail: usize = arch_alloc_page()
+    let used: usize = arch_alloc_page()
+    let request: usize = arch_alloc_page()
+    let response: usize = arch_alloc_page()
+    if desc == (0 as usize) || avail == (0 as usize) ||
+       used == (0 as usize) || request == (0 as usize) ||
+       response == (0 as usize) { virtio_reset(location); return false }
+    let notify: u32 = virtio_queue_setup(location, 0 as u16, desc, avail, used)
+    if notify == (4294967295 as u32) { virtio_reset(location); return false }
+
+    let requestType: *u32 = request as *u32
+    requestType[0] = 256 as u32
+    let responseType: *volatile u32 = response as *volatile u32
+    responseType[0] = 0 as u32
+
+    // Descriptor 0, GPU control request; descriptor 1, device-written result.
+    let a0: *u64 = desc as *u64
+    let l0: *u32 = (desc + (8 as usize)) as *u32
+    let f0: *u16 = (desc + (12 as usize)) as *u16
+    let n0: *u16 = (desc + (14 as usize)) as *u16
+    let a1: *u64 = (desc + (16 as usize)) as *u64
+    let l1: *u32 = (desc + (24 as usize)) as *u32
+    let f1: *u16 = (desc + (28 as usize)) as *u16
+    let n1: *u16 = (desc + (30 as usize)) as *u16
+    a0[0] = request as u64
+    l0[0] = 24 as u32
+    f0[0] = 1 as u16
+    n0[0] = 1 as u16
+    a1[0] = response as u64
+    l1[0] = 1024 as u32
+    f1[0] = 2 as u16
+    n1[0] = 0 as u16
+
+    let availIndex: *u16 = (avail + (2 as usize)) as *u16
+    let availRing: *u16 = (avail + (4 as usize)) as *u16
+    let usedIndex: *volatile u16 = (used + (2 as usize)) as *volatile u16
+    availIndex[0] = 0 as u16
+    availRing[0] = 0 as u16
+    usedIndex[0] = 0 as u16
+    if !virtio_driver_ok(location) { virtio_reset(location); return false }
+    atomicFence()
+    availIndex[0] = 1 as u16
+    atomicFence()
+    if !virtio_notify_queue(location, 0 as u16, notify) {
+        virtio_reset(location)
+        return false
+    }
+    let spins: usize = 0 as usize
+    while usedIndex[0] == (0 as u16) && spins < (2000000 as usize) {
+        intrinsic("x86.pause")
+        spins = spins + (1 as usize)
+    }
+    let good: bool = usedIndex[0] != (0 as u16) &&
+                     responseType[0] == (4353 as u32)
+    // The firmware owns the framebuffer, so return the adapter to reset
+    // rather than changing scanout while GOP is still in use.
+    virtio_reset(location)
+    return good
+}
