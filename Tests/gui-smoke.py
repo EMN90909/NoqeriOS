@@ -136,7 +136,29 @@ def main():
                 explorer_selected = screenshot(sock, str(working / "selected.ppm"))
                 if explorer_selected == explorer_open:
                     raise AssertionError("Explorer selection did not update on-screen")
-            print("PASS: GOP GUI and named Explorer rendered and respond to PS/2 input")
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                sock.settimeout(6)
+                sock.connect(str(mon))
+                output.clear()
+                hmp(sock, "sendkey f")
+                observe(proc, b"NoqeriOS: GUI compositor window focus updated", 6, output)
+                output.clear()
+                hmp(sock, "sendkey z")
+                observe(proc, b"NoqeriOS: GUI compositor window focus updated", 6, output)
+                terminal_open = screenshot(sock, str(working / "terminal.ppm"))
+                if terminal_open == explorer_selected:
+                    raise AssertionError("Terminal tile did not open graphical console")
+                output.clear()
+                for key in ("h", "e", "l", "p", "ret"):
+                    hmp(sock, f"sendkey {key}")
+                    time.sleep(0.15)
+                observe(proc, b"Noqeri Shell - Windows-style", 8, output)
+                observe(proc, b"N:\\\\> ", 5, output)
+                terminal_help = screenshot(sock, str(working / "terminal-help.ppm"))
+                if terminal_help == terminal_open:
+                    raise AssertionError("PS/2 shell command did not update visible terminal")
+            print("PASS: GOP GUI, Explorer, and graphical shell command input/output")
+
         except Exception:
             print("Serial diagnostic:\n" + output.decode(errors="replace"), file=sys.stderr)
             raise
