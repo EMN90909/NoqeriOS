@@ -26,9 +26,13 @@ gcc -std=gnu11 -O2 -fpic -ffreestanding -fshort-wchar \
   -I/usr/include/efi -I/usr/include/efi/x86_64 \
   -c "$ROOT/Bootloader/uefi/loader.c" -o "$UEFI_OUT/loader.o"
 
+BOOT_MENU_DEFINES=()
+if [[ "${NOQERI_CI_CHAINLOAD:-0}" == 1 ]]; then
+  BOOT_MENU_DEFINES+=(-DNOQERI_TEST_AUTO_CHAINLOAD)
+fi
 gcc -std=gnu11 -O2 -fpic -ffreestanding -fshort-wchar \
   -fno-stack-protector -fno-stack-check -fno-builtin -mno-red-zone \
-  -DGNU_EFI_USE_MS_ABI -Wall -Wextra \
+  -DGNU_EFI_USE_MS_ABI -Wall -Wextra "${BOOT_MENU_DEFINES[@]}" \
   -I/usr/include/efi -I/usr/include/efi/x86_64 \
   -c "$ROOT/Bootloader/uefi/boot_menu.c" -o "$UEFI_OUT/boot_menu.o"
 
