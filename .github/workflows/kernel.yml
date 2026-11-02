@@ -168,6 +168,9 @@ jobs:
           NOQERI: ${{ github.workspace }}/.deps/Noqeri/build/noqeri
         run: bash Tests/uefi-smoke.sh
 
+      - name: Discover and chainload second UEFI bootloader
+        run: python3 Tests/dualboot-uefi.py
+
       - name: Verify GOP framebuffer handoff under OVMF
         env:
           NOQERI: ${{ github.workspace }}/.deps/Noqeri/build/noqeri
