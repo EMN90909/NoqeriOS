@@ -5,9 +5,217 @@ import "net/ipv4.noqeri"
 import "net/dns.noqeri"
 import "net/tcp.noqeri"
 import "gui.noqeri"
+import "file_manager.noqeri"
 
-// Polling COM1 terminal. Single-key commands keep the first boot shell
-// independent of heap allocation, interrupts, and filesystems.
+// Noqeri Shell v1. Bounded line input and a CMD-inspired, case-insensitive
+// command dispatcher. Commands execute only after Enter, never per keystroke.
+// Filesystem operations use the mounted NoqFS Explorer; all are read-only.
+function shell_putchar(ch: u8): void {
+    let attempts: usize = 0 as usize
+    while ((arch_in8(1021 as u16) / (32 as u8)) % (2 as u8)) == (0 as u8) &&
+          attempts < (100000 as usize) {
+        arch_pause()
+        attempts = attempts + (1 as usize)
+    }
+    if attempts < (100000 as usize) { arch_out8(1016 as u16, ch) }
+}
+
+function shell_print(data: *u8, length: usize): void {
+    if data == null { return }
+    let i: usize = 0 as usize
+    while i < length {
+        shell_putchar(data[i])
+        i = i + (1 as usize)
+    }
+}
+function shell_number(number: u64): void {
+    let digits: *u8 = arch_alloc_page() as *u8
+    if digits == null { return }
+    let n: u64 = number
+    let count: usize = 0 as usize
+    while n > (0 as u64) {
+        digits[count] = (48 as u8) + ((n % (10 as u64)) as u8)
+        n = n / (10 as u64)
+        count = count + (1 as usize)
+    }
+    if count == (0 as usize) { shell_putchar(48 as u8) }
+    while count > (0 as usize) {
+        count = count - (1 as usize)
+        shell_putchar(digits[count])
+    }
+}
+function shell_word_hash(bytes: *u8, length: usize): u32 {
+    let value: u32 = 5381 as u32
+    let i: usize = 0 as usize
+    while i < length {
+        let ch: u8 = bytes[i]
+        if ch >= (65 as u8) && ch <= (90 as u8) { ch = ch + (32 as u8) }
+        value = (value * (33 as u32)) ^ (ch as u32)
+        i = i + (1 as usize)
+    }
+    return value
+}
+function shell_name_match(a: *u8, b: *u8, length: usize): bool {
+    let i: usize = 0 as usize
+    while i < length {
+        let left: u8 = a[i]
+        let right: u8 = b[i]
+        if left >= (65 as u8) && left <= (90 as u8) { left = left + (32 as u8) }
+        if right >= (65 as u8) && right <= (90 as u8) { right = right + (32 as u8) }
+        if left != right { return false }
+        i = i + (1 as usize)
+    }
+    return true
+}
+function shell_find(m: *FileManager, input: *u8, length: usize): isize {
+    if m == null || length == (0 as usize) { return -1 as isize }
+    let i: usize = 0 as usize
+    while i < m.visibleCount {
+        let index: usize = m.visible[i] as usize
+        let name: *u8 = m.names + index * (25 as usize)
+        let j: usize = 0 as usize
+        while j < (24 as usize) && name[j] != (0 as u8) {
+            j = j + (1 as usize)
+        }
+        if j == length && shell_name_match(name, input, length) { return i as isize }
+        i = i + (1 as usize)
+    }
+    return -1 as isize
+}
+function shell_prompt(): void { serial_write("\nN:\\> ") }
+
+function shell_exec(buffer: *u8, size: usize, network: *Network, desktop: *GuiDesktop): void {
+    let start: usize = 0 as usize
+    while start < size && buffer[start] == (32 as u8) { start = start + (1 as usize) }
+    let cmdEnd: usize = start
+    while cmdEnd < size && buffer[cmdEnd] != (32 as u8) { cmdEnd = cmdEnd + (1 as usize) }
+    let args: usize = cmdEnd
+    while args < size && buffer[args] == (32 as u8) { args = args + (1 as usize) }
+    if start == size { return }
+    let hash: u32 = shell_word_hash(buffer + start, cmdEnd - start)
+    let m: *FileManager = null
+    if desktop != null { m = desktop.explorer }
+
+    if hash == (2087804052 as u32) || hash == (177613 as u32) {
+        serial_write("\nNoqeri Shell - Windows-style, fewer commands\n")
+        serial_write("help  cls  ver  mem  tasks  net  ping  dns  tcp\n")
+        serial_write("dir/ls  cd NAME  cd ..  pwd  type NAME  echo TEXT\n")
+        serial_write("files  start  gui  reboot\n")
+        serial_write("NoqFS browsing is read-only. Press Enter to run.\n")
+    } else if hash == (193416281 as u32) || hash == (176922748 as u32) {
+        serial_write("\x1b[2J\x1b[H")
+    } else if hash == (193428324 as u32) || hash == (2087826411 as u32) {
+        serial_write("\nNoqeriOS x86_64, native Noqeri shell 1.0\n")
+    } else if hash == (193414176 as u32) || hash == (1468210564 as u32) {
+        serial_write("\nPhysical allocator, VMM and kernel heap initialized\n")
+    } else if hash == (182936411 as u32) || hash == (5861382 as u32) {
+        serial_write("\nKernel scheduler online; general user tasks not yet launchable\n")
+    } else if hash == (193419642 as u32) || hash == (3392415835 as u32) {
+        serial_write("\n")
+        network_console_status(network)
+    } else if hash == (2088104533 as u32) {
+        if network == null || !network.online { serial_write("\nNetwork: no configured gateway\n") }
+        else if network_icmp_echo(network) { serial_write("\nNetwork: IPv4 gateway ICMP echo succeeded\n") }
+        else { serial_write("\nNetwork: gateway ICMP echo timed out\n") }
+    } else if hash == (193404700 as u32) {
+        if network == null || !network.online { serial_write("\nDNS: network offline\n") }
+        else {
+            let resolved: u32 = network_dns_example(network)
+            if resolved == (0 as u32) { serial_write("\nDNS: example.com A lookup unavailable\n") }
+            else {
+                serial_write("\nDNS: example.com A = ")
+                network_console_ip(resolved)
+                serial_write("\n")
+            }
+        }
+    } else if hash == (193421730 as u32) {
+        if network == null || !network.online { serial_write("\nTCP: network offline\n") }
+        else if tcp_fixture_request(network) { serial_write("\nTCP: local HTTP fixture response verified\n") }
+        else { serial_write("\nTCP: local HTTP fixture unavailable\n") }
+    } else if hash == (193404666 as u32) || hash == (5861018 as u32) {
+        if m == null { serial_write("\nNoqFS drive not mounted\n") }
+        else {
+            serial_write("\n Directory of N:\\ (read-only)\n")
+            let i: usize = 0 as usize
+            while i < m.visibleCount {
+                let index: usize = m.visible[i] as usize
+                if m.flags[index] == (2 as u32) { serial_write(" <DIR>  ") }
+                else {
+                    shell_number(m.sizes[index])
+                    serial_write(" B  ")
+                }
+                let name: *u8 = m.names + index * (25 as usize)
+                let n: usize = 0 as usize
+                while n < (24 as usize) && name[n] != (0 as u8) { n = n + (1 as usize) }
+                shell_print(name,n)
+                serial_write("\n")
+                i = i + (1 as usize)
+            }
+            serial_write("Items: ")
+            shell_number(m.visibleCount as u64)
+            serial_write("\n")
+        }
+    } else if hash == (193425446 as u32) {
+        serial_write("\nN:\\")
+        if m != null && m.currentParent != (0 as u64) {
+            serial_write("KEY-")
+            shell_number(m.currentParent)
+        }
+        serial_write("\n")
+    } else if hash == (5861090 as u32) {
+        if m == null { serial_write("\nNoqFS drive not mounted\n") }
+        else if args == size { serial_write("\nUsage: cd FOLDER or cd ..\n") }
+        else if size - args == (2 as usize) && buffer[args] == (46 as u8) && buffer[args + (1 as usize)] == (46 as u8) {
+            if !files_back(m) { serial_write("\nAlready at root\n") }
+        } else {
+            let item: isize = shell_find(m, buffer + args, size - args)
+            if item < (0 as isize) { serial_write("\nFolder not found\n") }
+            else {
+                m.selected = item as usize
+                if !files_enter(m) { serial_write("\nNot a directory\n") }
+            }
+        }
+        if desktop != null && desktop.explorerVisible { gui_paint(desktop) }
+    } else if hash == (2087944093 as u32) || hash == (193416115 as u32) {
+        if m == null { serial_write("\nNoqFS drive not mounted\n") }
+        else if args == size { serial_write("\nUsage: type FILENAME\n") }
+        else {
+            let item: isize = shell_find(m,buffer + args,size - args)
+            if item < (0 as isize) { serial_write("\nFile not found\n") }
+            else {
+                m.selected = item as usize
+                let scratch: usize = arch_alloc_page()
+                if scratch == (0 as usize) { serial_write("\nOut of memory\n") }
+                else {
+                    let count: usize = files_read_selected(m,scratch,(512 as usize))
+                    serial_write("\n")
+                    shell_print(scratch as *u8,count)
+                    serial_write("\n")
+                    if count == (512 as usize) { serial_write("(preview limited to 512 bytes)\n") }
+                }
+            }
+        }
+    } else if hash == (2087415716 as u32) {
+        serial_write("\n")
+        shell_print(buffer + args,size - args)
+        serial_write("\n")
+    } else if hash == (171232592 as u32) || hash == (195030917 as u32) {
+        if desktop == null { serial_write("\nGraphical desktop unavailable\n") }
+        else {
+            desktop.explorerVisible = true
+            gui_paint(desktop)
+            serial_write("\nFile Explorer opened\n")
+        }
+    } else if hash == (193412414 as u32) {
+        if desktop == null { serial_write("\nGraphical desktop unavailable\n") }
+        else { gui_key(desktop, 115 as u8); serial_write("\nStart selection changed\n") }
+    } else if hash == (2124132068 as u32) {
+        serial_write("\nReboot is not implemented; use QEMU reset\n")
+    } else {
+        serial_write("\nUnknown command. Type help.\n")
+    }
+}
+
 function terminal_read_key(network: *Network, desktop: *GuiDesktop): u8 {
     let spins: usize = 0 as usize
     while (arch_in8(1021 as u16) % (2 as u8)) == (0 as u8) {
@@ -22,84 +230,38 @@ function terminal_read_key(network: *Network, desktop: *GuiDesktop): u8 {
     return arch_in8(1016 as u16)
 }
 
-function terminal_prompt(): void {
-    serial_write("\nnoqerios> ")
-}
-
 function terminal_run(network: *Network, desktop: *GuiDesktop): void {
     serial_write("\nNoqeriOS serial terminal ready (COM1)\n")
-    serial_write("h=help, i=info, m=memory, p=processes, n=network, g=gateway ping, d=DNS example.com, t=local TCP probe, a/s/z=GUI focus, f=Explorer, j/k=select, e/b=folder nav, c=clear, r=reboot hint\n")
-    terminal_prompt()
+    serial_write("Noqeri Shell 1.0. Enter help for commands.\n")
+    let inputPage: usize = arch_alloc_page()
+    if inputPage == (0 as usize) {
+        serial_write("Shell: input allocation failed\n")
+        while true { arch_halt() }
+    }
+    let input: *u8 = inputPage as *u8
+    let count: usize = 0 as usize
+    shell_prompt()
     while true {
-        let key: u8 = terminal_read_key(network, desktop)
-        if key == (104 as u8) || key == (72 as u8) {
-            serial_write("\nCommands: h help | i info | m memory | p processes | n network | g gateway ping | d DNS example.com | t TCP fixture | a/s/z GUI | f Explorer | j/k select | e/b folder | c clear | r reboot\n")
-            terminal_prompt()
-        } else if key == (105 as u8) || key == (73 as u8) {
-            serial_write("\nNoqeriOS experimental x86_64 kernel; Noqeri native services\n")
-            terminal_prompt()
-        } else if key == (109 as u8) || key == (77 as u8) {
-            serial_write("\nMemory: physical allocator and virtual memory initialized at boot\n")
-            terminal_prompt()
-        } else if key == (112 as u8) || key == (80 as u8) {
-            serial_write("\nProcesses: kernel scheduler initialized; interactive user processes pending\n")
-            terminal_prompt()
-        } else if key == (110 as u8) || key == (78 as u8) {
+        let key: u8 = terminal_read_key(network,desktop)
+        if key == (13 as u8) || key == (10 as u8) {
+            if key == (10 as u8) && count == (0 as usize) { continue }
             serial_write("\n")
-            network_console_status(network)
-            terminal_prompt()
-        } else if key == (103 as u8) || key == (71 as u8) {
-            if network == null || !network.online {
-                serial_write("\nNetwork: no configured gateway\n")
-            } else if network_icmp_echo(network) {
-                serial_write("\nNetwork: IPv4 gateway ICMP echo succeeded\n")
-            } else {
-                serial_write("\nNetwork: gateway ICMP echo timed out\n")
+            shell_exec(input,count,network,desktop)
+            count = 0 as usize
+            shell_prompt()
+        } else if key == (8 as u8) || key == (127 as u8) {
+            if count > (0 as usize) {
+                count = count - (1 as usize)
+                serial_write("\b \b")
             }
-            terminal_prompt()
-        } else if key == (100 as u8) || key == (68 as u8) {
-            if network == null || !network.online {
-                serial_write("\nDNS: network offline\n")
+        } else if key >= (32 as u8) && key <= (126 as u8) {
+            if count < (127 as usize) {
+                input[count] = key
+                count = count + (1 as usize)
+                shell_putchar(key)
             } else {
-                let resolved: u32 = network_dns_example(network)
-                if resolved == (0 as u32) {
-                    serial_write("\nDNS: example.com A lookup unavailable\n")
-                } else {
-                    serial_write("\nDNS: example.com A = ")
-                    network_console_ip(resolved)
-                    serial_write("\n")
-                }
+                shell_putchar(7 as u8)
             }
-            terminal_prompt()
-        } else if key == (116 as u8) || key == (84 as u8) {
-            if network == null || !network.online {
-                serial_write("\nTCP: network offline\n")
-            } else if tcp_fixture_request(network) {
-                serial_write("\nTCP: local HTTP fixture response verified\n")
-            } else {
-                serial_write("\nTCP: local HTTP fixture unavailable\n")
-            }
-            terminal_prompt()
-        } else if key == (97 as u8) || key == (65 as u8) ||
-                  key == (115 as u8) || key == (83 as u8) ||
-                  key == (122 as u8) || key == (90 as u8) ||
-                  key == (102 as u8) || key == (70 as u8) ||
-                  key == (106 as u8) || key == (74 as u8) ||
-                  key == (107 as u8) || key == (75 as u8) ||
-                  key == (101 as u8) || key == (69 as u8) ||
-                  key == (98 as u8) || key == (66 as u8) {
-            if !gui_key(desktop, key) {
-                serial_write("\nGUI: no active graphical desktop\n")
-            } else {
-                serial_write("\nGUI: focus changed\n")
-            }
-            terminal_prompt()
-        } else if key == (99 as u8) || key == (67 as u8) {
-            serial_write("\x1b[2J\x1b[H")
-            terminal_prompt()
-        } else if key == (114 as u8) || key == (82 as u8) {
-            serial_write("\nReboot requires QEMU reset; no destructive action was performed\n")
-            terminal_prompt()
         }
     }
 }
