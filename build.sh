@@ -40,10 +40,10 @@ if (( ${#missing[@]} > 0 )); then
     command -v apt-get >/dev/null || { echo "Automatic install requires apt-get." >&2; exit 3; }
     if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
         apt-get update
-        DEBIAN_FRONTEND=noninteractive apt-get install -y git cmake g++ binutils xorriso python3 qemu-system-x86 gnu-efi mtools ovmf clang lld clang lld
+        DEBIAN_FRONTEND=noninteractive apt-get install -y git cmake g++ binutils xorriso python3 qemu-system-x86 gnu-efi mtools ovmf clang lld
     else
         sudo apt-get update
-        sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y git cmake g++ binutils xorriso python3 qemu-system-x86 gnu-efi mtools ovmf
+        sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y git cmake g++ binutils xorriso python3 qemu-system-x86 gnu-efi mtools ovmf clang lld
     fi
 fi
 mkdir -p "$OUT"
