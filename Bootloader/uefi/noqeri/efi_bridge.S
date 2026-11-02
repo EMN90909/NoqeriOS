@@ -102,3 +102,9 @@ efi_handoff:
     mov rdi, rsi
     mov rsi, rdx
     jmp rax
+
+/* Force a PE base-relocation record for firmware load-address randomization. */
+.data
+.globl efi_reloc_anchor
+efi_reloc_anchor:
+    .quad efi_entry
