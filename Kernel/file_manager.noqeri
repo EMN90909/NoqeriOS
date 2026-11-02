@@ -123,6 +123,6 @@ function files_read_selected(managerAddress: usize, output: usize, capacity: usi
     let nodePage: usize = arch_alloc_page()
     if nodePage == (0 as usize) { return 0 as usize }
     let node: *VfsNode = nodePage as *VfsNode
-    if !vfs_open_root_key(m.mount, m.keys[index], node) { return 0 as usize }
-    return vfs_read(node, 0 as usize, capacity, output)
+    if !vfs_open_key_address(m.mount as usize, m.keys[index], nodePage) { return 0 as usize }
+    return vfs_read_address(nodePage, 0 as usize, capacity, output)
 }
