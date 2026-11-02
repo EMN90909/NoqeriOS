@@ -50,10 +50,11 @@ def main():
         try:
             deadline = time.monotonic() + 32
             expected = b"NoqeriOS: VirtIO GPU control queue display-info handshake passed"
+            scanout = b"NoqeriOS: VirtIO GPU 2D scanout and DMA presentation active"
             complete = b"NoqeriOS serial terminal ready"
             while time.monotonic() < deadline:
-                if expected in output and complete in output:
-                    print("PASS: VirtIO GPU PCI control queue returns display-info response")
+                if expected in output and scanout in output and complete in output:
+                    print("PASS: VirtIO GPU PCI control queue and 2D DMA-backed scanout presented")
                     return
                 if proc.poll() is not None:
                     break
