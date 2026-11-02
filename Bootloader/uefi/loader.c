@@ -339,24 +339,52 @@ static EFI_STATUS paging(EFI_BOOT_SERVICES *bs, EFI_PHYSICAL_ADDRESS *root,
     pd[3] |= 4;
 
     if (fb && fb->valid) {
-        UINT64 first = fb->address >> 21;
-        UINT64 last = (fb->address + fb->length - 1) >> 21;
+        /*
+         * Real Intel GOP framebuffers are MMIO. Map only actual 4 KiB
+         * framebuffer pages, rather than mapping entire surrounding 2 MiB
+         * regions with large-page cache attributes.
+         * If the aperture resides in the first 1 GiB, split the existing
+         * identity-mapped large page without losing adjacent RAM mappings.
+         */
+        UINT64 first = fb->address >> 12;
+        UINT64 last = (fb->address + fb->length - 1) >> 12;
+        UINT64 current_pde = ~(UINT64)0;
+        UINT64 *pt = NULL;
         for (UINT64 page = first; page <= last; ++page) {
-            UINTN pdpt_index = (UINTN)(page >> 9);
-            UINTN pd_index = (UINTN)(page & 511u);
+            UINT64 pde_number = page >> 9;
+            UINTN pdpt_index = (UINTN)(pde_number >> 9);
+            UINTN pd_index = (UINTN)(pde_number & 511u);
+            UINTN pt_index = (UINTN)(page & 511u);
             if (pdpt_index >= 512) return EFI_UNSUPPORTED;
             if (!pdpt[pdpt_index]) {
-                EFI_PHYSICAL_ADDRESS extra;
-                status = alloc_low(bs, 1, &extra);
+                EFI_PHYSICAL_ADDRESS extra_pd;
+                status = alloc_low(bs, 1, &extra_pd);
                 if (EFI_ERROR(status)) return status;
-                bytes_zero((VOID *)(UINTN)extra, 4096);
-                pdpt[pdpt_index] = extra | 7;
+                bytes_zero((VOID *)(UINTN)extra_pd, 4096);
+                pdpt[pdpt_index] = extra_pd | 3;
             }
             UINT64 *entries = (UINT64 *)(UINTN)(pdpt[pdpt_index] & ~4095ULL);
-            /* Write-through/cache-disabled MMIO prevents framebuffer writes
-             * from being cached as ordinary RAM, including for 2 MiB pages. */
-            entries[pd_index] = (page << 21) | 0x9b;
+            if (pde_number != current_pde) {
+                UINT64 old = entries[pd_index];
+                EFI_PHYSICAL_ADDRESS extra_pt;
+                status = alloc_low(bs, 1, &extra_pt);
+                if (EFI_ERROR(status)) return status;
+                pt = (UINT64 *)(UINTN)extra_pt;
+                bytes_zero(pt, 4096);
+                if (old & 0x80ULL) {
+                    UINT64 base = old & 0x000fffffffe00000ULL;
+                    for (UINTN i = 0; i < 512; ++i)
+                        pt[i] = (base + (i << 12)) | 3;
+                } else if (old & 1ULL) {
+                    return EFI_UNSUPPORTED;
+                }
+                entries[pd_index] = extra_pt | 3;
+                current_pde = pde_number;
+            }
+            /* Present, writable, write-through, cache disabled (UC). */
+            pt[pt_index] = (page << 12) | 0x1bULL;
         }
+        log_debug("uefi: framebuffer mapped with 4 KiB uncached pages\\n");
     }
     *root = addr;
     return EFI_SUCCESS;
