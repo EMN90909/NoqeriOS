@@ -499,6 +499,7 @@ function gui_paint(g: *GuiDesktop): void {
     if g.width >= (530 as usize) {
         gui_label(g, 7 as u32, 180 as usize, barY + (15 as usize), 0xd9d9d9 as u32)
     }
+    if g.terminalVisible { gui_terminal_paint(g) }
     if g.explorerVisible && g.width >= (520 as usize) && g.height >= (360 as usize) {
         explorer_paint(g)
     }
@@ -587,9 +588,17 @@ function gui_key(g: *GuiDesktop, key: u8): bool {
         changed = true
     } else if key == (122 as u8) || key == (90 as u8) {
         g.selectedAction = g.selectedAction + (1 as usize)
-        if g.focused == (0 as usize) { g.explorerVisible = true }
-        else if g.focused == (3 as usize) { g.startVisible = !g.startVisible }
-        else { g.focused = (g.focused + (1 as usize)) % (4 as usize) }
+        if g.focused == (0 as usize) {
+            g.explorerVisible = true
+            g.terminalVisible = false
+        } else if g.focused == (1 as usize) {
+            g.terminalVisible = true
+            g.explorerVisible = false
+            g.startVisible = false
+        } else if g.focused == (3 as usize) {
+            g.startVisible = !g.startVisible
+            g.terminalVisible = false
+        } else { g.focused = (g.focused + (1 as usize)) % (4 as usize) }
         changed = true
     }
     if changed {
@@ -813,4 +822,48 @@ export function gui_terminal_char(g: *GuiDesktop, ch: u8): void {
         }
         g.terminalPosition = 600 as usize
     }
+}
+
+function gui_terminal_paint(g: *GuiDesktop): void {
+    if g == null { return }
+    gui_fill(g, 14 as usize, 65 as usize, g.width - (28 as usize),
+             g.height - (116 as usize), 0x171717 as u32)
+    gui_fill(g, 14 as usize, 65 as usize, g.width - (28 as usize),
+             36 as usize, 0x414141 as u32)
+    gui_letter(g, 84 as u8, 30 as usize, 76 as usize, 0xffffff as u32)
+    gui_letter(g, 69 as u8, 42 as usize, 76 as usize, 0xffffff as u32)
+    gui_letter(g, 82 as u8, 54 as usize, 76 as usize, 0xffffff as u32)
+    gui_letter(g, 77 as u8, 66 as usize, 76 as usize, 0xffffff as u32)
+    gui_letter(g, 73 as u8, 78 as usize, 76 as usize, 0xffffff as u32)
+    gui_letter(g, 78 as u8, 90 as usize, 76 as usize, 0xffffff as u32)
+    gui_letter(g, 65 as u8, 102 as usize, 76 as usize, 0xffffff as u32)
+    gui_letter(g, 76 as u8, 114 as usize, 76 as usize, 0xffffff as u32)
+    if g.terminalBuffer == null { return }
+    let rows: usize = (g.height - (180 as usize)) / (17 as usize)
+    if rows > (16 as usize) { rows = 16 as usize }
+    let cols: usize = (g.width - (72 as usize)) / (12 as usize)
+    if cols > (40 as usize) { cols = 40 as usize }
+    let row: usize = 0 as usize
+    while row < rows {
+        let col: usize = 0 as usize
+        while col < cols {
+            let ch: u8 = g.terminalBuffer[row * (40 as usize) + col]
+            if ch >= (97 as u8) && ch <= (122 as u8) { ch = ch - (32 as u8) }
+            if ch >= (32 as u8) && ch <= (90 as u8) {
+                gui_letter(g, ch, 34 as usize + col * (12 as usize),
+                           113 as usize + row * (17 as usize), 0xe7e7e7 as u32)
+            }
+            col = col + (1 as usize)
+        }
+        row = row + (1 as usize)
+    }
+}
+function gui_terminal_redraw(g: *GuiDesktop): void {
+    if g != null && g.terminalVisible { gui_paint(g) }
+}
+function gui_terminal_take_key(g: *GuiDesktop): u8 {
+    if g == null { return 0 as u8 }
+    let key: u8 = g.terminalPending
+    g.terminalPending = 0 as u8
+    return key
 }
