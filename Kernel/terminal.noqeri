@@ -80,7 +80,7 @@ function shell_find(m: *FileManager, input: *u8, length: usize): isize {
 }
 function shell_prompt(): void { serial_write("\nN:\\> ") }
 
-function shell_exec(buffer: *u8, size: usize, network: *Network, desktop: *GuiDesktop): void {
+function shell_exec(buffer: *u8, size: usize, network: *Network, desktop: *GuiDesktop, filesAddress: usize): void {
     let start: usize = 0 as usize
     while start < size && buffer[start] == (32 as u8) { start = start + (1 as usize) }
     let cmdEnd: usize = start
@@ -89,8 +89,7 @@ function shell_exec(buffer: *u8, size: usize, network: *Network, desktop: *GuiDe
     while args < size && buffer[args] == (32 as u8) { args = args + (1 as usize) }
     if start == size { return }
     let hash: u32 = shell_word_hash(buffer + start, cmdEnd - start)
-    let m: *FileManager = null
-    if desktop != null { m = desktop.explorer }
+    let m: *FileManager = filesAddress as *FileManager
 
     if hash == (2090324718 as u32) || hash == (177677 as u32) {
         serial_write("\nNoqeri Shell - Windows-style, fewer commands\n")
@@ -226,7 +225,7 @@ function terminal_read_key(network: *Network, desktop: *GuiDesktop): u8 {
     return arch_in8(1016 as u16)
 }
 
-function terminal_run(network: *Network, desktop: *GuiDesktop): void {
+function terminal_run(network: *Network, desktop: *GuiDesktop, filesAddress: usize): void {
     serial_write("\nNoqeriOS serial terminal ready (COM1)\n")
     serial_write("Noqeri Shell 1.0. Enter help for commands.\n")
     let inputPage: usize = arch_alloc_page()
@@ -242,7 +241,7 @@ function terminal_run(network: *Network, desktop: *GuiDesktop): void {
         if key == (13 as u8) || key == (10 as u8) {
             if key == (10 as u8) && count == (0 as usize) { continue }
             serial_write("\n")
-            shell_exec(input,count,network,desktop)
+            shell_exec(input,count,network,desktop,filesAddress)
             count = 0 as usize
             shell_prompt()
         } else if key == (8 as u8) || key == (127 as u8) {
