@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import select
 import socket
+import struct
 import subprocess
 import sys
 import tempfile
@@ -72,12 +73,29 @@ def main():
         working = Path(tmp)
         vars_image = working / "vars.fd"
         vars_image.write_bytes(Path(vars_origin).read_bytes())
+        # NoqFS v2 named root file, directory and nested file.
+        disk = working / "named-noqfs.img"
+        volume = bytearray(1024 * 1024)
+        struct.pack_into("<4sIQII", volume, 0, b"NQFS", 2, 1, 3, 512)
+        def entry(i, key, first, size, flags, parent, name):
+            raw = name.encode("ascii")
+            assert 0 < len(raw) <= 24
+            struct.pack_into("<QQQIIQ24s", volume, 512 + i * 64,
+                             key, first, size, flags, len(raw), parent, raw)
+        entry(0, 1, 4, 16, 1, 0, "HELLO.TXT")
+        entry(1, 2, 0, 0, 2, 0, "DOCUMENTS")
+        entry(2, 3, 5, 18, 1, 2, "README.TXT")
+        volume[4*512:4*512+16] = b"HELO from NoqFS!"
+        volume[5*512:5*512+18] = b"Nested file notes!"
+        disk.write_bytes(volume)
         mon = working / "hmp.sock"
         cmd = [
             "qemu-system-x86_64", "-machine", "q35", "-m", "256M",
             "-drive", f"if=pflash,format=raw,unit=0,readonly=on,file={code}",
             "-drive", f"if=pflash,format=raw,unit=1,file={vars_image}",
             "-cdrom", str(OUT / "noqerios.iso"), "-boot", "order=d",
+            "-drive", f"if=none,format=raw,file={disk},id=files",
+            "-device", "virtio-blk-pci,drive=files,disable-legacy=on",
             "-vga", "std", "-display", "none", "-serial", "stdio",
             "-monitor", f"unix:{mon},server,nowait",
             "-no-reboot", "-no-shutdown",
@@ -103,7 +121,17 @@ def main():
                 raise AssertionError("QEMU did not capture PPM framebuffer images")
             if first == second:
                 raise AssertionError("Framebuffers unchanged after PS/2 keyboard focus event")
-            print("PASS: UEFI GOP GUI rendered and PS/2 keyboard caused a compositor redraw")
+                hmp(sock, "sendkey f")
+                observe(proc, b"NoqeriOS: GUI compositor window focus updated", 6, output)
+                explorer_open = screenshot(sock, str(working / "files.ppm"))
+                if explorer_open == second:
+                    raise AssertionError("File Explorer did not open on-screen")
+                hmp(sock, "sendkey j")
+                observe(proc, b"NoqeriOS: GUI compositor window focus updated", 6, output)
+                explorer_selected = screenshot(sock, str(working / "selected.ppm"))
+                if explorer_selected == explorer_open:
+                    raise AssertionError("Explorer selection did not update on-screen")
+            print("PASS: UEFI GUI, named NoqFS Explorer opening and PS/2 selection redraw")
         except Exception:
             print("Serial diagnostic:\n" + output.decode(errors="replace"), file=sys.stderr)
             raise
