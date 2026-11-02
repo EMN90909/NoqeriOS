@@ -17,7 +17,10 @@ function shell_putchar(ch: u8): void {
         arch_pause()
         attempts = attempts + (1 as usize)
     }
-    if attempts < (100000 as usize) { arch_out8(1016 as u16, ch) }
+    if attempts < (100000 as usize) {
+        arch_out8(1016 as u16, ch)
+        arch_console_echo(ch)
+    }
 }
 
 function shell_print(data: *u8, length: usize): void {
@@ -219,6 +222,8 @@ function terminal_read_key(network: *Network, desktop: *GuiDesktop): u8 {
         if spins == (8192 as usize) {
             network_service_poll(network)
             gui_keyboard_poll(desktop)
+            let graphicalKey: u8 = gui_terminal_take_key(desktop)
+            if graphicalKey != (0 as u8) { return graphicalKey }
             spins = 0 as usize
         }
     }
@@ -244,6 +249,7 @@ function terminal_run(network: *Network, desktop: *GuiDesktop, filesAddress: usi
             shell_exec(input,count,network,desktop,filesAddress)
             count = 0 as usize
             shell_prompt()
+            gui_terminal_redraw(desktop)
         } else if key == (8 as u8) || key == (127 as u8) {
             if count > (0 as usize) {
                 count = count - (1 as usize)
@@ -254,6 +260,7 @@ function terminal_run(network: *Network, desktop: *GuiDesktop, filesAddress: usi
                 input[count] = key
                 count = count + (1 as usize)
                 shell_putchar(key)
+                gui_terminal_redraw(desktop)
             } else {
                 shell_putchar(7 as u8)
             }
