@@ -124,11 +124,13 @@ def main():
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
                 sock.settimeout(5)
                 sock.connect(str(mon))
+                output.clear()
                 hmp(sock, "sendkey f")
                 observe(proc, b"NoqeriOS: GUI compositor window focus updated", 6, output)
                 explorer_open = screenshot(sock, str(working / "files.ppm"))
                 if explorer_open == second:
                     raise AssertionError("File Explorer did not open on-screen")
+                output.clear()
                 hmp(sock, "sendkey j")
                 observe(proc, b"NoqeriOS: GUI compositor window focus updated", 6, output)
                 explorer_selected = screenshot(sock, str(working / "selected.ppm"))
