@@ -213,3 +213,61 @@ jobs:
             build/noqerios.iso
             build/noqerios-uefi-usb.img
           if-no-files-found: error
+
+  native-noqeri-uefi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: Checkout NoqeriOS
+        uses: actions/checkout@v4
+
+      - name: Checkout UEFI-capable Noqeri compiler
+        uses: actions/checkout@v4
+        with:
+          repository: EMN90909/Noqeri
+          ref: feature/uefi-freestanding-x64
+          path: .deps/Noqeri
+
+      - name: Install UEFI build and emulator tools (no gnu-efi)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ cmake binutils xorriso mtools clang lld ovmf qemu-system-x86 python3
+
+      - name: Build Noqeri stage-0 compiler
+        run: |
+          cmake -S .deps/Noqeri -B .deps/Noqeri/build -DCMAKE_BUILD_TYPE=Release -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DBUILD_TESTING=OFF
+          cmake --build .deps/Noqeri/build --target noqeri --parallel 2
+
+      - name: Validate no C or gnu-efi in native loader build
+        run: |
+          bash -n build.sh Bootloader/uefi/noqeri/build.sh Tests/uefi-smoke.sh
+          python3 -m py_compile Tests/uefi_noqeri_pe.py
+          if grep -Ei 'gnu-efi|loader[.]c|boot_menu[.]c' Bootloader/uefi/noqeri/build.sh; then
+            echo "Native UEFI build must not depend on GNU-EFI or C sources"
+            exit 1
+          fi
+
+      - name: Native Noqeri loader boots OVMF from ISO
+        env:
+          NOQERI: ${{ github.workspace }}/.deps/Noqeri/build/noqeri
+          NOQERIOS_UEFI_LOADER: noqeri
+        run: bash Tests/uefi-smoke.sh
+
+      - name: Native Noqeri loader boots OVMF from GPT disk
+        env:
+          NOQERI: ${{ github.workspace }}/.deps/Noqeri/build/noqeri
+          NOQERIOS_UEFI_LOADER: noqeri
+          NOQERIOS_UEFI_MEDIA: usb
+        run: bash Tests/uefi-smoke.sh
+
+      - name: Upload native UEFI failure artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noqerios-native-noqeri-uefi-diagnostics
+          path: |
+            build/uefi-serial.log
+            build/uefi-boot-debug.log
+            build/uefi/loader-noqeri.s
+            build/uefi/BOOTX64.EFI
+          if-no-files-found: ignore
