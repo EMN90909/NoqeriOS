@@ -86,3 +86,34 @@ properly audited and tested.
 4. Storage drivers (NVMe/AHCI/USB mass storage), with write safety.
 5. Runtime fault handling, memory protection, and hardware regression
    tests across multiple machines.
+
+## Lenovo G500 / real Intel GOP framebuffer troubleshooting (November 2026)
+
+The `fix/lenovo-g500-graphics-release` branch incorporates the earlier
+`fix/lenovo-g500-uefi-graphics` fix that maps framebuffer memory using
+**4 KiB uncached (PWT + PCD) pages**, including when the GOP framebuffer
+shares a 2 MiB page with another physical address range. This replaces
+the older approach of mapping entire 2 MiB apertures as uncached. The
+driver also recognizes **byte-aligned, non-overlapping 32bpp PixelBitMask**
+RGB/BGR layouts; unsupported GOP formats remain serial-only instead
+of being mistaken for 32-bit RGB.
+
+Kernel framebuffer discovery now validates Multiboot2 total/tag lengths,
+32bpp direct-RGB pixel layout, supported row pitch and dimensions before
+any framebuffer writes. The GUI rechecks the same contract. The QEMU
+graphics regression additionally checks actual captured top, wallpaper
+and bottom pixel colours, not merely that two screenshots differ.
+
+**Validation boundary:** These address plausible sources of the horizontal
+pixel corruption seen on a Lenovo G500, but cannot prove the actual
+Intel display problem is resolved until it is retested on that hardware.
+Existing graphics tests use OVMF/QEMU, not a physical GPU. Do not infer
+support for arbitrary graphics hardware or assume the display corruption
+must have been inside the kernel.
+
+**Build artifacts:** GitHub Actions on the graphics-fix pull request
+publishes the `noqerios-bios-uefi-iso-and-usb` ZIP after all
+UEFI/QEMU graphics gates pass; inside are `noqerios.iso` and
+`noqerios-uefi-usb.img`. Compare SHA-256 checksums before booting.
+Only write the USB image to a verified expendable removable device,
+never an internal disk.
