@@ -10,8 +10,7 @@ window surfaces while keeping full-screen opaque fills on the fast path.
 The native Noqeri UI retains the legacy BIOS serial-only fallback.
 
 `Drivers/gpu.noqeri` probes the VirtIO 1.0 GPU PCI device (vendor
-0x1AF4, device 0x1050) and checks modern VirtIO capabilities. **Detection
-does not enable acceleration.** The compositor deliberately uses CPU GOP
+0x1AF4, device 0x1050) and checks modern VirtIO capabilities and sends a bounded GET_DISPLAY_INFO command through the device's actual control virtqueue. **Discovery and the command handshake do not enable rendering acceleration.** The compositor deliberately uses CPU GOP
 drawing until the GPU backend passes queue, buffer, fence, resource and
 frame-present tests. This is essential to avoid silently declaring a
 CPU-rendered framebuffer to be GPU accelerated.
@@ -49,5 +48,4 @@ keyboard navigation in QEMU. A passing GUI test proves display composition,
 not GPU offload. GPU acceleration should be marked verified only after the
 GPU-specific command submission and visual checks pass.
 
-The current implementation must never advertise GPU rendering as active
-because the backend is not implemented yet.
+A dedicated QEMU/OVMF integration test (`python3 Tests/gpu-smoke.py`) now requires a real VirtIO GPU display-info response. The current implementation must never advertise GPU rendering as active because resource-backed scanout and GPU rasterization are not implemented yet.
