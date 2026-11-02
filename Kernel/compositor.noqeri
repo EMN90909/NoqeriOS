@@ -1,0 +1,52 @@
+module os.kernel.compositor
+
+// Pixel-exact, dependency-free software composition primitives.
+// A real GPU command submission backend is separate from UEFI GOP: GOP
+// exposes a framebuffer, not GPU rendering or accelerated page flips.
+function compositor_blend(dst: u32, src: u32, alpha: u32): u32 {
+    if alpha >= (255 as u32) { return src }
+    if alpha == (0 as u32) { return dst }
+    let inv: u32 = (255 as u32) - alpha
+    let dr: u32 = (dst / (65536 as u32)) % (256 as u32)
+    let dg: u32 = (dst / (256 as u32)) % (256 as u32)
+    let db: u32 = dst % (256 as u32)
+    let sr: u32 = (src / (65536 as u32)) % (256 as u32)
+    let sg: u32 = (src / (256 as u32)) % (256 as u32)
+    let sb: u32 = src % (256 as u32)
+    let red: u32 = ((sr * alpha) + (dr * inv) + (127 as u32)) / (255 as u32)
+    let green: u32 = ((sg * alpha) + (dg * inv) + (127 as u32)) / (255 as u32)
+    let blue: u32 = ((sb * alpha) + (db * inv) + (127 as u32)) / (255 as u32)
+    return (red * (65536 as u32)) + (green * (256 as u32)) + blue
+}
+
+// Fixed point coverage for rounded corners. Values 0..255.
+// This maintains square crisp edges while anti-aliasing only the radius.
+function compositor_corner_coverage(x: usize, y: usize, width: usize,
+                                    height: usize, radius: usize): u32 {
+    if radius == (0 as usize) { return 255 as u32 }
+    if x >= width || y >= height { return 0 as u32 }
+    let nearX: usize = x
+    let nearY: usize = y
+    if x >= width / (2 as usize) { nearX = width - x - (1 as usize) }
+    if y >= height / (2 as usize) { nearY = height - y - (1 as usize) }
+    if nearX >= radius || nearY >= radius { return 255 as u32 }
+    // 4x subpixel approximation using integer squared distances.
+    let cx: usize = radius * (4 as usize)
+    let cy: usize = radius * (4 as usize)
+    let rad: usize = radius * (4 as usize)
+    let inside: u32 = 0 as u32
+    let sy: usize = 0 as usize
+    while sy < (4 as usize) {
+        let sx: usize = 0 as usize
+        while sx < (4 as usize) {
+            let px: usize = nearX * (4 as usize) + sx
+            let py: usize = nearY * (4 as usize) + sy
+            let dx: usize = cx - px - (1 as usize)
+            let dy: usize = cy - py - (1 as usize)
+            if dx * dx + dy * dy <= rad * rad { inside = inside + (1 as u32) }
+            sx = sx + (1 as usize)
+        }
+        sy = sy + (1 as usize)
+    }
+    return (inside * (255 as u32)) / (16 as u32)
+}
