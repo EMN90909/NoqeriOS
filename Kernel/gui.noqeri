@@ -20,6 +20,7 @@ record GuiDesktop {
     selectedAction: usize;
     redraws: usize;
     explorerVisible: bool;
+    startVisible: bool;
     explorer: *FileManager;
     gpuDisplay: *GpuDisplay;
     fallbackPixels: *volatile u32;
@@ -398,76 +399,98 @@ function gui_panel(g: *GuiDesktop, x: usize, y: usize,
     gui_fill(g, x + w - (25 as usize), y + (17 as usize),
              8 as usize, 8 as usize, edge)
 }
+// NoqeriOS Start: Metro-inspired geometry in an original monochrome palette.
+// No Windows icons, brand marks, or Microsoft color schemes are used.
+function gui_metro_tile(g: *GuiDesktop, x: usize, y: usize, w: usize,
+                        h: usize, tile: usize): void {
+    if x >= g.width || y >= g.height || w == (0 as usize) || h == (0 as usize) { return }
+    let shade: u32 = 0x555555 as u32
+    if tile % (3 as usize) == (1 as usize) { shade = 0x666666 as u32 }
+    if tile % (3 as usize) == (2 as usize) { shade = 0x777777 as u32 }
+    gui_fill(g, x, y, w, h, shade)
+    if g.focused == tile {
+        gui_fill(g, x, y, w, 3 as usize, 0xffffff as u32)
+        gui_fill(g, x, y, 3 as usize, h, 0xffffff as u32)
+        gui_fill(g, x + w - (3 as usize), y, 3 as usize, h, 0xffffff as u32)
+        gui_fill(g, x, y + h - (3 as usize), w, 3 as usize, 0xffffff as u32)
+    }
+    // Geometric app symbols, never the four-pane Windows mark.
+    let centerX: usize = x + w / (2 as usize)
+    let centerY: usize = y + h / (2 as usize)
+    if tile == (0 as usize) {
+        // Files: folder silhouette and a white folder tab.
+        gui_fill(g, centerX - (23 as usize), centerY - (10 as usize), 47 as usize, 29 as usize, 0xeeeeee as u32)
+        gui_fill(g, centerX - (23 as usize), centerY - (17 as usize), 22 as usize, 9 as usize, 0xeeeeee as u32)
+        explorer_label_0(g, x + (14 as usize), y + h - (23 as usize), 0xffffff as u32)
+    } else if tile == (1 as usize) {
+        // Terminal: framed command line.
+        gui_fill(g, centerX - (24 as usize), centerY - (18 as usize), 49 as usize, 34 as usize, 0xeaeaea as u32)
+        gui_fill(g, centerX - (21 as usize), centerY - (15 as usize), 43 as usize, 28 as usize, 0x444444 as u32)
+        gui_fill(g, centerX - (13 as usize), centerY, 20 as usize, 2 as usize, 0xfefefe as u32)
+        gui_label(g, 8 as u32, x + (14 as usize), y + h - (23 as usize), 0xffffff as u32)
+    } else if tile == (2 as usize) {
+        // System: three horizontal sliders.
+        gui_fill(g, centerX - (27 as usize), centerY - (13 as usize), 55 as usize, 3 as usize, 0xf4f4f4 as u32)
+        gui_fill(g, centerX - (27 as usize), centerY, 55 as usize, 3 as usize, 0xf4f4f4 as u32)
+        gui_fill(g, centerX - (27 as usize), centerY + (13 as usize), 55 as usize, 3 as usize, 0xf4f4f4 as u32)
+        gui_fill(g, centerX - (8 as usize), centerY - (19 as usize), 8 as usize, 14 as usize, 0xffffff as u32)
+        gui_fill(g, centerX + (11 as usize), centerY - (6 as usize), 8 as usize, 14 as usize, 0xffffff as u32)
+        gui_fill(g, centerX - (20 as usize), centerY + (7 as usize), 8 as usize, 14 as usize, 0xffffff as u32)
+        gui_label(g, 2 as u32, x + (14 as usize), y + h - (23 as usize), 0xffffff as u32)
+    } else {
+        // Home: outline of a house (not an OS logo).
+        gui_fill(g, centerX - (22 as usize), centerY - (1 as usize), 44 as usize, 30 as usize, 0xeeeeee as u32)
+        gui_fill(g, centerX - (12 as usize), centerY + (10 as usize), 24 as usize, 19 as usize, 0x555555 as u32)
+        gui_label(g, 13 as u32, x + (14 as usize), y + h - (23 as usize), 0xffffff as u32)
+    }
+}
+
 function gui_paint(g: *GuiDesktop): void {
     if g == null { return }
-    // Compose retained layers: wallpaper, top bar, overlapping windows,
-    // selection highlight and persistent bottom shortcut dock.
-    gui_fill(g, 0 as usize, 0 as usize, g.width, g.height, 0x101728 as u32)
-    let y: usize = 0 as usize
-    while y < g.height {
-        if y % (76 as usize) < (2 as usize) {
-            gui_fill(g, 0 as usize, y, g.width, 2 as usize, 0x18243a as u32)
+    gui_fill(g, 0 as usize, 0 as usize, g.width, g.height, 0x303030 as u32)
+    gui_fill(g, 0 as usize, 0 as usize, g.width, 57 as usize, 0x242424 as u32)
+    gui_label(g, 3 as u32, 24 as usize, 22 as usize, 0xffffff as u32)
+    if g.width >= (690 as usize) {
+        gui_label(g, 4 as u32, g.width - (296 as usize), 22 as usize, 0xd8d8d8 as u32)
+    }
+    // A large typographic Start title, using the native pixel font.
+    if g.height >= (420 as usize) {
+        gui_letter(g, 83 as u8, 34 as usize, 83 as usize, 0xffffff as u32)
+        gui_letter(g, 84 as u8, 47 as usize, 83 as usize, 0xffffff as u32)
+        gui_letter(g, 65 as u8, 60 as usize, 83 as usize, 0xffffff as u32)
+        gui_letter(g, 82 as u8, 73 as usize, 83 as usize, 0xffffff as u32)
+        gui_letter(g, 84 as u8, 86 as usize, 83 as usize, 0xffffff as u32)
+    }
+    let margin: usize = 28 as usize
+    let gap: usize = 10 as usize
+    let columns: usize = 2 as usize
+    let tileWidth: usize = (g.width - margin * (2 as usize) - gap) / columns
+    let tileHeight: usize = 110 as usize
+    let top: usize = 126 as usize
+    if g.height < (440 as usize) { top = 98 as usize; tileHeight = 74 as usize }
+    if tileWidth > (255 as usize) { tileWidth = 255 as usize }
+    if g.startVisible {
+        let item: usize = 0 as usize
+        while item < (4 as usize) {
+            let x: usize = margin + (item % columns) * (tileWidth + gap)
+            let y: usize = top + (item / columns) * (tileHeight + gap)
+            gui_metro_tile(g, x, y, tileWidth, tileHeight, item)
+            item = item + (1 as usize)
         }
-        y = y + (1 as usize)
-    }
-    gui_fill(g, 0 as usize, 0 as usize, g.width, 55 as usize, 0x0c1426 as u32)
-    gui_fill(g, 0 as usize, 52 as usize, g.width, 3 as usize, 0x58d6d0 as u32)
-    gui_label(g, 3 as u32, 24 as usize, 18 as usize, 0xffffff as u32)
-    if g.width >= (650 as usize) {
-        gui_label(g, 4 as u32, g.width - (302 as usize),
-                  19 as usize, 0x9caec6 as u32)
-    }
-
-    let left: usize = 30 as usize
-    let top: usize = 85 as usize
-    let panelW: usize = 350 as usize
-    let panelH: usize = 240 as usize
-    if panelW > g.width - (44 as usize) { panelW = g.width - (44 as usize) }
-    if panelH > g.height - (125 as usize) { panelH = g.height - (125 as usize) }
-    let secondX: usize = 160 as usize
-    let secondY: usize = 146 as usize
-    if secondX + panelW > g.width - (12 as usize) {
-        secondX = g.width - panelW - (12 as usize)
-    }
-    if secondY + panelH > g.height - (56 as usize) {
-        secondY = g.height - panelH - (56 as usize)
-    }
-    if g.focused == (0 as usize) {
-        gui_panel(g, secondX, secondY, panelW, panelH, 2 as u32)
-        gui_panel(g, left, top, panelW, panelH, 1 as u32)
     } else {
-        gui_panel(g, left, top, panelW, panelH, 1 as u32)
-        gui_panel(g, secondX, secondY, panelW, panelH, 2 as u32)
-    }
-    if g.focused == (0 as usize) {
-        gui_label(g, 5 as u32, left + (18 as usize),
-                  top + (57 as usize), 0xf2f7ff as u32)
-        gui_label(g, 6 as u32, left + (18 as usize),
-                  top + (91 as usize), 0x9ab2ce as u32)
-        gui_label(g, 7 as u32, left + (18 as usize),
-                  top + (119 as usize), 0x9ab2ce as u32)
-        gui_label(g, 8 as u32, left + (18 as usize),
-                  top + (151 as usize), 0x58d6d0 as u32)
-    } else {
-        gui_label(g, 9 as u32, secondX + (18 as usize),
-                  secondY + (57 as usize), 0xf2f7ff as u32)
-        gui_label(g, 10 as u32, secondX + (18 as usize),
-                  secondY + (90 as usize), 0xf6c779 as u32)
-        gui_label(g, 11 as u32, secondX + (18 as usize),
-                  secondY + (121 as usize), 0x58d6d0 as u32)
-        gui_label(g, 12 as u32, secondX + (18 as usize),
-                  secondY + (151 as usize), 0x9ab2ce as u32)
+        gui_label(g, 1 as u32, 35 as usize, 105 as usize, 0xffffff as u32)
+        gui_label(g, 5 as u32, 35 as usize, 138 as usize, 0xcecece as u32)
     }
     let barY: usize = g.height - (45 as usize)
-    gui_fill(g, 0 as usize, barY, g.width, 45 as usize, 0x0c1426 as u32)
-    gui_fill(g, 20 as usize, barY + (10 as usize), 145 as usize,
-             27 as usize, 0x2a6672 as u32)
-    gui_label(g, 13 as u32, 36 as usize, barY + (17 as usize), 0xffffff as u32)
-    if g.width >= (500 as usize) {
-        gui_label(g, 14 as u32, 185 as usize,
-                  barY + (17 as usize), 0xaec4db as u32)
+    gui_fill(g, 0 as usize, barY, g.width, 45 as usize, 0x242424 as u32)
+    gui_fill(g, 17 as usize, barY + (8 as usize), 115 as usize, 28 as usize, 0x565656 as u32)
+    gui_label(g, 13 as u32, 33 as usize, barY + (15 as usize), 0xffffff as u32)
+    if g.width >= (530 as usize) {
+        gui_label(g, 7 as u32, 180 as usize, barY + (15 as usize), 0xd9d9d9 as u32)
     }
-    if g.explorerVisible && g.width >= (520 as usize) && g.height >= (360 as usize) { explorer_paint(g) }
+    if g.explorerVisible && g.width >= (520 as usize) && g.height >= (360 as usize) {
+        explorer_paint(g)
+    }
     g.redraws = g.redraws + (1 as usize)
     if g.gpuDisplay != null {
         if !gpu_display_present(g.gpuDisplay) {
@@ -507,6 +530,7 @@ function gui_open(info: usize): *GuiDesktop {
     g.selectedAction = 0 as usize
     g.redraws = 0 as usize
     g.explorerVisible = false
+    g.startVisible = true
     g.explorer = null
     g.gpuDisplay = null
     g.fallbackPixels = g.pixels
@@ -536,11 +560,13 @@ function gui_key(g: *GuiDesktop, key: u8): bool {
         g.focused = 0 as usize
         changed = true
     } else if key == (115 as u8) || key == (83 as u8) {
-        g.focused = 1 as usize
+        g.focused = (g.focused + (1 as usize)) % (4 as usize)
         changed = true
     } else if key == (122 as u8) || key == (90 as u8) {
         g.selectedAction = g.selectedAction + (1 as usize)
-        g.focused = (g.focused + (1 as usize)) % (2 as usize)
+        if g.focused == (0 as usize) { g.explorerVisible = true }
+        else if g.focused == (3 as usize) { g.startVisible = !g.startVisible }
+        else { g.focused = (g.focused + (1 as usize)) % (4 as usize) }
         changed = true
     }
     if changed {
