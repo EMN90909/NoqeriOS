@@ -210,6 +210,7 @@ export function kernel_main(multibootInfo: usize): void {
         serial_write("NoqeriOS: VirtIO RNG device not found\n")
     }
 
+    let explorerFiles: *FileManager = null
     let blockLocation: u32 = pci_find_device_location(6900 as u16, 4162 as u16)
     if blockLocation != (65536 as u32) {
         serial_write("NoqeriOS: VirtIO block device detected\n")
@@ -220,8 +221,8 @@ export function kernel_main(multibootInfo: usize): void {
                 let vfsTest: isize = vfs_boot_file_test(blockLocation)
                 if vfsTest == (1 as isize) {
                     serial_write("NoqeriOS: VFS opened and read a NoqFS file\n")
-                    let explorer: *FileManager = files_open(blockLocation)
-                    if explorer != null {
+                    explorerFiles = files_open(blockLocation)
+                    if explorerFiles != null {
                         serial_write("NoqeriOS: NoqFS file explorer ready (read-only)\n")
                     }
                 } else if vfsTest == (-2 as isize) {
@@ -294,6 +295,7 @@ export function kernel_main(multibootInfo: usize): void {
         if memoryReady {
             desktop = gui_open(multibootInfo)
             if desktop != null {
+                gui_attach_files(desktop, explorerFiles)
                 serial_write("NoqeriOS: GUI compositor frame presented\n")
                 serial_write("NoqeriOS: PS/2 keyboard navigation enabled when present\n")
             }
