@@ -298,11 +298,30 @@ static NOQ_FRAMEBUFFER probe_gop(EFI_SYSTEM_TABLE *st) {
         return fb;
     const NOQ_GOP_MODE *mode = gop->mode;
     const NOQ_GOP_INFO *info = mode->info;
-    if (info->pixel_format > 1 || info->width == 0 || info->height == 0 ||
-        info->width > 16384 || info->height > 16384 ||
+    if (info->pixel_format > 2 || info->width == 0 || info->height == 0 ||
+        info->width > 4096 || info->height > 2160 ||
         info->pixels_per_scanline < info->width ||
         info->pixels_per_scanline > 16384)
         return fb;
+    /*
+     * GOP PixelBitMask (2) can also be a linear 32bpp framebuffer, but only
+     * when the masks describe the two byte orders our Noqeri renderer knows.
+     * Reject 10-bit, sparse, overlapping and other unsupported masks instead
+     * of interpreting their bytes as XRGB and displaying random colours.
+     */
+    UINT8 red = 0, blue = 16;
+    if (info->pixel_format == 1) {
+        red = 16; blue = 0;
+    } else if (info->pixel_format == 2) {
+        if (info->masks.green != 0x0000ff00u) return fb;
+        if (info->masks.red == 0x000000ffu &&
+            info->masks.blue == 0x00ff0000u) {
+            red = 0; blue = 16;
+        } else if (info->masks.red == 0x00ff0000u &&
+                   info->masks.blue == 0x000000ffu) {
+            red = 16; blue = 0;
+        } else return fb;
+    }
     UINT64 pitch = (UINT64)info->pixels_per_scanline * 4;
     UINT64 visible_bytes = pitch * info->height;
     if (mode->framebuffer_base < 0x100000 ||
@@ -315,8 +334,8 @@ static NOQ_FRAMEBUFFER probe_gop(EFI_SYSTEM_TABLE *st) {
     fb.pitch = (UINT32)pitch;
     fb.width = info->width;
     fb.height = info->height;
-    fb.red_position = info->pixel_format == 0 ? 0 : 16;
-    fb.blue_position = info->pixel_format == 0 ? 16 : 0;
+    fb.red_position = red;
+    fb.blue_position = blue;
     fb.valid = TRUE;
     log_debug("uefi: supported GOP RGB framebuffer found\n");
     return fb;
