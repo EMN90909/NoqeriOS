@@ -1,0 +1,71 @@
+module os.kernel.file_manager
+import "../Arch/x86_64/api.noqeri"
+import "../Drivers/serial.noqeri"
+import "fs/vfs.noqeri"
+import "fs/types.noqeri"
+
+// Read-only explorer for the current NoqFS root directory.
+// NoqFS v1 stores numeric file keys, not filenames or directories.
+// Never claim rename, delete or folder navigation until VFS supports them.
+record FileManager {
+    mount: *VfsMount;
+    selected: usize;
+    count: usize;
+    keys: *u64;
+    sizes: *u64;
+}
+
+function files_open(blockLocation: u32): *FileManager {
+    let statePage: usize = arch_alloc_page()
+    let mountPage: usize = arch_alloc_page()
+    let keysPage: usize = arch_alloc_page()
+    let sizesPage: usize = arch_alloc_page()
+    if statePage == (0 as usize) || mountPage == (0 as usize) ||
+       keysPage == (0 as usize) || sizesPage == (0 as usize) { return null }
+    let mount: *VfsMount = mountPage as *VfsMount
+    if !vfs_mount_noqfs(blockLocation, mount) { return null }
+    let manager: *FileManager = statePage as *FileManager
+    manager.mount = mount
+    manager.keys = keysPage as *u64
+    manager.sizes = sizesPage as *u64
+    manager.selected = 0 as usize
+    manager.count = 0 as usize
+    // Bound scanning to 512 entries; never index past the allocated pages.
+    let key: u64 = 1 as u64
+    while key <= (512 as u64) {
+        let nodePage: usize = arch_alloc_page()
+        if nodePage == (0 as usize) { break }
+        let node: *VfsNode = nodePage as *VfsNode
+        if vfs_open_root_key(mount, key, node) {
+            manager.keys[manager.count] = key
+            manager.sizes[manager.count] = node.size
+            manager.count = manager.count + (1 as usize)
+        }
+        key = key + (1 as u64)
+    }
+    serial_write("NoqeriOS: read-only NoqFS file explorer initialized\n")
+    return manager
+}
+
+function files_select_next(manager: *FileManager): void {
+    if manager == null || manager.count == (0 as usize) { return }
+    manager.selected = (manager.selected + (1 as usize)) % manager.count
+}
+
+function files_select_previous(manager: *FileManager): void {
+    if manager == null || manager.count == (0 as usize) { return }
+    if manager.selected == (0 as usize) {
+        manager.selected = manager.count - (1 as usize)
+    } else {
+        manager.selected = manager.selected - (1 as usize)
+    }
+}
+
+function files_read_selected(manager: *FileManager, output: usize, capacity: usize): usize {
+    if manager == null || manager.selected >= manager.count || capacity == (0 as usize) { return 0 as usize }
+    let nodePage: usize = arch_alloc_page()
+    if nodePage == (0 as usize) { return 0 as usize }
+    let node: *VfsNode = nodePage as *VfsNode
+    if !vfs_open_root_key(manager.mount, manager.keys[manager.selected], node) { return 0 as usize }
+    return vfs_read(node, 0 as usize, capacity, output)
+}
