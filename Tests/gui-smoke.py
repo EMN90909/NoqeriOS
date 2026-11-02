@@ -121,6 +121,9 @@ def main():
                 raise AssertionError("QEMU did not capture PPM framebuffer images")
             if first == second:
                 raise AssertionError("Framebuffers unchanged after PS/2 keyboard focus event")
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                sock.settimeout(5)
+                sock.connect(str(mon))
                 hmp(sock, "sendkey f")
                 observe(proc, b"NoqeriOS: GUI compositor window focus updated", 6, output)
                 explorer_open = screenshot(sock, str(working / "files.ppm"))
@@ -131,7 +134,7 @@ def main():
                 explorer_selected = screenshot(sock, str(working / "selected.ppm"))
                 if explorer_selected == explorer_open:
                     raise AssertionError("Explorer selection did not update on-screen")
-            print("PASS: UEFI GUI, named NoqFS Explorer opening and PS/2 selection redraw")
+            print("PASS: GOP GUI and named Explorer rendered and respond to PS/2 input")
         except Exception:
             print("Serial diagnostic:\n" + output.decode(errors="replace"), file=sys.stderr)
             raise
