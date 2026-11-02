@@ -123,6 +123,12 @@ EFI_STATUS noq_boot_menu(EFI_HANDLE image, EFI_SYSTEM_TABLE *st) {
     }
     display(st, L"Press 0-9 to choose. NoqeriOS starts in 5 seconds.\r\n");
     log_port("NoqeriOS boot menu: alternate EFI loaders found\n");
+#ifdef NOQERI_TEST_AUTO_CHAINLOAD
+    /* CI-only variant, compiled separately; NEVER enabled in release loader. */
+    log_port("NoqeriOS boot menu: CI direct chainload probe\n");
+    return chainload(image, st, &alternatives[0]);
+#endif
+
 
     /* WaitForEvent permits firmware keyboard event callbacks to run.
      * A busy Stall/ReadKeyStroke loop can starve input on some UEFI systems.
