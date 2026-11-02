@@ -20,6 +20,10 @@ record GuiDesktop {
     selectedAction: usize;
     redraws: usize;
     explorerVisible: bool;
+    terminalVisible: bool;
+    terminalBuffer: *u8;
+    terminalPosition: usize;
+    terminalPending: u8;
     startVisible: bool;
     explorer: *FileManager;
     gpuDisplay: *GpuDisplay;
@@ -537,12 +541,24 @@ function gui_open(info: usize): *GuiDesktop {
     g.selectedAction = 0 as usize
     g.redraws = 0 as usize
     g.explorerVisible = false
+    g.terminalVisible = false
+    g.terminalPosition = 0 as usize
+    g.terminalPending = 0 as u8
+    g.terminalBuffer = arch_alloc_page() as *u8
+    if g.terminalBuffer != null {
+        let n: usize = 0 as usize
+        while n < (640 as usize) {
+            g.terminalBuffer[n] = 32 as u8
+            n = n + (1 as usize)
+        }
+    }
     g.startVisible = true
     g.explorer = null
     g.gpuDisplay = null
     g.fallbackPixels = g.pixels
     g.fallbackSwap = g.swapRedBlue
     gui_paint(g)
+    arch_console_attach(g as usize)
     return g
 }
 function gui_key(g: *GuiDesktop, key: u8): bool {
@@ -763,4 +779,38 @@ function gui_enable_gpu(g: *GuiDesktop, gpuAddress: usize, framebuffer: usize): 
     g.swapRedBlue = false
     gui_paint(g)
     return g.gpuDisplay != null
+}
+
+
+// Bounded native TTY transcript: 40 columns x 16 rows.
+export function gui_terminal_char(g: *GuiDesktop, ch: u8): void {
+    if g == null || g.terminalBuffer == null { return }
+    if ch == (13 as u8) { return }
+    if ch == (8 as u8) {
+        if g.terminalPosition > (0 as usize) {
+            g.terminalPosition = g.terminalPosition - (1 as usize)
+            g.terminalBuffer[g.terminalPosition] = 32 as u8
+        }
+        return
+    }
+    if ch == (10 as u8) {
+        g.terminalPosition = (g.terminalPosition / (40 as usize) + (1 as usize)) * (40 as usize)
+    } else if ch >= (32 as u8) && ch <= (126 as u8) {
+        if g.terminalPosition < (640 as usize) {
+            g.terminalBuffer[g.terminalPosition] = ch
+            g.terminalPosition = g.terminalPosition + (1 as usize)
+        }
+    }
+    if g.terminalPosition >= (640 as usize) {
+        let i: usize = 0 as usize
+        while i < (600 as usize) {
+            g.terminalBuffer[i] = g.terminalBuffer[i + (40 as usize)]
+            i = i + (1 as usize)
+        }
+        while i < (640 as usize) {
+            g.terminalBuffer[i] = 32 as u8
+            i = i + (1 as usize)
+        }
+        g.terminalPosition = 600 as usize
+    }
 }
