@@ -13,7 +13,7 @@ function boot_splash_pack(rgb: u32, redLow: bool): u32 {
     return blue * (65536 as u32) + green * (256 as u32) + red
 }
 
-function boot_splash_fill(fb: *Mb2FramebufferTag, redLow: bool,
+function boot_splash_fill(fb: *Mb2FramebufferTag,
                           left: usize, top: usize, width: usize,
                           height: usize, color: u32): void {
     let maxWidth: usize = fb.width as usize
@@ -25,6 +25,8 @@ function boot_splash_fill(fb: *Mb2FramebufferTag, redLow: bool,
     if h > maxHeight - top { h = maxHeight - top }
     let pitchPixels: usize = (fb.pitch as usize) / (4 as usize)
     let pixels: *volatile u32 = (fb.address as usize) as *volatile u32
+    let channels: *u8 = ((fb as usize) + (32 as usize)) as *u8
+    let redLow: bool = channels[0] == (0 as u8)
     let ink: u32 = boot_splash_pack(color, redLow)
     let y: usize = 0 as usize
     while y < h {
@@ -65,7 +67,7 @@ function boot_splash_logo(fb: *Mb2FramebufferTag, redLow: bool): void {
             let mask: u64 = 16 as u64
             while column < (5 as usize) {
                 if (bits / mask) % (2 as u64) == (1 as u64) {
-                    boot_splash_fill(fb, redLow,
+                    boot_splash_fill(fb,
                                      x0 + letter * (6 as usize) * scale + column * scale,
                                      y0 + line * scale, scale, scale, 0xf7f7f7 as u32)
                 }
@@ -93,10 +95,10 @@ function boot_splash_update(info: usize, progress: usize): void {
     let top: usize = ((fb.height as usize) / (2 as usize)) + (28 as usize)
     // Redraw the track at every milestone so the width never depends on
     // stale firmware pixels or incremental rounding errors.
-    boot_splash_fill(fb, redLow, left, top, barWidth, 9 as usize, 0x454545 as u32)
+    boot_splash_fill(fb, left, top, barWidth, 9 as usize, 0x454545 as u32)
     let done: usize = progress
     if done > (100 as usize) { done = 100 as usize }
-    boot_splash_fill(fb, redLow, left, top,
+    boot_splash_fill(fb, left, top,
                      (barWidth * done) / (100 as usize),
                      9 as usize, 0xfb5607 as u32)
 }
@@ -107,7 +109,7 @@ function boot_splash_begin(info: usize): bool {
     let fb: *Mb2FramebufferTag = tag as *Mb2FramebufferTag
     let channels: *u8 = (tag + (32 as usize)) as *u8
     let redLow: bool = channels[0] == (0 as u8)
-    boot_splash_fill(fb, redLow, 0 as usize, 0 as usize,
+    boot_splash_fill(fb, 0 as usize, 0 as usize,
                      fb.width as usize, fb.height as usize, 0x101010 as u32)
     boot_splash_logo(fb, redLow)
     boot_splash_update(info, 8 as usize)
