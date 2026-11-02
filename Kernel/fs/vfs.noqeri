@@ -16,6 +16,14 @@ function vfs_open_root_key(mount: *VfsMount, key: u64, node: *VfsNode): bool {
     return false
 }
 
+function vfs_open_key_address(mountAddress: usize, key: u64, nodeAddress: usize): bool {
+    if mountAddress == (0 as usize) || nodeAddress == (0 as usize) { return false }
+    return vfs_open_root_key(mountAddress as *VfsMount, key, nodeAddress as *VfsNode)
+}
+function vfs_read_address(nodeAddress: usize, offset: usize, capacity: usize, output: usize): usize {
+    if nodeAddress == (0 as usize) { return 0 as usize }
+    return vfs_read(nodeAddress as *VfsNode, offset, capacity, output)
+}
 function vfs_entry_at(mountAddress: usize, index: u32, nodeAddress: usize, nameOutput: usize): bool {
     if mountAddress == (0 as usize) || nodeAddress == (0 as usize) { return false }
     let mount: *VfsMount = mountAddress as *VfsMount
