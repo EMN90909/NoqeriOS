@@ -19,10 +19,12 @@ function noqfs_mount(blockLocation: u32, mount: *VfsMount): bool {
     let sectorSize: *volatile u32 = (sectorPage + (20 as usize)) as *volatile u32
 
     if magic[0] != (1397117262 as u32) { return false }
-    if version[0] != (1 as u32) { return false }
+    if version[0] != (1 as u32) && version[0] != (2 as u32) { return false }
     if sectorSize[0] != (512 as u32) { return false }
     if rootSector[0] == (0 as u64) { return false }
 
+    if rootEntries[0] > (4096 as u32) { return false }
+    mount.version = version[0]
     mount.driverKind = 1 as u32
     mount.blockLocation = blockLocation
     mount.sectorSize = sectorSize[0]
@@ -45,12 +47,14 @@ function noqfs_open_root_key_status(mount: *VfsMount, key: u64, node: *VfsNode):
     let index: u32 = 0 as u32
     while index < mount.rootEntryCount {
         let entriesPerSector: u32 = 16 as u32
+        let entryBytes: usize = 32 as usize
+        if mount.version == (2 as u32) { entriesPerSector = 8 as u32; entryBytes = 64 as usize }
         let sectorDelta: u64 = (index / entriesPerSector) as u64
         let entryInSector: usize = (index % entriesPerSector) as usize
         let directorySector: u64 = mount.rootDirectorySector + sectorDelta
         if !virtio_block_read_sector(mount.blockLocation, directorySector, directoryPage) { return -15 }
 
-        let entryOffset: usize = entryInSector * (32 as usize)
+        let entryOffset: usize = entryInSector * entryBytes
         let entryKey: *volatile u64 = (directoryPage + entryOffset) as *volatile u64
         let entryFirstSector: *volatile u64 = (directoryPage + entryOffset + (8 as usize)) as *volatile u64
         let entrySize: *volatile u64 = (directoryPage + entryOffset + (16 as usize)) as *volatile u64
@@ -63,6 +67,13 @@ function noqfs_open_root_key_status(mount: *VfsMount, key: u64, node: *VfsNode):
             node.firstSector = entryFirstSector[0]
             node.flags = entryFlags[0]
             node.reserved = 0 as u32
+            node.parentKey = 0 as u64
+            node.nameLength = 0 as u32
+            node.name = null
+            if mount.version == (2 as u32) {
+                let parent: *volatile u64 = (directoryPage + entryOffset + (32 as usize)) as *volatile u64
+                node.parentKey = parent[0]
+            }
             return 1 as isize
         }
 
@@ -117,4 +128,55 @@ function noqfs_read(node: *VfsNode, offset: usize, requested: usize, output: usi
     }
 
     return written
+}
+
+// v2: 64-byte fixed directory records, parent key + 24-byte UTF-8 name.
+// v1 remains compatible; it has no names or parent directory metadata.
+// Caller owns nameOutput (at least 25 bytes). No pointers into scratch pages escape.
+function noqfs_entry_at(mount: *VfsMount, index: u32, node: *VfsNode, nameOutput: usize): bool {
+    if mount == null || node == null || nameOutput == (0 as usize) { return false }
+    if mount.mounted != (1 as u32) || index >= mount.rootEntryCount { return false }
+    let perSector: u32 = 16 as u32
+    let entryBytes: usize = 32 as usize
+    if mount.version == (2 as u32) {
+        perSector = 8 as u32
+        entryBytes = 64 as usize
+    }
+    let scratch: usize = arch_alloc_page()
+    if scratch == (0 as usize) { return false }
+    let sector: u64 = mount.rootDirectorySector + ((index / perSector) as u64)
+    if !virtio_block_read_sector(mount.blockLocation, sector, scratch) { return false }
+    let at: usize = scratch + (((index % perSector) as usize) * entryBytes)
+    let keyPtr: *u64 = at as *u64
+    let firstPtr: *u64 = (at + (8 as usize)) as *u64
+    let sizePtr: *u64 = (at + (16 as usize)) as *u64
+    let flagPtr: *u32 = (at + (24 as usize)) as *u32
+    if keyPtr[0] == (0 as u64) { return false }
+    vfs_node_clear(node)
+    node.mount = mount
+    node.key = keyPtr[0]
+    node.firstSector = firstPtr[0]
+    node.size = sizePtr[0]
+    node.flags = flagPtr[0]
+    node.name = nameOutput as *u8
+    let dst: *u8 = nameOutput as *u8
+    if mount.version == (2 as u32) {
+        let parent: *u64 = (at + (32 as usize)) as *u64
+        let length: *u32 = (at + (28 as usize)) as *u32
+        if length[0] == (0 as u32) || length[0] > (24 as u32) { return false }
+        node.parentKey = parent[0]
+        node.nameLength = length[0]
+        let src: *u8 = (at + (40 as usize)) as *u8
+        let k: usize = 0 as usize
+        while k < node.nameLength as usize {
+            if src[k] == (0 as u8) || src[k] == (47 as u8) { return false }
+            dst[k] = src[k]
+            k = k + (1 as usize)
+        }
+        dst[k] = 0 as u8
+    } else {
+        node.nameLength = 0 as u32
+        dst[0] = 0 as u8
+    }
+    return true
 }
