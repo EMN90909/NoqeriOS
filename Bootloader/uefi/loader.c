@@ -298,11 +298,30 @@ static NOQ_FRAMEBUFFER probe_gop(EFI_SYSTEM_TABLE *st) {
         return fb;
     const NOQ_GOP_MODE *mode = gop->mode;
     const NOQ_GOP_INFO *info = mode->info;
-    if (info->pixel_format > 1 || info->width == 0 || info->height == 0 ||
-        info->width > 16384 || info->height > 16384 ||
+    if (info->pixel_format > 2 || info->width == 0 || info->height == 0 ||
+        info->width > 4096 || info->height > 2160 ||
         info->pixels_per_scanline < info->width ||
         info->pixels_per_scanline > 16384)
         return fb;
+    /*
+     * GOP PixelBitMask (2) can also be a linear 32bpp framebuffer, but only
+     * when the masks describe the two byte orders our Noqeri renderer knows.
+     * Reject 10-bit, sparse, overlapping and other unsupported masks instead
+     * of interpreting their bytes as XRGB and displaying random colours.
+     */
+    UINT8 red = 0, blue = 16;
+    if (info->pixel_format == 1) {
+        red = 16; blue = 0;
+    } else if (info->pixel_format == 2) {
+        if (info->masks.green != 0x0000ff00u) return fb;
+        if (info->masks.red == 0x000000ffu &&
+            info->masks.blue == 0x00ff0000u) {
+            red = 0; blue = 16;
+        } else if (info->masks.red == 0x00ff0000u &&
+                   info->masks.blue == 0x000000ffu) {
+            red = 16; blue = 0;
+        } else return fb;
+    }
     UINT64 pitch = (UINT64)info->pixels_per_scanline * 4;
     UINT64 visible_bytes = pitch * info->height;
     if (mode->framebuffer_base < 0x100000 ||
@@ -315,8 +334,8 @@ static NOQ_FRAMEBUFFER probe_gop(EFI_SYSTEM_TABLE *st) {
     fb.pitch = (UINT32)pitch;
     fb.width = info->width;
     fb.height = info->height;
-    fb.red_position = info->pixel_format == 0 ? 0 : 16;
-    fb.blue_position = info->pixel_format == 0 ? 16 : 0;
+    fb.red_position = red;
+    fb.blue_position = blue;
     fb.valid = TRUE;
     log_debug("uefi: supported GOP RGB framebuffer found\n");
     return fb;
@@ -339,24 +358,52 @@ static EFI_STATUS paging(EFI_BOOT_SERVICES *bs, EFI_PHYSICAL_ADDRESS *root,
     pd[3] |= 4;
 
     if (fb && fb->valid) {
-        UINT64 first = fb->address >> 21;
-        UINT64 last = (fb->address + fb->length - 1) >> 21;
+        /*
+         * Real Intel GOP framebuffers are MMIO. Map only actual 4 KiB
+         * framebuffer pages, rather than mapping entire surrounding 2 MiB
+         * regions with large-page cache attributes.
+         * If the aperture resides in the first 1 GiB, split the existing
+         * identity-mapped large page without losing adjacent RAM mappings.
+         */
+        UINT64 first = fb->address >> 12;
+        UINT64 last = (fb->address + fb->length - 1) >> 12;
+        UINT64 current_pde = ~(UINT64)0;
+        UINT64 *pt = NULL;
         for (UINT64 page = first; page <= last; ++page) {
-            UINTN pdpt_index = (UINTN)(page >> 9);
-            UINTN pd_index = (UINTN)(page & 511u);
+            UINT64 pde_number = page >> 9;
+            UINTN pdpt_index = (UINTN)(pde_number >> 9);
+            UINTN pd_index = (UINTN)(pde_number & 511u);
+            UINTN pt_index = (UINTN)(page & 511u);
             if (pdpt_index >= 512) return EFI_UNSUPPORTED;
             if (!pdpt[pdpt_index]) {
-                EFI_PHYSICAL_ADDRESS extra;
-                status = alloc_low(bs, 1, &extra);
+                EFI_PHYSICAL_ADDRESS extra_pd;
+                status = alloc_low(bs, 1, &extra_pd);
                 if (EFI_ERROR(status)) return status;
-                bytes_zero((VOID *)(UINTN)extra, 4096);
-                pdpt[pdpt_index] = extra | 7;
+                bytes_zero((VOID *)(UINTN)extra_pd, 4096);
+                pdpt[pdpt_index] = extra_pd | 3;
             }
             UINT64 *entries = (UINT64 *)(UINTN)(pdpt[pdpt_index] & ~4095ULL);
-            /* Write-through/cache-disabled MMIO prevents framebuffer writes
-             * from being cached as ordinary RAM, including for 2 MiB pages. */
-            entries[pd_index] = (page << 21) | 0x9b;
+            if (pde_number != current_pde) {
+                UINT64 old = entries[pd_index];
+                EFI_PHYSICAL_ADDRESS extra_pt;
+                status = alloc_low(bs, 1, &extra_pt);
+                if (EFI_ERROR(status)) return status;
+                pt = (UINT64 *)(UINTN)extra_pt;
+                bytes_zero(pt, 4096);
+                if (old & 0x80ULL) {
+                    UINT64 base = old & 0x000fffffffe00000ULL;
+                    for (UINTN i = 0; i < 512; ++i)
+                        pt[i] = (base + (i << 12)) | 3;
+                } else if (old & 1ULL) {
+                    return EFI_UNSUPPORTED;
+                }
+                entries[pd_index] = extra_pt | 3;
+                current_pde = pde_number;
+            }
+            /* Present, writable, write-through, cache disabled (UC). */
+            pt[pt_index] = (page << 12) | 0x1bULL;
         }
+        log_debug("uefi: framebuffer mapped with 4 KiB uncached pages\n");
     }
     *root = addr;
     return EFI_SUCCESS;

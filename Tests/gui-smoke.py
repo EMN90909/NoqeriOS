@@ -65,6 +65,37 @@ def screenshot(sock, name):
     raise TimeoutError(f"No QEMU screenshot at {name}")
 
 
+def assert_clean_graphics(ppm):
+    """Pixel-level sanity checks, not merely 'the screenshot changed'.
+
+    The outer edges of the Noqeri desktop are deliberately solid neutral
+    colours. Horizontal GOP corruption, bad pitch or wrong page mapping
+    must fail the screenshot gate even if keyboard focus still changes.
+    """
+    import re
+    header = re.match(rb"P6\s+(\d+)\s+(\d+)\s+(\d+)\s", ppm)
+    if not header:
+        raise AssertionError("QEMU produced an invalid P6 screenshot")
+    width, height, maximum = map(int, header.groups())
+    raw = ppm[header.end():]
+    if width < 320 or height < 240 or maximum != 255 or len(raw) != 3 * width * height:
+        raise AssertionError(f"Invalid framebuffer capture: {width}x{height}")
+    def rgb(x, y):
+        start = 3 * (y * width + x)
+        return tuple(raw[start:start + 3])
+    # Start desktop background, wallpaper, and bottom navigation bar.
+    for name, x, y, expected in (
+        ("top bar", 8, 8, (36, 36, 36)),
+        ("wallpaper", 8, 75, (48, 48, 48)),
+        ("bottom bar", 8, height - 18, (36, 36, 36)),
+    ):
+        actual = rgb(x, y)
+        if any(abs(a - b) > 6 for a, b in zip(actual, expected)):
+            raise AssertionError(
+                f"Graphics corruption near {name}: pixel ({x},{y})={actual}, expected {expected}"
+            )
+
+
 def main():
     code, vars_origin = firmware()
     if not (OUT / "noqerios.iso").exists():
@@ -113,6 +144,7 @@ def main():
                 sock.settimeout(5)
                 sock.connect(str(mon))
                 first = screenshot(sock, str(working / "first.ppm"))
+                assert_clean_graphics(first)
                 # QEMU keyboard injection reaches legacy i8042 controller.
                 hmp(sock, "sendkey s")
                 observe(proc, b"NoqeriOS: GUI compositor window focus updated", 6, output)
