@@ -1,0 +1,187 @@
+module os.drivers.virtio_gpu_display
+
+import "../Arch/x86_64/api.noqeri"
+import "virtio.noqeri"
+
+// VirtIO-GPU 2D scanout adapter. CPU composes into pinned guest RAM;
+// VirtIO GPU transports changed pixels to the display host. This is
+// GPU display presentation, not accelerated 3D/rasterization.
+record GpuDisplay {
+    location: u32;
+    notify: u32;
+    desc: usize;
+    avail: usize;
+    used: usize;
+    request: usize;
+    response: usize;
+    framebuffer: usize;
+    width: usize;
+    height: usize;
+    frameBytes: usize;
+    sequence: u16;
+    active: bool;
+}
+
+// Each request is a single two-descriptor VirtIO split ring transaction.
+// The response is written by the virtual GPU; bounded waits prevent hangs.
+function gpu_display_send(g: *GpuDisplay, bytes: u32, expected: u32): bool {
+    if g == null || !g.active { return false }
+    let d0: *u64 = g.desc as *u64
+    let l0: *u32 = (g.desc + (8 as usize)) as *u32
+    let f0: *u16 = (g.desc + (12 as usize)) as *u16
+    let n0: *u16 = (g.desc + (14 as usize)) as *u16
+    let d1: *u64 = (g.desc + (16 as usize)) as *u64
+    let l1: *u32 = (g.desc + (24 as usize)) as *u32
+    let f1: *u16 = (g.desc + (28 as usize)) as *u16
+    let n1: *u16 = (g.desc + (30 as usize)) as *u16
+    d0[0] = g.request as u64
+    l0[0] = bytes
+    f0[0] = 1 as u16
+    n0[0] = 1 as u16
+    d1[0] = g.response as u64
+    l1[0] = 1024 as u32
+    f1[0] = 2 as u16
+    n1[0] = 0 as u16
+    let responseType: *volatile u32 = g.response as *volatile u32
+    responseType[0] = 0 as u32
+    let ring: *u16 = (g.avail + (4 as usize) +
+                       ((g.sequence as usize % (8 as usize)) * (2 as usize))) as *u16
+    let availIndex: *u16 = (g.avail + (2 as usize)) as *u16
+    let usedIndex: *volatile u16 = (g.used + (2 as usize)) as *volatile u16
+    ring[0] = 0 as u16
+    atomicFence()
+    g.sequence = g.sequence + (1 as u16)
+    availIndex[0] = g.sequence
+    atomicFence()
+    if !virtio_notify_queue(g.location, 0 as u16, g.notify) {
+        g.active = false
+        return false
+    }
+    let spins: usize = 0 as usize
+    while usedIndex[0] != g.sequence && spins < (2000000 as usize) {
+        intrinsic("x86.pause")
+        spins = spins + (1 as usize)
+    }
+    if usedIndex[0] != g.sequence || responseType[0] != expected {
+        g.active = false
+        return false
+    }
+    return true
+}
+
+function gpu_display_cmd(g: *GpuDisplay, command: u32): void {
+    let header: *u32 = g.request as *u32
+    header[0] = command
+    header[1] = 0 as u32
+    let pad: *u64 = (g.request + (8 as usize)) as *u64
+    pad[0] = 0 as u64
+    let context: *u64 = (g.request + (16 as usize)) as *u64
+    context[0] = 0 as u64
+}
+
+// Graphics resource ID 1, BGRA/XRGB little-endian 32bpp.
+function gpu_display_start(location: u32, framebuffer: usize,
+                           width: usize, height: usize): *GpuDisplay {
+    if framebuffer == (0 as usize) || width < (320 as usize) ||
+       height < (240 as usize) || width > (4096 as usize) ||
+       height > (2160 as usize) { return null }
+    let total: usize = width * height * (4 as usize)
+    if total > (4294967295 as usize) { return null }
+    if !virtio_begin_driver(location) { return null }
+    let statePage: usize = arch_alloc_page()
+    let desc: usize = arch_alloc_page()
+    let avail: usize = arch_alloc_page()
+    let used: usize = arch_alloc_page()
+    let request: usize = arch_alloc_page()
+    let response: usize = arch_alloc_page()
+    if statePage == (0 as usize) || desc == (0 as usize) ||
+       avail == (0 as usize) || used == (0 as usize) ||
+       request == (0 as usize) || response == (0 as usize) {
+        virtio_reset(location)
+        return null
+    }
+    let g: *GpuDisplay = statePage as *GpuDisplay
+    g.location = location
+    g.desc = desc
+    g.avail = avail
+    g.used = used
+    g.request = request
+    g.response = response
+    g.framebuffer = framebuffer
+    g.width = width
+    g.height = height
+    g.frameBytes = total
+    g.sequence = 0 as u16
+    g.active = true
+    let av: *u16 = (avail + (2 as usize)) as *u16
+    let us: *u16 = (used + (2 as usize)) as *u16
+    av[0] = 0 as u16
+    us[0] = 0 as u16
+    g.notify = virtio_queue_setup(location, 0 as u16, desc, avail, used)
+    if g.notify == (4294967295 as u32) || !virtio_driver_ok(location) {
+        virtio_reset(location)
+        return null
+    }
+    // RESOURCE_CREATE_2D: hdr(24), id, format, width, height.
+    gpu_display_cmd(g, 257 as u32)
+    let r: *u32 = (request + (24 as usize)) as *u32
+    r[0] = 1 as u32
+    r[1] = 2 as u32
+    r[2] = width as u32
+    r[3] = height as u32
+    if !gpu_display_send(g, 40 as u32, 4352 as u32) {
+        virtio_reset(location)
+        return null
+    }
+    // RESOURCE_ATTACH_BACKING: one contiguous pinned DMA extent.
+    gpu_display_cmd(g, 262 as u32)
+    r[0] = 1 as u32
+    r[1] = 1 as u32
+    let address: *u64 = (request + (32 as usize)) as *u64
+    let length: *u32 = (request + (40 as usize)) as *u32
+    let pad: *u32 = (request + (44 as usize)) as *u32
+    address[0] = framebuffer as u64
+    length[0] = total as u32
+    pad[0] = 0 as u32
+    if !gpu_display_send(g, 48 as u32, 4352 as u32) {
+        virtio_reset(location)
+        return null
+    }
+    // SET_SCANOUT: framebuffer becomes the virtual GPU's display.
+    gpu_display_cmd(g, 259 as u32)
+    r[0] = 0 as u32
+    r[1] = 0 as u32
+    r[2] = width as u32
+    r[3] = height as u32
+    r[4] = 0 as u32
+    r[5] = 1 as u32
+    if !gpu_display_send(g, 48 as u32, 4352 as u32) {
+        virtio_reset(location)
+        return null
+    }
+    return g
+}
+
+function gpu_display_present(g: *GpuDisplay): bool {
+    if g == null || !g.active { return false }
+    let r: *u32 = (g.request + (24 as usize)) as *u32
+    gpu_display_cmd(g, 261 as u32) // TRANSFER_TO_HOST_2D
+    r[0] = 0 as u32
+    r[1] = 0 as u32
+    r[2] = g.width as u32
+    r[3] = g.height as u32
+    let offset: *u64 = (g.request + (40 as usize)) as *u64
+    offset[0] = 0 as u64
+    let id: *u32 = (g.request + (48 as usize)) as *u32
+    id[0] = 1 as u32
+    id[1] = 0 as u32
+    if !gpu_display_send(g, 56 as u32, 4352 as u32) { return false }
+    gpu_display_cmd(g, 260 as u32) // RESOURCE_FLUSH
+    r[0] = 0 as u32
+    r[1] = 0 as u32
+    r[2] = g.width as u32
+    r[3] = g.height as u32
+    r[4] = 1 as u32
+    r[5] = 0 as u32
+    return gpu_display_send(g, 48 as u32, 4352 as u32)
+}
