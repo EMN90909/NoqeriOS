@@ -47,6 +47,35 @@ printf '\x10\x00\x00\x00\x00\x00\x00\x00' | dd of="$DISK" bs=1 seek=528 conv=not
 printf '\x01\x00\x00\x00' | dd of="$DISK" bs=1 seek=536 conv=notrunc status=none
 printf 'HELO from NoqFS\n' | dd of="$DISK" bs=1 seek=1024 conv=notrunc status=none
 
+# Add a second, self-contained PE32+ metadata fixture for Noed inspection.
+# This image is deliberately NOT runnable and has no host-side execution.
+# Keep key 1 and its HELO payload intact for existing filesystem tests.
+python3 - "$DISK" <<'PY_NOED'
+import pathlib, struct, sys
+disk = pathlib.Path(sys.argv[1])
+with disk.open("r+b") as fd:
+    fd.seek(16)
+    fd.write(struct.pack("<I", 2))
+    fd.seek(512 + 32)
+    fd.write(struct.pack("<QQQII", 2, 3, 512, 1, 0))
+    pe = bytearray(512)
+    pe[:2] = b"MZ"
+    struct.pack_into("<I", pe, 0x3c, 0x80)
+    pe[0x80:0x84] = b"PE\\x00\\x00"
+    struct.pack_into("<HHIIIHH", pe, 0x84, 0x8664, 1, 0, 0, 0, 0xF0, 0x0002)
+    opt = 0x98
+    struct.pack_into("<H", pe, opt, 0x20b)
+    struct.pack_into("<I", pe, opt+16, 0x1000)
+    struct.pack_into("<I", pe, opt+56, 0x2000)
+    struct.pack_into("<I", pe, opt+60, 0x200)
+    struct.pack_into("<H", pe, opt+68, 3)
+    section = opt+0xF0
+    pe[section:section+5] = b".text"
+    struct.pack_into("<IIII", pe, section+8, 16, 0x1000, 0, 0x200)
+    fd.seek(3*512)
+    fd.write(pe)
+PY_NOED
+
 # Network tests use QEMU user-mode NAT (no inbound port forwarding).
 # The kernel only exchanges DHCP/ARP with the virtual gateway; the test
 # does not contact public hosts. The DHCP server omits a router with
