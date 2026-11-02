@@ -61,7 +61,7 @@ with disk.open("r+b") as fd:
     pe = bytearray(512)
     pe[:2] = b"MZ"
     struct.pack_into("<I", pe, 0x3c, 0x80)
-    pe[0x80:0x84] = b"PE\\x00\\x00"
+    pe[0x80:0x84] = b"PE" + bytes(2)
     struct.pack_into("<HHIIIHH", pe, 0x84, 0x8664, 1, 0, 0, 0, 0xF0, 0x0002)
     opt = 0x98
     struct.pack_into("<H", pe, opt, 0x20b)
