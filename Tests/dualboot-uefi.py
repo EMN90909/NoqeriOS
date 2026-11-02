@@ -103,7 +103,9 @@ def run():
             with socket.socket(socket.AF_UNIX) as sock:
                 sock.settimeout(5)
                 sock.connect(str(monitor))
-                sock.sendall(b"sendkey 1\n")
+                for attempt in range(8):
+                    sock.sendall(b"sendkey 1\n")
+                    time.sleep(0.2)
             wait_for(debug, b"NOQERI_ALT_EFI_EXECUTED", 12)
             wait_for(debug, b"NoqeriOS UEFI: ExitBootServices OK", 12)
             print("PASS: cross-volume EFI loader discovery, selection, chainload and safe return")
