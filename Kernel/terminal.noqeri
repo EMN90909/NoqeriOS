@@ -50,7 +50,7 @@ function shell_word_hash(bytes: *u8, length: usize): u32 {
     while i < length {
         let ch: u8 = bytes[i]
         if ch >= (65 as u8) && ch <= (90 as u8) { ch = ch + (32 as u8) }
-        value = (value * (33 as u32)) ^ (ch as u32)
+        value = (value * (33 as u32)) + (ch as u32)
         i = i + (1 as usize)
     }
     return value
@@ -96,28 +96,28 @@ function shell_exec(buffer: *u8, size: usize, network: *Network, desktop: *GuiDe
     let m: *FileManager = null
     if desktop != null { m = desktop.explorer }
 
-    if hash == (2087804052 as u32) || hash == (177613 as u32) {
+    if hash == (2090324718 as u32) || hash == (177677 as u32) {
         serial_write("\nNoqeri Shell - Windows-style, fewer commands\n")
         serial_write("help  cls  ver  mem  tasks  net  ping  dns  tcp\n")
         serial_write("dir/ls  cd NAME  cd ..  pwd  type NAME  echo TEXT\n")
         serial_write("files  start  gui  reboot\n")
         serial_write("NoqFS browsing is read-only. Press Enter to run.\n")
-    } else if hash == (193416281 as u32) || hash == (176922748 as u32) {
+    } else if hash == (193488487 as u32) || hash == (255552908 as u32) {
         serial_write("\x1b[2J\x1b[H")
-    } else if hash == (193428324 as u32) || hash == (2087826411 as u32) {
+    } else if hash == (193508946 as u32) || hash == (2090370257 as u32) {
         serial_write("\nNoqeriOS x86_64, native Noqeri shell 1.0\n")
-    } else if hash == (193414176 as u32) || hash == (1468210564 as u32) {
+    } else if hash == (193499140 as u32) || hash == (226666718 as u32) {
         serial_write("\nPhysical allocator, VMM and kernel heap initialized\n")
-    } else if hash == (182936411 as u32) || hash == (5861382 as u32) {
+    } else if hash == (275333835 as u32) || hash == (5863720 as u32) {
         serial_write("\nKernel scheduler online; general user tasks not yet launchable\n")
-    } else if hash == (193419642 as u32) || hash == (3392415835 as u32) {
+    } else if hash == (193500236 as u32) || hash == (190120623 as u32) {
         serial_write("\n")
         network_console_status(network)
-    } else if hash == (2088104533 as u32) {
+    } else if hash == (2090616627 as u32) {
         if network == null || !network.online { serial_write("\nNetwork: no configured gateway\n") }
         else if network_icmp_echo(network) { serial_write("\nNetwork: IPv4 gateway ICMP echo succeeded\n") }
         else { serial_write("\nNetwork: gateway ICMP echo timed out\n") }
-    } else if hash == (193404700 as u32) {
+    } else if hash == (193489642 as u32) {
         if network == null || !network.online { serial_write("\nDNS: network offline\n") }
         else {
             let resolved: u32 = network_dns_example(network)
@@ -128,11 +128,11 @@ function shell_exec(buffer: *u8, size: usize, network: *Network, desktop: *GuiDe
                 serial_write("\n")
             }
         }
-    } else if hash == (193421730 as u32) {
+    } else if hash == (193506700 as u32) {
         if network == null || !network.online { serial_write("\nTCP: network offline\n") }
         else if tcp_fixture_request(network) { serial_write("\nTCP: local HTTP fixture response verified\n") }
         else { serial_write("\nTCP: local HTTP fixture unavailable\n") }
-    } else if hash == (193404666 as u32) || hash == (5861018 as u32) {
+    } else if hash == (193489476 as u32) || hash == (5863588 as u32) {
         if m == null { serial_write("\nNoqFS drive not mounted\n") }
         else {
             serial_write("\n Directory of N:\\ (read-only)\n")
@@ -155,14 +155,14 @@ function shell_exec(buffer: *u8, size: usize, network: *Network, desktop: *GuiDe
             shell_number(m.visibleCount as u64)
             serial_write("\n")
         }
-    } else if hash == (193425446 as u32) {
+    } else if hash == (193502992 as u32) {
         serial_write("\nN:\\")
         if m != null && m.currentParent != (0 as u64) {
             serial_write("KEY-")
             shell_number(m.currentParent)
         }
         serial_write("\n")
-    } else if hash == (5861090 as u32) {
+    } else if hash == (5863276 as u32) {
         if m == null { serial_write("\nNoqFS drive not mounted\n") }
         else if args == size { serial_write("\nUsage: cd FOLDER or cd ..\n") }
         else if size - args == (2 as usize) && buffer[args] == (46 as u8) && buffer[args + (1 as usize)] == (46 as u8) {
@@ -176,7 +176,7 @@ function shell_exec(buffer: *u8, size: usize, network: *Network, desktop: *GuiDe
             }
         }
         if desktop != null && desktop.explorerVisible { gui_paint(desktop) }
-    } else if hash == (2087944093 as u32) || hash == (193416115 as u32) {
+    } else if hash == (2090777863 as u32) || hash == (193488125 as u32) {
         if m == null { serial_write("\nNoqFS drive not mounted\n") }
         else if args == size { serial_write("\nUsage: type FILENAME\n") }
         else {
@@ -195,21 +195,21 @@ function shell_exec(buffer: *u8, size: usize, network: *Network, desktop: *GuiDe
                 }
             }
         }
-    } else if hash == (2087415716 as u32) {
+    } else if hash == (2090214596 as u32) {
         serial_write("\n")
         shell_print(buffer + args,size - args)
         serial_write("\n")
-    } else if hash == (171232592 as u32) || hash == (195030917 as u32) {
+    } else if hash == (259010616 as u32) || hash == (274811347 as u32) {
         if desktop == null { serial_write("\nGraphical desktop unavailable\n") }
         else {
             desktop.explorerVisible = true
             gui_paint(desktop)
             serial_write("\nFile Explorer opened\n")
         }
-    } else if hash == (193412414 as u32) {
+    } else if hash == (193493130 as u32) {
         if desktop == null { serial_write("\nGraphical desktop unavailable\n") }
         else { gui_key(desktop, 115 as u8); serial_write("\nStart selection changed\n") }
-    } else if hash == (2124132068 as u32) {
+    } else if hash == (421948272 as u32) {
         serial_write("\nReboot is not implemented; use QEMU reset\n")
     } else {
         serial_write("\nUnknown command. Type help.\n")
