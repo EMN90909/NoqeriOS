@@ -293,7 +293,12 @@ export function kernel_main(multibootInfo: usize): void {
     if gpuPage != (0 as usize) {
         let gpu: *GpuCapability = gpuPage as *GpuCapability
         if gpu_detect(gpu) {
-            serial_write("NoqeriOS: VirtIO GPU found; CPU display fallback active\n")
+            if gpu_query_display(gpu.pciLocation) {
+                serial_write("NoqeriOS: VirtIO GPU control queue display-info handshake passed\n")
+            } else {
+                serial_write("NoqeriOS: VirtIO GPU commands unavailable; CPU fallback active\n")
+            }
+            serial_write("NoqeriOS: GPU scanout not enabled; CPU display fallback active\n")
         } else {
             serial_write("NoqeriOS: no native GPU backend; CPU display active\n")
         }
