@@ -433,9 +433,13 @@ static BOOLEAN make_mb2(UINT8 *dest, UINTN capacity, EFI_MEMORY_DESCRIPTOR *map,
     return TRUE;
 }
 
+EFI_STATUS noq_boot_menu(EFI_HANDLE image, EFI_SYSTEM_TABLE *st);
+
 EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st) {
     InitializeLib(image, st);
     screen_table = st;
+    EFI_STATUS menu_status = noq_boot_menu(image, st);
+    if (EFI_ERROR(menu_status)) return menu_status;
     screen_message(L"NoqeriOS UEFI x64: loading kernel...\r\n");
     log_debug("NoqeriOS UEFI: entered firmware application\n");
     log_debug("uefi:before-console-print\n");
