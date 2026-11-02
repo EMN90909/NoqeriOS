@@ -87,7 +87,6 @@ def run():
                 str(OUT / "uefi/esp.img"), str(probe))
         vars_copy = tmp / "vars.fd"
         shutil.copyfile(vars_file, vars_copy)
-        monitor = tmp / "hmp.sock"
         debug = tmp / "debug.log"
         cmd = [
             "qemu-system-x86_64", "-machine", "q35", "-m", "256M",
@@ -101,22 +100,13 @@ def run():
 
             "-serial", "none", "-display", "none",
             "-debugcon", f"file:{debug}", "-global", "isa-debugcon.iobase=0xe9",
-            "-monitor", f"unix:{monitor},server,nowait",
+            "-monitor", "none",
             "-no-reboot", "-no-shutdown",
         ]
         proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
                                 stderr=subprocess.PIPE)
         try:
             wait_for(debug, b"NoqeriOS boot menu: alternate EFI loaders found")
-            end = time.monotonic() + 5
-            while not monitor.exists() and time.monotonic() < end:
-                time.sleep(0.05)
-            with socket.socket(socket.AF_UNIX) as sock:
-                sock.settimeout(5)
-                sock.connect(str(monitor))
-                for attempt in range(8):
-                    sock.sendall(b"sendkey 1\n")
-                    time.sleep(0.2)
             wait_for(debug, b"NoqeriOS boot menu: CI direct chainload probe", 10)
             wait_for(debug, b"NOQERI_ALT_EFI_EXECUTED", 12)
             wait_for(debug, b"NoqeriOS UEFI: ExitBootServices OK", 12)
