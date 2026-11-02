@@ -17,60 +17,87 @@ record Mb2FramebufferTag {
     reserved: u16;
 }
 
+// Multiboot2 tags are 8-byte aligned, bounded by total_size. Do not walk
+// untrusted firmware metadata indefinitely or past the allocated boot-info.
 function mb2_find_framebuffer(info: usize): usize {
-    let cursor: usize = info + 8
-    while true {
-        let tag: *Mb2Tag = cursor as *Mb2Tag
-        if tag.kind == (8 as u32) {
-            return cursor
-        }
-        if tag.kind == (0 as u32) {
-            return 0
-        }
-        let size: usize = tag.size as usize
-        let padding: usize = ((8 as usize) - (size % (8 as usize))) % (8 as usize)
-        cursor = cursor + size + padding
+    if info == (0 as usize) || info % (8 as usize) != (0 as usize) {
+        return 0 as usize
     }
-    return 0
+    let sizePtr: *u32 = info as *u32
+    let total: usize = sizePtr[0] as usize
+    if total < (16 as usize) || total > (131072 as usize) ||
+       total % (8 as usize) != (0 as usize) { return 0 as usize }
+    let cursor: usize = info + (8 as usize)
+    let end: usize = info + total
+    if end < cursor { return 0 as usize }
+    while cursor <= end - (8 as usize) {
+        let tag: *Mb2Tag = cursor as *Mb2Tag
+        if tag.kind == (0 as u32) { return 0 as usize }
+        let size: usize = tag.size as usize
+        if size < (8 as usize) || size > end - cursor { return 0 as usize }
+        if tag.kind == (8 as u32) {
+            if size >= (38 as usize) { return cursor }
+            return 0 as usize
+        }
+        let padded: usize = size + (((8 as usize) - (size % (8 as usize))) % (8 as usize))
+        if padded > end - cursor { return 0 as usize }
+        cursor = cursor + padded
+    }
+    return 0 as usize
+}
+
+// All rendering paths must agree on the exact descriptor and row pitch.
+// A firmware mode we cannot safely render should remain serial-only.
+function framebuffer_valid(tag: usize): bool {
+    if tag == (0 as usize) { return false }
+    let fb: *Mb2FramebufferTag = tag as *Mb2FramebufferTag
+    if fb.size < (38 as u32) || fb.bpp != (32 as u8) ||
+       fb.framebufferType != (1 as u8) || fb.address == (0 as u64) ||
+       fb.width < (320 as u32) || fb.height < (240 as u32) ||
+       fb.width > (4096 as u32) || fb.height > (2160 as u32) ||
+       fb.pitch < fb.width * (4 as u32) ||
+       fb.pitch > (65536 as u32) ||
+       fb.pitch % (4 as u32) != (0 as u32) {
+        return false
+    }
+    let channels: *u8 = (tag + (32 as usize)) as *u8
+    return channels[1] == (8 as u8) &&
+           channels[2] == (8 as u8) &&
+           channels[3] == (8 as u8) &&
+           channels[5] == (8 as u8) &&
+           ((channels[0] == (0 as u8) && channels[4] == (16 as u8)) ||
+            (channels[0] == (16 as u8) && channels[4] == (0 as u8)))
 }
 
 function framebuffer_probe(info: usize): bool {
-    let address: usize = mb2_find_framebuffer(info)
-    if address == 0 {
-        return false
-    }
-    let fb: *Mb2FramebufferTag = address as *Mb2FramebufferTag
-    return fb.bpp == (32 as u8)
+    return framebuffer_valid(mb2_find_framebuffer(info))
 }
 
 function framebuffer_draw_boot_mark(info: usize): bool {
     let address: usize = mb2_find_framebuffer(info)
-    if address == 0 {
-        return false
-    }
+    if !framebuffer_valid(address) { return false }
 
     let fb: *Mb2FramebufferTag = address as *Mb2FramebufferTag
-    if fb.bpp != (32 as u8) {
-        return false
-    }
-
-    let framebufferAddress: usize = fb.address as usize
-    let pixels: *volatile u32 = framebufferAddress as *volatile u32
-    let stride: usize = (fb.pitch as usize) / 4
+    let pixels: *volatile u32 = (fb.address as usize) as *volatile u32
+    let stride: usize = (fb.pitch as usize) / (4 as usize)
     let maxWidth: usize = fb.width as usize
     let maxHeight: usize = fb.height as usize
+    let channels: *u8 = (address + (32 as usize)) as *u8
 
-    let drawWidth: usize = 96
-    let drawHeight: usize = 64
-    let y: usize = 0
-    while y < drawHeight && y < maxHeight {
-        let x: usize = 0
-        while x < drawWidth && x < maxWidth {
-            let color: u32 = 2105599 as u32
-            pixels[(y * stride) + x] = color
-            x = x + 1
+    // Blue/green/red channel positions depend on GOP's advertised layout.
+    // Use the same packing as the full graphical desktop.
+    let markColor: u32 = 0x002022ff as u32
+    if channels[0] == (0 as u8) {
+        markColor = 0x00ff2220 as u32
+    }
+    let y: usize = 0 as usize
+    while y < (64 as usize) && y < maxHeight {
+        let x: usize = 0 as usize
+        while x < (96 as usize) && x < maxWidth {
+            pixels[y * stride + x] = markColor
+            x = x + (1 as usize)
         }
-        y = y + 1
+        y = y + (1 as usize)
     }
     return true
 }
