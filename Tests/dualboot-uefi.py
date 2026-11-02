@@ -86,6 +86,8 @@ def run():
             "-cdrom", str(OUT / "noqerios.iso"), "-boot", "order=d",
             "-drive", f"if=none,format=raw,file={disk},id=alternate",
             "-device", "virtio-blk-pci,drive=alternate",
+            "-device", "qemu-xhci,id=keyboard-controller",
+            "-device", "usb-kbd,bus=keyboard-controller.0",
             "-serial", "none", "-display", "none",
             "-debugcon", f"file:{debug}", "-global", "isa-debugcon.iobase=0xe9",
             "-monitor", f"unix:{monitor},server,nowait",
