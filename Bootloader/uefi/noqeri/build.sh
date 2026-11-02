@@ -20,7 +20,7 @@ test -s "$OUT/kernel-uefi.elf" || { echo "Build kernel-uefi.elf before EFI loade
 clang -target x86_64-pc-windows-msvc -c "$UEFI_OUT/loader-noqeri.s" -o "$UEFI_OUT/loader-noqeri.obj"
 clang -target x86_64-pc-windows-msvc -c "$ROOT/Bootloader/uefi/noqeri/efi_bridge.S" -o "$UEFI_OUT/efi_bridge.obj"
 lld-link /nologo /machine:x64 /nodefaultlib /subsystem:efi_application \
-    /entry:efi_entry /fixed:no /dynamicbase /nxcompat \
+    /entry:efi_entry /include:efi_reloc_anchor /fixed:no /dynamicbase /nxcompat \
     /out:"$UEFI_OUT/BOOTX64.EFI" \
     "$UEFI_OUT/efi_bridge.obj" "$UEFI_OUT/loader-noqeri.obj"
 python3 "$ROOT/Tests/uefi_noqeri_pe.py" "$UEFI_OUT/BOOTX64.EFI" "$OUT/kernel-uefi.elf"
