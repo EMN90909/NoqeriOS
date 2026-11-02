@@ -51,7 +51,7 @@ function gui_fill(g: *GuiDesktop, left: usize, top: usize,
 // 4-sample corner antialiasing and clipped pixel blending.
 // Only panels use this path; large wallpaper fills stay on the fast path.
 function gui_round_fill(g: *GuiDesktop, left: usize, top: usize,
-                        width: usize, height: usize, radius: usize,
+                        width: usize, height: usize,
                         color: u32): void {
     if g == null || left >= g.width || top >= g.height { return }
     let w: usize = width
@@ -59,7 +59,7 @@ function gui_round_fill(g: *GuiDesktop, left: usize, top: usize,
     if w > g.width - left { w = g.width - left }
     if h > g.height - top { h = g.height - top }
     if w == (0 as usize) || h == (0 as usize) { return }
-    let r: usize = radius
+    let r: usize = 8 as usize
     if r > w / (2 as usize) { r = w / (2 as usize) }
     if r > h / (2 as usize) { r = h / (2 as usize) }
     let paint: u32 = gui_color(g, color)
@@ -380,8 +380,8 @@ function gui_panel(g: *GuiDesktop, x: usize, y: usize,
                    w: usize, h: usize, title: u32): void {
     let active: bool = (title == (1 as u32) && g.focused == (0 as usize)) ||
                        (title == (2 as u32) && g.focused == (1 as usize))
-    gui_round_fill(g, x + (5 as usize), y + (6 as usize), w, h, 9 as usize, 0x0d1121 as u32)
-    gui_round_fill(g, x, y, w, h, 8 as usize, 0x202d44 as u32)
+    gui_round_fill(g, x + (5 as usize), y + (6 as usize), w, h, 0x0d1121 as u32)
+    gui_round_fill(g, x, y, w, h, 0x202d44 as u32)
     let edge: u32 = 0x465775 as u32
     if active { edge = 0x58d6d0 as u32 }
     gui_fill(g, x, y, w, 3 as usize, edge)
