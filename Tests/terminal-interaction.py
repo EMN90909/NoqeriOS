@@ -57,7 +57,7 @@ def verify(iso: Path, disk: Path, memory: str) -> None:
             (b"dns\r", b"DNS: network offline"),
             (b"dir\r", b"Directory of N:"),
             (b"ls\r", b"Items:"),
-            (b"pwd\r", b"N:\\\\"),
+            (b"pwd\r", b"N:\\"),
             (b"type KEY-0000000000000001\r", b"HELO from NoqFS"),
             (b"echo HELLO TERMINAL\r", b"HELLO TERMINAL"),
             (b"cd UNKNOWN\r", b"Folder not found"),
