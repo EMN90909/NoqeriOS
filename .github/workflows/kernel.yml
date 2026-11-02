@@ -177,6 +177,9 @@ jobs:
       - name: Verify on-screen compositor and PS/2 keyboard focus
         run: python3 Tests/gui-smoke.py
 
+      - name: Probe VirtIO GPU control queue under OVMF
+        run: python3 Tests/gpu-smoke.py
+
       - name: Verify GPT UEFI USB image under OVMF
         env:
           NOQERI: ${{ github.workspace }}/.deps/Noqeri/build/noqeri
