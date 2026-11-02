@@ -124,30 +124,50 @@ EFI_STATUS noq_boot_menu(EFI_HANDLE image, EFI_SYSTEM_TABLE *st) {
     display(st, L"Press 0-9 to choose. NoqeriOS starts in 5 seconds.\r\n");
     log_port("NoqeriOS boot menu: alternate EFI loaders found\n");
 
-    EFI_INPUT_KEY key;
-    for (UINTN tick = 0; tick < NOQ_TIMEOUT_TICKS; ++tick) {
-        EFI_STATUS status = uefi_call_wrapper(st->ConIn->ReadKeyStroke, 2,
-                                              st->ConIn, &key);
-        if (!EFI_ERROR(status)) {
-            if (key.UnicodeChar == L'0' || key.ScanCode == 0x17)
-                return EFI_SUCCESS;
-            if (key.UnicodeChar >= L'1' &&
-                key.UnicodeChar <= L'0' + (CHAR16)count) {
-                UINTN index = (UINTN)(key.UnicodeChar - L'1');
-                display(st, L"Loading alternate EFI bootloader...\r\n");
-                status = chainload(image, st, &alternatives[index]);
-                if (EFI_ERROR(status)) {
-                    display(st, L"Other bootloader returned an error.\r\n");
-                    log_port("NoqeriOS boot menu: chainload returned error\n");
-                } else {
-                    /* A chainloaded EFI app may legitimately return. */
-                    display(st, L"Other bootloader returned to NoqeriOS.\r\n");
-                }
-                return EFI_SUCCESS;
-            }
-        }
-        uefi_call_wrapper(st->BootServices->Stall, 1, 100000);
+    /* WaitForEvent permits firmware keyboard event callbacks to run.
+     * A busy Stall/ReadKeyStroke loop can starve input on some UEFI systems.
+     */
+    if (!st->ConIn || !st->ConIn->WaitForKey) return EFI_SUCCESS;
+    EFI_EVENT timeout = NULL;
+    EFI_STATUS status = uefi_call_wrapper(st->BootServices->CreateEvent, 5,
+                          EVT_TIMER, TPL_CALLBACK, NULL, NULL, &timeout);
+    if (EFI_ERROR(status) || !timeout) return EFI_SUCCESS;
+    status = uefi_call_wrapper(st->BootServices->SetTimer, 3,
+                               timeout, TimerRelative, 50000000ULL);
+    if (EFI_ERROR(status)) {
+        uefi_call_wrapper(st->BootServices->CloseEvent, 1, timeout);
+        return EFI_SUCCESS;
     }
+    EFI_EVENT signals[2] = {st->ConIn->WaitForKey, timeout};
+    for (;;) {
+        UINTN signaled = 1;
+        status = uefi_call_wrapper(st->BootServices->WaitForEvent, 3,
+                                   2, signals, &signaled);
+        if (EFI_ERROR(status) || signaled == 1) break;
+        EFI_INPUT_KEY key;
+        status = uefi_call_wrapper(st->ConIn->ReadKeyStroke, 2,
+                                   st->ConIn, &key);
+        if (EFI_ERROR(status)) continue;
+        if (key.UnicodeChar == L'0' || key.ScanCode == 0x17) {
+            log_port("NoqeriOS boot menu: explicit NoqeriOS selected\\n");
+            break;
+        }
+        if (key.UnicodeChar >= L'1' &&
+            key.UnicodeChar <= L'0' + (CHAR16)count) {
+            UINTN index = (UINTN)(key.UnicodeChar - L'1');
+            uefi_call_wrapper(st->BootServices->CloseEvent, 1, timeout);
+            display(st, L"Loading alternate EFI bootloader...\\r\\n");
+            status = chainload(image, st, &alternatives[index]);
+            if (EFI_ERROR(status)) {
+                display(st, L"Other bootloader returned an error.\\r\\n");
+                log_port("NoqeriOS boot menu: chainload returned error\\n");
+            } else {
+                display(st, L"Other bootloader returned to NoqeriOS.\\r\\n");
+            }
+            return EFI_SUCCESS;
+        }
+    }
+    uefi_call_wrapper(st->BootServices->CloseEvent, 1, timeout);
     log_port("NoqeriOS boot menu: default NoqeriOS selected\n");
     return EFI_SUCCESS;
 }
