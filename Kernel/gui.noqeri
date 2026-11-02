@@ -3,6 +3,7 @@ module os.kernel.gui
 import "../Arch/x86_64/api.noqeri"
 import "../Drivers/serial.noqeri"
 import "../Drivers/framebuffer.noqeri"
+import "file_manager.noqeri"
 
 // Initial single-process layered software compositor. UI surfaces are
 // rectangles/text redrawn into GOP/MB2 framebuffer on selection changes.
@@ -17,6 +18,7 @@ record GuiDesktop {
     selectedAction: usize;
     redraws: usize;
     explorerVisible: bool;
+    explorer: *FileManager;
 }
 
 function gui_color(g: *GuiDesktop, rgb: u32): u32 {
@@ -462,6 +464,7 @@ function gui_open(info: usize): *GuiDesktop {
     g.selectedAction = 0 as usize
     g.redraws = 0 as usize
     g.explorerVisible = false
+    g.explorer = null
     gui_paint(g)
     return g
 }
@@ -470,6 +473,18 @@ function gui_key(g: *GuiDesktop, key: u8): bool {
     let changed: bool = false
     if key == (102 as u8) || key == (70 as u8) {
         g.explorerVisible = !g.explorerVisible
+        changed = true
+    } else if g.explorerVisible && g.explorer != null && (key == (106 as u8) || key == (74 as u8)) {
+        files_select_next(g.explorer)
+        changed = true
+    } else if g.explorerVisible && g.explorer != null && (key == (107 as u8) || key == (75 as u8)) {
+        files_select_previous(g.explorer)
+        changed = true
+    } else if g.explorerVisible && g.explorer != null && (key == (101 as u8) || key == (69 as u8)) {
+        files_enter(g.explorer)
+        changed = true
+    } else if g.explorerVisible && g.explorer != null && (key == (98 as u8) || key == (66 as u8)) {
+        files_back(g.explorer)
         changed = true
     } else if key == (97 as u8) || key == (65 as u8) {
         g.focused = 0 as usize
@@ -500,9 +515,13 @@ function gui_keyboard_poll(g: *GuiDesktop): void {
         return
     }
     if code == (33 as u8) { gui_key(g, 102 as u8) }
+    if code == (36 as u8) { gui_key(g, 106 as u8) }
+    if code == (37 as u8) { gui_key(g, 107 as u8) }
+    if code == (18 as u8) || code == (28 as u8) { gui_key(g, 101 as u8) }
+    if code == (48 as u8) || code == (14 as u8) { gui_key(g, 98 as u8) }
     if code == (30 as u8) { gui_key(g, 97 as u8) }
     if code == (31 as u8) { gui_key(g, 115 as u8) }
-    if code == (44 as u8) || code == (28 as u8) { gui_key(g, 122 as u8) }
+    if code == (44 as u8) { gui_key(g, 122 as u8) }
 }
 
 // File Explorer prototype: native framebuffer, no fabricated filesystem names.
@@ -614,6 +633,43 @@ function explorer_paint(g: *GuiDesktop): void {
     gui_fill(g, 207 as usize, 180 as usize, g.width - (250 as usize), 36 as usize, 0xf0f3f8 as u32)
     explorer_label_4(g, 226 as usize, 192 as usize, 0x283c58 as u32)
     if g.width > (610 as usize) { explorer_label_5(g, g.width - (125 as usize), 192 as usize, 0x283c58 as u32) }
-    explorer_label_7(g, 226 as usize, 245 as usize, 0x5e708a as u32)
+    if g.explorer == null {
+        explorer_label_7(g, 226 as usize, 245 as usize, 0x5e708a as u32)
+    } else {
+        // Real NoqFS names, not template entries. Clip text to column width.
+        let explorer: *FileManager = g.explorer
+        let shown: usize = explorer.visibleCount
+        if shown > (7 as usize) { shown = 7 as usize }
+        let index: usize = 0 as usize
+        while index < shown {
+            let entry: usize = explorer.visible[index] as usize
+            let y: usize = 238 as usize + index * (29 as usize)
+            if y + (22 as usize) < g.height - (85 as usize) {
+                if explorer.selected == index {
+                    gui_fill(g, 210 as usize, y - (5 as usize), g.width - (255 as usize), 27 as usize, 0xd7e9fc as u32)
+                }
+                let text: *u8 = explorer.names + (entry * (25 as usize))
+                let j: usize = 0 as usize
+                while j < (24 as usize) && text[j] != (0 as u8) && (226 as usize) + j * (12 as usize) < g.width - (48 as usize) {
+                    let letter: u8 = text[j]
+                    if letter >= (97 as u8) && letter <= (122 as u8) { letter = letter - (32 as u8) }
+                    gui_letter(g, letter, (226 as usize) + j * (12 as usize), y, 0x283c58 as u32)
+                    j = j + (1 as usize)
+                }
+                if explorer.flags[entry] == (2 as u32) {
+                    gui_fill(g, 213 as usize, y + (3 as usize), 8 as usize, 11 as usize, 0xe9b44a as u32)
+                } else {
+                    gui_fill(g, 213 as usize, y + (3 as usize), 7 as usize, 11 as usize, 0x69a9e5 as u32)
+                }
+            }
+            index = index + (1 as usize)
+        }
+    }
     explorer_label_8(g, 226 as usize, g.height - (85 as usize), 0x283c58 as u32)
+}
+
+function gui_attach_files(g: *GuiDesktop, files: *FileManager): void {
+    if g == null { return }
+    g.explorer = files
+    if g.explorerVisible { gui_paint(g) }
 }
