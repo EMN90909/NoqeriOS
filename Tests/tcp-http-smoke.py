@@ -96,9 +96,9 @@ def main() -> None:
     output = bytearray()
     try:
         until(proc, b"NoqeriOS serial terminal ready (COM1)", 14, output)
-        until(proc, b"noqerios> ", 4, output)
+        until(proc, b"N:\\> ", 4, output)
         output.clear()
-        proc.stdin.write(b"t")
+        proc.stdin.write(b"tcp\r")
         proc.stdin.flush()
         until(proc, EXPECTED, 17, output)
         worker.join(timeout=1)
