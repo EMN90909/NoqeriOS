@@ -4,6 +4,7 @@ import "../Arch/x86_64/api.noqeri"
 import "../Bootloader/handoff.noqeri"
 import "../Drivers/serial.noqeri"
 import "../Drivers/framebuffer.noqeri"
+import "../Drivers/gpu.noqeri"
 import "../Drivers/pci.noqeri"
 import "../Drivers/virtio.noqeri"
 import "../Drivers/virtio_rng.noqeri"
@@ -286,6 +287,17 @@ export function kernel_main(multibootInfo: usize): void {
         serial_write("NoqeriOS: TSS/userspace initialization failed\n")
     }
 
+    // Probe VirtIO GPU, but keep CPU framebuffer composition until native
+    // resource creation, DMA and fence handling are implemented.
+    let gpuPage: usize = arch_alloc_page()
+    if gpuPage != (0 as usize) {
+        let gpu: *GpuCapability = gpuPage as *GpuCapability
+        if gpu_detect(gpu) {
+            serial_write("NoqeriOS: VirtIO GPU found; CPU display fallback active\n")
+        } else {
+            serial_write("NoqeriOS: no native GPU backend; CPU display active\n")
+        }
+    }
     let desktop: *GuiDesktop = null
     if framebuffer_probe(multibootInfo) {
         serial_write("NoqeriOS: 32-bit framebuffer discovered\n")
