@@ -6,24 +6,30 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT="$ROOT/build"
 BOOTSTRAP=0
 UEFI=0
+NATIVE_EFI=0
 case "${1:-}" in
     --bootstrap|--native-bootstrap) BOOTSTRAP=1 ;;
     --uefi-bootstrap) BOOTSTRAP=1; UEFI=1 ;;
+    --uefi-noqeri-bootstrap) BOOTSTRAP=1; UEFI=1; NATIVE_EFI=1 ;;
     --uefi) UEFI=1 ;;
+    --uefi-noqeri) UEFI=1; NATIVE_EFI=1 ;;
     --native|--no-bootstrap|"") ;;
-    *) echo "Usage: $0 [--bootstrap|--native|--native-bootstrap|--uefi|--uefi-bootstrap]" >&2; exit 2 ;;
+    *) echo "Usage: $0 [--bootstrap|--native|--native-bootstrap|--uefi|--uefi-bootstrap|--uefi-noqeri|--uefi-noqeri-bootstrap]" >&2; exit 2 ;;
 esac
 trap 'status=$?; echo "NoqeriOS Linux build failed (exit $status) near line $LINENO" >&2; exit "$status"' ERR
 [[ "$(uname -s)" == Linux ]] || { echo "Requires Linux/WSL. On Windows run build.bat." >&2; exit 2; }
 
 need=(git cmake g++ as ld nm xorriso python3)
-if (( UEFI == 1 )); then need+=(gcc objcopy mformat mmd mcopy); fi
+if (( UEFI == 1 )); then
+    need+=(mformat mmd mcopy)
+    if (( NATIVE_EFI == 1 )); then need+=(clang lld-link); else need+=(gcc objcopy); fi
+fi
 missing=()
 for tool in "${need[@]}"; do
     command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
 done
 # GNU-EFI headers are not executables: detect them separately for --uefi-bootstrap.
-if (( UEFI == 1 )) && [[ ! -f /usr/include/efi/efi.h ]]; then
+if (( UEFI == 1 && NATIVE_EFI == 0 )) && [[ ! -f /usr/include/efi/efi.h ]]; then
     missing+=(gnu-efi)
 fi
 if (( ${#missing[@]} > 0 )); then
@@ -34,7 +40,7 @@ if (( ${#missing[@]} > 0 )); then
     command -v apt-get >/dev/null || { echo "Automatic install requires apt-get." >&2; exit 3; }
     if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
         apt-get update
-        DEBIAN_FRONTEND=noninteractive apt-get install -y git cmake g++ binutils xorriso python3 qemu-system-x86 gnu-efi mtools ovmf
+        DEBIAN_FRONTEND=noninteractive apt-get install -y git cmake g++ binutils xorriso python3 qemu-system-x86 gnu-efi mtools ovmf clang lld clang lld
     else
         sudo apt-get update
         sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y git cmake g++ binutils xorriso python3 qemu-system-x86 gnu-efi mtools ovmf
@@ -90,7 +96,17 @@ mkdir -p "$ISO_ROOT/boot"
 cp "$OUT/native-boot/noqerios-native.img" "$ISO_ROOT/boot/noqerios-native.img"
 cp "$OUT/kernel.elf" "$ISO_ROOT/boot/kernel.elf"
 if (( UEFI == 1 )); then
-    bash "$ROOT/Bootloader/uefi/build.sh"
+    if (( NATIVE_EFI == 1 )); then
+        # BIOS and UEFI share object files but not the ELF entry ABI.
+        ld -nostdlib -z max-page-size=0x1000 -T "$ROOT/Arch/x86_64/linker.ld" \
+            -e uefi_kernel_entry -o "$OUT/kernel-uefi.elf" \
+            "$OUT/entry.o" "$OUT/arch.o" "$OUT/interrupts.o" \
+            "$OUT/userspace.o" "$OUT/freestanding.o" "$OUT/kernel_noqeri.o"
+        export NOQERI
+        bash "$ROOT/Bootloader/uefi/noqeri/build.sh"
+    else
+        bash "$ROOT/Bootloader/uefi/build.sh"
+    fi
     python3 "$ROOT/Bootloader/uefi/make_usb.py" "$OUT/uefi/esp.img" "$OUT/noqerios-uefi-usb.img"
     mkdir -p "$ISO_ROOT/boot/uefi"
     cp "$OUT/uefi/esp.img" "$ISO_ROOT/boot/uefi/esp.img"
@@ -110,7 +126,11 @@ fi
 [[ -s "$OUT/noqerios.iso" ]] || { echo "ISO output is empty." >&2; exit 5; }
 echo "NoqeriOS custom BIOS image: $OUT/native-boot/noqerios-native.img"
 if (( UEFI == 1 )); then
-    echo "NoqeriOS BIOS + UEFI El Torito ISO: $OUT/noqerios.iso"
+    if (( NATIVE_EFI == 1 )); then
+        echo "NoqeriOS BIOS + native Noqeri UEFI El Torito ISO: $OUT/noqerios.iso"
+    else
+        echo "NoqeriOS BIOS + UEFI El Torito ISO: $OUT/noqerios.iso"
+    fi
     echo "NoqeriOS UEFI removable-media GPT image: $OUT/noqerios-uefi-usb.img"
 else
     echo "NoqeriOS bootable BIOS ISO: $OUT/noqerios.iso"
