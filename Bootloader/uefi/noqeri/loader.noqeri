@@ -1,0 +1,339 @@
+module os.bootloader.uefi
+
+// Native x86-64 UEFI application. All loading/paging/memory-map logic is Noqeri.
+// The only assembly is the necessary Win64 <-> SysV calling convention bridge.
+extern function efi_call1(func: usize, a: usize): usize
+extern function efi_call2(func: usize, a: usize, b: usize): usize
+extern function efi_call3(func: usize, a: usize, b: usize, c: usize): usize
+extern function efi_call4(func: usize, a: usize, b: usize, c: usize, d: usize): usize
+extern function efi_call5(func: usize, a: usize, b: usize, c: usize, d: usize, e: usize): usize
+extern function efi_debug(message: string): void
+extern function efi_handoff(entry: usize, multiboot: usize, pml4: usize): void
+
+record Guid { first: u64 second: u64 }
+
+// UEFI x64 ABI layouts (UEFI Spec 2.11): little-endian, naturally aligned.
+// These helpers never dereference firmware pointers before checking for null.
+function at64(addr: usize): usize {
+    let cell: *u64 = addr as *u64
+    return cell[0] as usize
+}
+function at32(addr: usize): usize {
+    let cell: *u32 = addr as *u32
+    return cell[0] as usize
+}
+function at16(addr: usize): usize {
+    let cell: *u16 = addr as *u16
+    return cell[0] as usize
+}
+function at8(addr: usize): usize {
+    let cell: *u8 = addr as *u8
+    return cell[0] as usize
+}
+function put64(addr: usize, value: usize): void {
+    let cell: *u64 = addr as *u64
+    cell[0] = value as u64
+}
+function put32(addr: usize, value: usize): void {
+    let cell: *u32 = addr as *u32
+    cell[0] = value as u32
+}
+function put8(addr: usize, value: usize): void {
+    let cell: *u8 = addr as *u8
+    cell[0] = value as u8
+}
+function copy_bytes(dest: usize, src: usize, count: usize): void {
+    let i: usize = 0 as usize
+    while i < count {
+        put8(dest + i, at8(src + i))
+        i = i + 1 as usize
+    }
+}
+function zero_bytes(dest: usize, count: usize): void {
+    let i: usize = 0 as usize
+    while i < count {
+        put8(dest + i, 0 as usize)
+        i = i + 1 as usize
+    }
+}
+function within(offset: usize, size: usize, limit: usize): bool {
+    return offset <= limit && size <= limit - offset
+}
+function err_status(): usize {
+    // EFI_ERROR bit set; cannot accidentally return a firmware warning.
+    return (0 as usize) - (1 as usize)
+}
+
+function kernel_from_esp(image: usize, bs: usize, output: *usize, length: *usize): bool {
+    let image_guid: Guid
+    image_guid.first = 0x11d295625b1b31a1 as u64
+    image_guid.second = 0x3b7269c9a0003f8e as u64
+    let fs_guid: Guid
+    fs_guid.first = 0x11d264590964e5b2 as u64
+    fs_guid.second = 0x3b7269c9a000398e as u64
+
+    let loaded: usize = 0 as usize
+    let handle_protocol: usize = at64(bs + 152 as usize)
+    if efi_call3(handle_protocol, image, &image_guid as usize, &loaded as usize) != 0 as usize || loaded == 0 as usize {
+        efi_debug("noqeri-uefi: loaded-image protocol failed\n")
+        return false
+    }
+    // EFI_LOADED_IMAGE_PROTOCOL.DeviceHandle is at +24.
+    let device: usize = at64(loaded + 24 as usize)
+    let volume: usize = 0 as usize
+    if device == 0 as usize || efi_call3(handle_protocol, device, &fs_guid as usize, &volume as usize) != 0 as usize || volume == 0 as usize {
+        efi_debug("noqeri-uefi: simple-filesystem protocol failed\n")
+        return false
+    }
+    let root: usize = 0 as usize
+    if efi_call2(at64(volume + 8 as usize), volume, &root as usize) != 0 as usize || root == 0 as usize {
+        efi_debug("noqeri-uefi: OpenVolume failed\n")
+        return false
+    }
+    // UEFI file paths use UTF-16 CHAR16 units, not Noqeri UTF-8 strings.
+    let name: [u16; 21]
+    name[0] = 92 as u16
+    name[1] = 69 as u16
+    name[2] = 70 as u16
+    name[3] = 73 as u16
+    name[4] = 92 as u16
+    name[5] = 66 as u16
+    name[6] = 79 as u16
+    name[7] = 79 as u16
+    name[8] = 84 as u16
+    name[9] = 92 as u16
+    name[10] = 75 as u16
+    name[11] = 69 as u16
+    name[12] = 82 as u16
+    name[13] = 78 as u16
+    name[14] = 69 as u16
+    name[15] = 76 as u16
+    name[16] = 46 as u16
+    name[17] = 69 as u16
+    name[18] = 76 as u16
+    name[19] = 70 as u16
+    name[20] = 0 as u16
+    let file: usize = 0 as usize
+    let opened: usize = efi_call5(at64(root + 8 as usize), root, &file as usize, &name as usize, 1 as usize, 0 as usize)
+    if opened != 0 as usize || file == 0 as usize {
+        efi_call1(at64(root + 16 as usize), root)
+        efi_debug("noqeri-uefi: KERNEL.ELF not found\n")
+        return false
+    }
+
+    // Reserve one sentinel byte to detect truncated/oversized reads.
+    let buffer: usize = 0 as usize
+    let status: usize = efi_call3(at64(bs + 64 as usize), 2 as usize, 524289 as usize, &buffer as usize)
+    if status != 0 as usize || buffer == 0 as usize {
+        efi_call1(at64(file + 16 as usize), file)
+        efi_call1(at64(root + 16 as usize), root)
+        return false
+    }
+    let bytes: usize = 524289 as usize
+    status = efi_call3(at64(file + 32 as usize), file, &bytes as usize, buffer)
+    efi_call1(at64(file + 16 as usize), file)
+    efi_call1(at64(root + 16 as usize), root)
+    if status != 0 as usize || bytes < 64 as usize || bytes > 524288 as usize {
+        efi_debug("noqeri-uefi: kernel read was invalid\n")
+        return false
+    }
+    output[0] = buffer
+    length[0] = bytes
+    return true
+}
+
+// The UEFI copy of the ELF has e_entry=uefi_kernel_entry. The BIOS copy
+// retains e_entry=_start. Never jump to the 32-bit BIOS entry from UEFI.
+function load_kernel_elf(bs: usize, file: usize, bytes: usize): usize {
+    if bytes < 64 as usize || at32(file) != 0x464c457f as usize {
+        return 0 as usize
+    }
+    if at8(file + 4 as usize) != 2 as usize || at8(file + 5 as usize) != 1 as usize {
+        return 0 as usize
+    }
+    if at16(file + 16 as usize) != 2 as usize || at16(file + 18 as usize) != 62 as usize {
+        return 0 as usize
+    }
+    let entry: usize = at64(file + 24 as usize)
+    let phoff: usize = at64(file + 32 as usize)
+    let phentsize: usize = at16(file + 54 as usize)
+    let phnum: usize = at16(file + 56 as usize)
+    if at16(file + 52 as usize) != 64 as usize || phentsize != 56 as usize {
+        return 0 as usize
+    }
+    if phnum == 0 as usize || phnum > 128 as usize || !within(phoff, phnum * phentsize, bytes) {
+        return 0 as usize
+    }
+    if entry < 1048576 as usize || entry >= 1073741824 as usize {
+        return 0 as usize
+    }
+    let executable: bool = false
+    let segments: usize = 0 as usize
+    let i: usize = 0 as usize
+    while i < phnum {
+        let ph: usize = file + phoff + i * phentsize
+        if at32(ph) == 1 as usize {
+            let flags: usize = at32(ph + 4 as usize)
+            let offset: usize = at64(ph + 8 as usize)
+            let virt: usize = at64(ph + 16 as usize)
+            let phys: usize = at64(ph + 24 as usize)
+            let filesz: usize = at64(ph + 32 as usize)
+            let memsz: usize = at64(ph + 40 as usize)
+            if phys < 1048576 as usize || phys >= 1073741824 as usize || virt != phys {
+                return 0 as usize
+            }
+            if memsz < filesz || !within(offset, filesz, bytes) || !within(phys, memsz, 1073741824 as usize) {
+                return 0 as usize
+            }
+            if phys % 4096 as usize != offset % 4096 as usize {
+                return 0 as usize
+            }
+            if entry >= phys && entry < phys + memsz && flags % 2 as usize == 1 as usize {
+                executable = true
+            }
+            segments = segments + 1 as usize
+        }
+        i = i + 1 as usize
+    }
+    if !executable || segments == 0 as usize { return 0 as usize }
+
+    i = 0 as usize
+    while i < phnum {
+        let ph: usize = file + phoff + i * phentsize
+        if at32(ph) == 1 as usize {
+            let offset: usize = at64(ph + 8 as usize)
+            let phys: usize = at64(ph + 24 as usize)
+            let filesz: usize = at64(ph + 32 as usize)
+            let memsz: usize = at64(ph + 40 as usize)
+            if memsz > 0 as usize {
+                let base: usize = phys - (phys % 4096 as usize)
+                let pages: usize = ((phys % 4096 as usize) + memsz + 4095 as usize) / 4096 as usize
+                let location: usize = base
+                if efi_call4(at64(bs + 40 as usize), 2 as usize, 2 as usize, pages, &location as usize) != 0 as usize || location != base {
+                    efi_debug("noqeri-uefi: AllocateAddress failed\n")
+                    return 0 as usize
+                }
+                copy_bytes(phys, file + offset, filesz)
+                zero_bytes(phys + filesz, memsz - filesz)
+            }
+        }
+        i = i + 1 as usize
+    }
+    efi_debug("noqeri-uefi: ELF64 segments loaded\n")
+    return entry
+}
+
+function low_pages(bs: usize, count: usize): usize {
+    let location: usize = 1073741823 as usize
+    if efi_call4(at64(bs + 40 as usize), 1 as usize, 2 as usize, count, &location as usize) != 0 as usize {
+        return 0 as usize
+    }
+    return location
+}
+
+function make_identity_tables(bs: usize): usize {
+    let address: usize = low_pages(bs, 3 as usize)
+    if address == 0 as usize { return 0 as usize }
+    zero_bytes(address, 12288 as usize)
+    put64(address, address + 4096 as usize + 7 as usize)
+    put64(address + 4096 as usize, address + 8192 as usize + 7 as usize)
+    let i: usize = 0 as usize
+    while i < 512 as usize {
+        put64(address + 8192 as usize + i * 8 as usize, i * 2097152 as usize + 131 as usize)
+        i = i + 1 as usize
+    }
+    // Preserve existing kernel userspace smoke-test identity windows.
+    put64(address + 8192 as usize + 16 as usize, at64(address + 8192 as usize + 16 as usize) + 4 as usize)
+    put64(address + 8192 as usize + 24 as usize, at64(address + 8192 as usize + 24 as usize) + 4 as usize)
+    return address
+}
+
+function mb2_type(uefi_type: usize): usize {
+    if uefi_type == 7 as usize || uefi_type == 3 as usize || uefi_type == 4 as usize {
+        return 1 as usize
+    }
+    if uefi_type == 9 as usize { return 3 as usize }
+    if uefi_type == 10 as usize { return 4 as usize }
+    return 2 as usize
+}
+
+function synthesize_multiboot(dest: usize, map: usize, map_size: usize, desc_size: usize): bool {
+    if desc_size < 40 as usize || desc_size > 4096 as usize || map_size % desc_size != 0 as usize {
+        return false
+    }
+    let count: usize = map_size / desc_size
+    if count > 4000 as usize || !within(24 as usize, count * 24 as usize + 8 as usize, 131072 as usize) {
+        return false
+    }
+    let length: usize = 32 as usize + count * 24 as usize
+    zero_bytes(dest, length)
+    put32(dest, length)
+    put32(dest + 4 as usize, 0 as usize)
+    put32(dest + 8 as usize, 6 as usize)
+    put32(dest + 12 as usize, 16 as usize + count * 24 as usize)
+    put32(dest + 16 as usize, 24 as usize)
+    put32(dest + 20 as usize, 0 as usize)
+    let i: usize = 0 as usize
+    while i < count {
+        let desc: usize = map + i * desc_size
+        let out: usize = dest + 24 as usize + i * 24 as usize
+        put64(out, at64(desc + 8 as usize))
+        let pages: usize = at64(desc + 24 as usize)
+        // Overflow is invalid: fail closed instead of advertising fake RAM.
+        if pages > (0 as usize - 1 as usize) / 4096 as usize { return false }
+        put64(out + 8 as usize, pages * 4096 as usize)
+        put32(out + 16 as usize, mb2_type(at32(desc)))
+        put32(out + 20 as usize, 0 as usize)
+        i = i + 1 as usize
+    }
+    let end: usize = dest + 24 as usize + count * 24 as usize
+    put32(end, 0 as usize)
+    put32(end + 4 as usize, 8 as usize)
+    return true
+}
+
+export function noqeri_uefi_main(image: usize, system: usize): usize {
+    efi_debug("NoqeriOS UEFI: native Noqeri loader entered\n")
+    if image == 0 as usize || system == 0 as usize { return err_status() }
+    let bs: usize = at64(system + 96 as usize)
+    if bs == 0 as usize { return err_status() }
+    let kernel: usize = 0 as usize
+    let size: usize = 0 as usize
+    if !kernel_from_esp(image, bs, &kernel, &size) { return err_status() }
+    let entry: usize = load_kernel_elf(bs, kernel, size)
+    if entry == 0 as usize { efi_debug("noqeri-uefi: bad kernel ELF\n") return err_status() }
+    let pml4: usize = make_identity_tables(bs)
+    if pml4 == 0 as usize { efi_debug("noqeri-uefi: page table allocation failed\n") return err_status() }
+    let boot_info: usize = low_pages(bs, 32 as usize)
+    if boot_info == 0 as usize { return err_status() }
+    let map: usize = 0 as usize
+    if efi_call3(at64(bs + 64 as usize), 2 as usize, 131072 as usize, &map as usize) != 0 as usize || map == 0 as usize {
+        return err_status()
+    }
+    // Do not allocate, log through firmware, or access protocols between
+    // GetMemoryMap and ExitBootServices. Retry on stale map keys.
+    let key: usize = 0 as usize
+    let desc_size: usize = 0 as usize
+    let version: usize = 0 as usize
+    let map_size: usize = 0 as usize
+    let attempt: usize = 0 as usize
+    while attempt < 6 as usize {
+        map_size = 131072 as usize
+        if efi_call5(at64(bs + 56 as usize), &map_size as usize, map, &key as usize, &desc_size as usize, &version as usize) != 0 as usize {
+            return err_status()
+        }
+        if !synthesize_multiboot(boot_info, map, map_size, desc_size) {
+            return err_status()
+        }
+        let status: usize = efi_call2(at64(bs + 232 as usize), image, key)
+        if status == 0 as usize {
+            efi_debug("NoqeriOS UEFI: ExitBootServices OK\n")
+            efi_handoff(entry, boot_info, pml4)
+            return err_status()
+        }
+        // EFI_INVALID_PARAMETER: retry GetMemoryMap without reallocating.
+        if status != 0x8000000000000002 as usize { return status }
+        attempt = attempt + 1 as usize
+    }
+    return err_status()
+}
