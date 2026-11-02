@@ -84,7 +84,7 @@ static UINTN discover(EFI_SYSTEM_TABLE *st) {
             }
         }
     }
-    uefi_call_wrapper(st->BootServices->FreePool, 2, handles);
+    uefi_call_wrapper(st->BootServices->FreePool, 1, handles);
     return found;
 }
 
