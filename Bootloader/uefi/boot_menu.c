@@ -149,20 +149,20 @@ EFI_STATUS noq_boot_menu(EFI_HANDLE image, EFI_SYSTEM_TABLE *st) {
                                    st->ConIn, &key);
         if (EFI_ERROR(status)) continue;
         if (key.UnicodeChar == L'0' || key.ScanCode == 0x17) {
-            log_port("NoqeriOS boot menu: explicit NoqeriOS selected\\n");
+            log_port("NoqeriOS boot menu: explicit NoqeriOS selected\n");
             break;
         }
         if (key.UnicodeChar >= L'1' &&
             key.UnicodeChar <= L'0' + (CHAR16)count) {
             UINTN index = (UINTN)(key.UnicodeChar - L'1');
             uefi_call_wrapper(st->BootServices->CloseEvent, 1, timeout);
-            display(st, L"Loading alternate EFI bootloader...\\r\\n");
+            display(st, L"Loading alternate EFI bootloader...\r\n");
             status = chainload(image, st, &alternatives[index]);
             if (EFI_ERROR(status)) {
-                display(st, L"Other bootloader returned an error.\\r\\n");
-                log_port("NoqeriOS boot menu: chainload returned error\\n");
+                display(st, L"Other bootloader returned an error.\r\n");
+                log_port("NoqeriOS boot menu: chainload returned error\n");
             } else {
-                display(st, L"Other bootloader returned to NoqeriOS.\\r\\n");
+                display(st, L"Other bootloader returned to NoqeriOS.\r\n");
             }
             return EFI_SUCCESS;
         }
