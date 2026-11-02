@@ -72,6 +72,11 @@ def verify(iso: Path, disk: Path, memory: str) -> None:
             (b"back\r", b"Already at root"),
             (b"go UNKNOWN\r", b"Folder not found"),
             (b"clear\r", b"N:\\> "),
+            (b"noed\r", b"Usage: noed inspect"),
+            (b"noed inspect KEY-0000000000000001\r", b"Noed: file is not a Windows PE executable"),
+            (b"noed inspect KEY-0000000000000002\r", b"Noed: valid Windows x64 PE32+ image detected"),
+            (b"noed run KEY-0000000000000002\r", b"Noed: launch unavailable"),
+            (b"noed inspect UNKNOWN.EXE\r", b"Noed: file not found"),
             (b"cls\r", b"N:\\> "),
         ]
         for key, response in cases:
