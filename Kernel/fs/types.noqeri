@@ -8,6 +8,7 @@ record VfsMount {
     rootDirectorySector: u64;
     rootEntryCount: u32;
     reserved: u32;
+    version: u32;
 }
 
 record VfsNode {
@@ -17,6 +18,9 @@ record VfsNode {
     firstSector: u64;
     flags: u32;
     reserved: u32;
+    parentKey: u64;
+    name: *u8;
+    nameLength: u32;
 }
 
 function vfs_mount_clear(mount: *VfsMount): void {
@@ -27,6 +31,7 @@ function vfs_mount_clear(mount: *VfsMount): void {
     mount.rootDirectorySector = 0 as u64
     mount.rootEntryCount = 0 as u32
     mount.reserved = 0 as u32
+    mount.version = 0 as u32
 }
 
 function vfs_node_clear(node: *VfsNode): void {
@@ -36,4 +41,7 @@ function vfs_node_clear(node: *VfsNode): void {
     node.firstSector = 0 as u64
     node.flags = 0 as u32
     node.reserved = 0 as u32
+    node.parentKey = 0 as u64
+    node.name = null
+    node.nameLength = 0 as u32
 }
