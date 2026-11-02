@@ -62,7 +62,7 @@ def verify(iso: Path, disk: Path, memory: str) -> None:
             (b"echo HELLO TERMINAL\r", b"HELLO TERMINAL"),
             (b"cd UNKNOWN\r", b"Folder not found"),
             (b"badcommand\r", b"Unknown command"),
-            (b"cls\r", b"N:\\\\> "),
+            (b"cls\r", b"N:\\> "),
         ]
         for key, response in cases:
             # Only look at output produced after this command, not earlier text.
