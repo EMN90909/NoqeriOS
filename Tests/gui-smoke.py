@@ -73,7 +73,7 @@ def assert_clean_graphics(ppm):
     must fail the screenshot gate even if keyboard focus still changes.
     """
     import re
-    header = re.match(rb"P6\\s+(\\d+)\\s+(\\d+)\\s+(\\d+)\\s", ppm)
+    header = re.match(rb"P6\s+(\d+)\s+(\d+)\s+(\d+)\s", ppm)
     if not header:
         raise AssertionError("QEMU produced an invalid P6 screenshot")
     width, height, maximum = map(int, header.groups())
