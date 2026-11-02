@@ -96,13 +96,13 @@ function shell_exec(buffer: *u8, size: usize, network: *Network, desktop: *GuiDe
 
     if hash == (2090324718 as u32) || hash == (177677 as u32) {
         serial_write("\nNoqeri Shell - Windows-style, fewer commands\n")
-        serial_write("help  cls  ver  mem  tasks  net  ping  dns  tcp\n")
-        serial_write("dir/ls  cd NAME  cd ..  pwd  type NAME  echo TEXT\n")
+        serial_write("help  cls/clear  ver/info  mem  tasks  net  ping  dns  tcp\n")
+        serial_write("dir/ls/list  cd/go NAME  up/back  pwd/where\n\n")
         serial_write("files  start  gui  reboot\n")
         serial_write("NoqFS browsing is read-only. Press Enter to run.\n")
     } else if hash == (193488487 as u32) || hash == (255552908 as u32) {
         serial_write("\x1b[2J\x1b[H")
-    } else if hash == (193508946 as u32) || hash == (2090370257 as u32) {
+    } else if hash == (193508946 as u32) || hash == (2090370257 as u32) || hash == (2090370257 as u32) {
         serial_write("\nNoqeriOS x86_64, native Noqeri shell 1.0\n")
     } else if hash == (193499140 as u32) || hash == (226666718 as u32) {
         serial_write("\nPhysical allocator, VMM and kernel heap initialized\n")
@@ -130,7 +130,7 @@ function shell_exec(buffer: *u8, size: usize, network: *Network, desktop: *GuiDe
         if network == null || !network.online { serial_write("\nTCP: network offline\n") }
         else if tcp_fixture_request(network) { serial_write("\nTCP: local HTTP fixture response verified\n") }
         else { serial_write("\nTCP: local HTTP fixture unavailable\n") }
-    } else if hash == (193489476 as u32) || hash == (5863588 as u32) {
+    } else if hash == (193489476 as u32) || hash == (5863588 as u32) || hash == (2090473057 as u32) {
         if m == null { serial_write("\nNoqFS drive not mounted\n") }
         else {
             serial_write("\n Directory of N:\\ (read-only)\n")
@@ -153,16 +153,18 @@ function shell_exec(buffer: *u8, size: usize, network: *Network, desktop: *GuiDe
             shell_number(m.visibleCount as u64)
             serial_write("\n")
         }
-    } else if hash == (193502992 as u32) {
+    } else if hash == (193502992 as u32) || hash == (279128128 as u32) {
         serial_write("\nN:\\")
         if m != null && m.currentParent != (0 as u64) {
             serial_write("KEY-")
             shell_number(m.currentParent)
         }
         serial_write("\n")
-    } else if hash == (5863276 as u32) {
+    } else if hash == (5863276 as u32) || hash == (5863419 as u32) || hash == (5863882 as u32) || hash == (2090104438 as u32) {
         if m == null { serial_write("\nNoqFS drive not mounted\n") }
-        else if args == size { serial_write("\nUsage: cd FOLDER or cd ..\n") }
+        else if hash == (5863882 as u32) || hash == (2090104438 as u32) {
+            if !files_back(m) { serial_write("\nAlready at root\n") }
+        } else if args == size { serial_write("\nUsage: cd FOLDER, go FOLDER, up or back\n") }
         else if size - args == (2 as usize) && buffer[args] == (46 as u8) && buffer[args + (1 as usize)] == (46 as u8) {
             if !files_back(m) { serial_write("\nAlready at root\n") }
         } else {
@@ -174,7 +176,7 @@ function shell_exec(buffer: *u8, size: usize, network: *Network, desktop: *GuiDe
             }
         }
         if desktop != null && desktop.explorerVisible { gui_paint(desktop) }
-    } else if hash == (2090777863 as u32) || hash == (193488125 as u32) {
+    } else if hash == (2090777863 as u32) || hash == (193488125 as u32) || hash == (2090683713 as u32) {
         if m == null { serial_write("\nNoqFS drive not mounted\n") }
         else if args == size { serial_write("\nUsage: type FILENAME\n") }
         else {
@@ -193,7 +195,7 @@ function shell_exec(buffer: *u8, size: usize, network: *Network, desktop: *GuiDe
                 }
             }
         }
-    } else if hash == (2090214596 as u32) {
+    } else if hash == (2090214596 as u32) || hash == (193505554 as u32) {
         serial_write("\n")
         shell_print(buffer + args,size - args)
         serial_write("\n")
@@ -238,6 +240,13 @@ function terminal_run(network: *Network, desktop: *GuiDesktop, filesAddress: usi
         serial_write("Shell: input allocation failed\n")
         while true { arch_halt() }
     }
+    let historyPage: usize = arch_alloc_page()
+    if historyPage == (0 as usize) {
+        serial_write("Shell: history allocation failed\n")
+        while true { arch_halt() }
+    }
+    let history: *u8 = historyPage as *u8
+    let historyLength: usize = 0 as usize
     let input: *u8 = inputPage as *u8
     let count: usize = 0 as usize
     shell_prompt()
@@ -246,7 +255,24 @@ function terminal_run(network: *Network, desktop: *GuiDesktop, filesAddress: usi
         if key == (13 as u8) || key == (10 as u8) {
             if key == (10 as u8) && count == (0 as usize) { continue }
             serial_write("\n")
-            shell_exec(input,count,network,desktop,filesAddress)
+            let commandLength: usize = count
+            if shell_word_hash(input, commandLength) == (252997285 as u32) {
+                if historyLength == (0 as usize) {
+                    serial_write("No previous command.\n")
+                } else {
+                    shell_exec(history,historyLength,network,desktop,filesAddress)
+                }
+            } else {
+                if commandLength > (0 as usize) {
+                    let index: usize = 0 as usize
+                    while index < commandLength {
+                        history[index] = input[index]
+                        index = index + (1 as usize)
+                    }
+                    historyLength = commandLength
+                }
+                shell_exec(input,commandLength,network,desktop,filesAddress)
+            }
             count = 0 as usize
             shell_prompt()
             gui_terminal_redraw(desktop)
