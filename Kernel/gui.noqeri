@@ -515,7 +515,7 @@ function gui_paint(g: *GuiDesktop): void {
 }
 function gui_open(info: usize): *GuiDesktop {
     let tag: usize = mb2_find_framebuffer(info)
-    if tag == (0 as usize) { return null }
+    if !framebuffer_valid(tag) { return null }
     let fb: *Mb2FramebufferTag = tag as *Mb2FramebufferTag
     if fb.bpp != (32 as u8) || fb.framebufferType != (1 as u8) ||
        fb.width < (320 as u32) || fb.height < (240 as u32) ||
