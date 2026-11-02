@@ -115,7 +115,8 @@ function files_back(m: *FileManager): bool {
     files_refresh(m)
     return true
 }
-function files_read_selected(m: *FileManager, output: usize, capacity: usize): usize {
+function files_read_selected(managerAddress: usize, output: usize, capacity: usize): usize {
+    let m: *FileManager = managerAddress as *FileManager
     if m == null || m.selected >= m.visibleCount || capacity == (0 as usize) { return 0 as usize }
     let index: usize = m.visible[m.selected] as usize
     if m.flags[index] != (1 as u32) { return 0 as usize }
