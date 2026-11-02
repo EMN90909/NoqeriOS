@@ -16,6 +16,7 @@ record GuiDesktop {
     focused: usize;
     selectedAction: usize;
     redraws: usize;
+    explorerVisible: bool;
 }
 
 function gui_color(g: *GuiDesktop, rgb: u32): u32 {
@@ -429,6 +430,7 @@ function gui_paint(g: *GuiDesktop): void {
         gui_label(g, 14 as u32, 185 as usize,
                   barY + (17 as usize), 0xaec4db as u32)
     }
+    if g.explorerVisible && g.width >= (520 as usize) && g.height >= (360 as usize) { explorer_paint(g) }
     g.redraws = g.redraws + (1 as usize)
 }
 function gui_open(info: usize): *GuiDesktop {
@@ -459,13 +461,17 @@ function gui_open(info: usize): *GuiDesktop {
     g.focused = 0 as usize
     g.selectedAction = 0 as usize
     g.redraws = 0 as usize
+    g.explorerVisible = false
     gui_paint(g)
     return g
 }
 function gui_key(g: *GuiDesktop, key: u8): bool {
     if g == null { return false }
     let changed: bool = false
-    if key == (97 as u8) || key == (65 as u8) {
+    if key == (102 as u8) || key == (70 as u8) {
+        g.explorerVisible = !g.explorerVisible
+        changed = true
+    } else if key == (97 as u8) || key == (65 as u8) {
         g.focused = 0 as usize
         changed = true
     } else if key == (115 as u8) || key == (83 as u8) {
@@ -493,7 +499,121 @@ function gui_keyboard_poll(g: *GuiDesktop): void {
     if ((status as u32) / (32 as u32)) % (2 as u32) == (1 as u32) {
         return
     }
+    if code == (33 as u8) { gui_key(g, 102 as u8) }
     if code == (30 as u8) { gui_key(g, 97 as u8) }
     if code == (31 as u8) { gui_key(g, 115 as u8) }
     if code == (44 as u8) || code == (28 as u8) { gui_key(g, 122 as u8) }
+}
+
+// File Explorer prototype: native framebuffer, no fabricated filesystem names.
+function explorer_label_0(g: *GuiDesktop, x: usize, y: usize, color: u32): void {
+    gui_letter(g, 70 as u8, x + (0 as usize), y, color)
+    gui_letter(g, 73 as u8, x + (12 as usize), y, color)
+    gui_letter(g, 76 as u8, x + (24 as usize), y, color)
+    gui_letter(g, 69 as u8, x + (36 as usize), y, color)
+    gui_letter(g, 83 as u8, x + (48 as usize), y, color)
+}
+function explorer_label_1(g: *GuiDesktop, x: usize, y: usize, color: u32): void {
+    gui_letter(g, 72 as u8, x + (0 as usize), y, color)
+    gui_letter(g, 79 as u8, x + (12 as usize), y, color)
+    gui_letter(g, 77 as u8, x + (24 as usize), y, color)
+    gui_letter(g, 69 as u8, x + (36 as usize), y, color)
+}
+function explorer_label_2(g: *GuiDesktop, x: usize, y: usize, color: u32): void {
+    gui_letter(g, 84 as u8, x + (0 as usize), y, color)
+    gui_letter(g, 72 as u8, x + (12 as usize), y, color)
+    gui_letter(g, 73 as u8, x + (24 as usize), y, color)
+    gui_letter(g, 83 as u8, x + (36 as usize), y, color)
+    gui_letter(g, 32 as u8, x + (48 as usize), y, color)
+    gui_letter(g, 80 as u8, x + (60 as usize), y, color)
+    gui_letter(g, 67 as u8, x + (72 as usize), y, color)
+}
+function explorer_label_3(g: *GuiDesktop, x: usize, y: usize, color: u32): void {
+    gui_letter(g, 78 as u8, x + (0 as usize), y, color)
+    gui_letter(g, 79 as u8, x + (12 as usize), y, color)
+    gui_letter(g, 81 as u8, x + (24 as usize), y, color)
+    gui_letter(g, 70 as u8, x + (36 as usize), y, color)
+    gui_letter(g, 83 as u8, x + (48 as usize), y, color)
+    gui_letter(g, 32 as u8, x + (60 as usize), y, color)
+    gui_letter(g, 82 as u8, x + (72 as usize), y, color)
+    gui_letter(g, 79 as u8, x + (84 as usize), y, color)
+    gui_letter(g, 79 as u8, x + (96 as usize), y, color)
+    gui_letter(g, 84 as u8, x + (108 as usize), y, color)
+}
+function explorer_label_4(g: *GuiDesktop, x: usize, y: usize, color: u32): void {
+    gui_letter(g, 78 as u8, x + (0 as usize), y, color)
+    gui_letter(g, 65 as u8, x + (12 as usize), y, color)
+    gui_letter(g, 77 as u8, x + (24 as usize), y, color)
+    gui_letter(g, 69 as u8, x + (36 as usize), y, color)
+}
+function explorer_label_5(g: *GuiDesktop, x: usize, y: usize, color: u32): void {
+    gui_letter(g, 83 as u8, x + (0 as usize), y, color)
+    gui_letter(g, 73 as u8, x + (12 as usize), y, color)
+    gui_letter(g, 90 as u8, x + (24 as usize), y, color)
+    gui_letter(g, 69 as u8, x + (36 as usize), y, color)
+}
+function explorer_label_6(g: *GuiDesktop, x: usize, y: usize, color: u32): void {
+    gui_letter(g, 70 as u8, x + (0 as usize), y, color)
+    gui_letter(g, 73 as u8, x + (12 as usize), y, color)
+    gui_letter(g, 76 as u8, x + (24 as usize), y, color)
+    gui_letter(g, 69 as u8, x + (36 as usize), y, color)
+}
+function explorer_label_7(g: *GuiDesktop, x: usize, y: usize, color: u32): void {
+    gui_letter(g, 82 as u8, x + (0 as usize), y, color)
+    gui_letter(g, 69 as u8, x + (12 as usize), y, color)
+    gui_letter(g, 65 as u8, x + (24 as usize), y, color)
+    gui_letter(g, 68 as u8, x + (36 as usize), y, color)
+    gui_letter(g, 32 as u8, x + (48 as usize), y, color)
+    gui_letter(g, 79 as u8, x + (60 as usize), y, color)
+    gui_letter(g, 78 as u8, x + (72 as usize), y, color)
+    gui_letter(g, 76 as u8, x + (84 as usize), y, color)
+    gui_letter(g, 89 as u8, x + (96 as usize), y, color)
+}
+function explorer_label_8(g: *GuiDesktop, x: usize, y: usize, color: u32): void {
+    gui_letter(g, 65 as u8, x + (0 as usize), y, color)
+    gui_letter(g, 32 as u8, x + (12 as usize), y, color)
+    gui_letter(g, 66 as u8, x + (24 as usize), y, color)
+    gui_letter(g, 65 as u8, x + (36 as usize), y, color)
+    gui_letter(g, 67 as u8, x + (48 as usize), y, color)
+    gui_letter(g, 75 as u8, x + (60 as usize), y, color)
+    gui_letter(g, 32 as u8, x + (72 as usize), y, color)
+    gui_letter(g, 32 as u8, x + (84 as usize), y, color)
+    gui_letter(g, 83 as u8, x + (96 as usize), y, color)
+    gui_letter(g, 32 as u8, x + (108 as usize), y, color)
+    gui_letter(g, 70 as u8, x + (120 as usize), y, color)
+    gui_letter(g, 73 as u8, x + (132 as usize), y, color)
+    gui_letter(g, 76 as u8, x + (144 as usize), y, color)
+    gui_letter(g, 69 as u8, x + (156 as usize), y, color)
+    gui_letter(g, 83 as u8, x + (168 as usize), y, color)
+}
+function explorer_label_9(g: *GuiDesktop, x: usize, y: usize, color: u32): void {
+    gui_letter(g, 85 as u8, x + (0 as usize), y, color)
+    gui_letter(g, 80 as u8, x + (12 as usize), y, color)
+    gui_letter(g, 32 as u8, x + (24 as usize), y, color)
+    gui_letter(g, 68 as u8, x + (36 as usize), y, color)
+    gui_letter(g, 79 as u8, x + (48 as usize), y, color)
+    gui_letter(g, 87 as u8, x + (60 as usize), y, color)
+    gui_letter(g, 78 as u8, x + (72 as usize), y, color)
+    gui_letter(g, 32 as u8, x + (84 as usize), y, color)
+    gui_letter(g, 83 as u8, x + (96 as usize), y, color)
+    gui_letter(g, 69 as u8, x + (108 as usize), y, color)
+    gui_letter(g, 76 as u8, x + (120 as usize), y, color)
+    gui_letter(g, 69 as u8, x + (132 as usize), y, color)
+    gui_letter(g, 67 as u8, x + (144 as usize), y, color)
+    gui_letter(g, 84 as u8, x + (156 as usize), y, color)
+}
+function explorer_paint(g: *GuiDesktop): void {
+    gui_fill(g, 0 as usize, 55 as usize, g.width, g.height - (100 as usize), 0xf4f6fa as u32)
+    gui_fill(g, 18 as usize, 72 as usize, g.width - (36 as usize), g.height - (132 as usize), 0xffffff as u32)
+    gui_fill(g, 18 as usize, 72 as usize, g.width - (36 as usize), 44 as usize, 0xe8edf5 as u32)
+    explorer_label_0(g, 34 as usize, 86 as usize, 0x182438 as u32)
+    gui_fill(g, 18 as usize, 116 as usize, 174 as usize, g.height - (176 as usize), 0xf0f3f8 as u32)
+    explorer_label_1(g, 38 as usize, 144 as usize, 0x283c58 as u32)
+    explorer_label_2(g, 38 as usize, 184 as usize, 0x283c58 as u32)
+    explorer_label_3(g, 216 as usize, 144 as usize, 0x283c58 as u32)
+    gui_fill(g, 207 as usize, 180 as usize, g.width - (250 as usize), 36 as usize, 0xf0f3f8 as u32)
+    explorer_label_4(g, 226 as usize, 192 as usize, 0x283c58 as u32)
+    if g.width > (610 as usize) { explorer_label_5(g, g.width - (125 as usize), 192 as usize, 0x283c58 as u32) }
+    explorer_label_7(g, 226 as usize, 245 as usize, 0x5e708a as u32)
+    explorer_label_8(g, 226 as usize, g.height - (85 as usize), 0x283c58 as u32)
 }
