@@ -62,6 +62,16 @@ def verify(iso: Path, disk: Path, memory: str) -> None:
             (b"echo HELLO TERMINAL\r", b"HELLO TERMINAL"),
             (b"cd UNKNOWN\r", b"Folder not found"),
             (b"badcommand\r", b"Unknown command"),
+            (b"info\r", b"NoqeriOS x86_64"),
+            (b"list\r", b"Items:"),
+            (b"where\r", b"N:\\"),
+            (b"read KEY-0000000000000001\r", b"HELO from NoqFS"),
+            (b"say SIMPLE SHELL\r", b"SIMPLE SHELL"),
+            (b"again\r", b"SIMPLE SHELL"),
+            (b"up\r", b"Already at root"),
+            (b"back\r", b"Already at root"),
+            (b"go UNKNOWN\r", b"Folder not found"),
+            (b"clear\r", b"N:\\> "),
             (b"cls\r", b"N:\\> "),
         ]
         for key, response in cases:
