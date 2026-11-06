@@ -49,7 +49,7 @@ ld -nostdlib -znocombreloc -shared -Bsymbolic \
 
 objcopy -j .text -j .sdata -j .data -j .rodata -j .dynamic \
   -j .dynsym -j .rel -j .rela -j .reloc -j .rela.* \
-  --target=efi-app-x86_64 --subsystem=10 \
+  --output-target=efi-app-x86_64 --subsystem=10 \
   "$UEFI_OUT/loader.so" "$UEFI_OUT/BOOTX64.EFI"
 test -s "$UEFI_OUT/BOOTX64.EFI"
 
