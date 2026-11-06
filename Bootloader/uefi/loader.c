@@ -245,7 +245,7 @@ extern UINT32 noq_zig_validate_elf(const UINT8 *bytes, UINTN length);
 static EFI_STATUS load_elf(EFI_SYSTEM_TABLE *st, UINT8 *file, UINTN bytes, UINT64 *entry) {
 #ifdef NOQERIOS_ZIG_BOOT
     if (noq_zig_validate_elf(file, bytes) != 1) return EFI_LOAD_ERROR;
-    log_debug("uefi: Zig ELF validation passed\\n");
+    log_debug("uefi: Zig ELF validation passed\n");
 #endif
     if (bytes < sizeof(ELF_HEADER)) return EFI_LOAD_ERROR;
     ELF_HEADER *h = (ELF_HEADER *)file;
