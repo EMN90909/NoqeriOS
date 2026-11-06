@@ -60,6 +60,11 @@ fi
 # The framebuffer is optional on real machines. CI explicitly asks for
 # a GOP handoff so graphics regressions cannot hide behind serial success.
 if [[ "${NOQERIOS_REQUIRE_GOP:-0}" == 1 ]]; then
+    if [[ "${NOQERIOS_ZIG_BOOT:-0}" == 1 ]] && ! grep -q 'uefi: Zig GOP handoff validation passed' "$DEBUG"; then
+        echo "Zig GOP handoff validation was not reached:" >&2
+        cat "$DEBUG" "$LOG" >&2
+        exit 1
+    fi
     if ! grep -q 'uefi: supported GOP RGB framebuffer found' "$DEBUG" || \
        ! grep -q 'NoqeriOS: early framebuffer boot marker displayed' "$LOG" || \
        ! grep -q 'NoqeriOS: boot splash active' "$LOG" || \
