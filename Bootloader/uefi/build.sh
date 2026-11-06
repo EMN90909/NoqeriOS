@@ -23,7 +23,7 @@ done
 ZIG_BOOT_OBJECTS=()
 if [[ "${NOQERIOS_ZIG_BOOT:-0}" == 1 ]]; then
   command -v zig >/dev/null || { echo "Zig is required for NOQERIOS_ZIG_BOOT=1" >&2; exit 3; }
-  zig build-obj "$ROOT/Bootloader/zig/elf.zig" -target x86_64-freestanding -O ReleaseSmall -fPIC \
+  zig build-obj "$ROOT/Bootloader/zig/elf.zig" -target x86_64-freestanding -O ReleaseSmall -fPIC -mno-red-zone -fno-stack-protector \
     -femit-bin="$UEFI_OUT/zig_elf.o"
   ZIG_BOOT_OBJECTS+=("$UEFI_OUT/zig_elf.o")
 fi
