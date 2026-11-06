@@ -58,8 +58,19 @@ function framebuffer_valid(tag: usize): bool {
        fb.pitch < fb.width * (4 as u32) ||
        fb.pitch > (65536 as u32) ||
        fb.pitch % (4 as u32) != (0 as u32) ||
+       fb.address < (1048576 as u64) ||
+       fb.address % (4 as u64) != (0 as u64) ||
        fb.address >= (549755813888 as u64) {
         // Keep MMIO below the loader's 512 GiB bootstrap PML4 window.
+        return false
+    }
+    // UEFI maps only the framebuffer aperture, capped at 256 MiB.
+    // Reject descriptors that could overflow the mapped physical range
+    // even if the width and row pitch looked valid individually.
+    let frameBytes: u64 = (fb.pitch as u64) * (fb.height as u64)
+    if frameBytes == (0 as u64) ||
+       frameBytes > (268435456 as u64) ||
+       fb.address > (549755813888 as u64) - frameBytes {
         return false
     }
     let channels: *u8 = (tag + (32 as usize)) as *u8
@@ -117,6 +128,36 @@ function framebuffer_fill_rect(tag: usize, left: usize, top: usize,
     return true
 }
 
+// Single-pixel-thick lines use the same clipped MMIO rectangle engine.
+// These are suitable for desktop borders and cursor decorations.
+function framebuffer_hline(tag: usize, left: usize, top: usize,
+                            length: usize, rgb: u32): bool {
+    return framebuffer_fill_rect(tag, left, top, length, 1 as usize, rgb)
+}
+
+function framebuffer_vline(tag: usize, left: usize, top: usize,
+                            length: usize, rgb: u32): bool {
+    return framebuffer_fill_rect(tag, left, top, 1 as usize, length, rgb)
+}
+
+// CPU-side source-over compositing in canonical RGB space. The framebuffer
+// may use RGB or BGR byte order; callers convert at the MMIO boundary.
+function framebuffer_blend_rgb(bottom: u32, top: u32, alpha: u32): u32 {
+    if alpha == (0 as u32) { return bottom }
+    if alpha >= (255 as u32) { return top }
+    let inv: u32 = (255 as u32) - alpha
+    let br: u32 = (bottom / (65536 as u32)) % (256 as u32)
+    let bg: u32 = (bottom / (256 as u32)) % (256 as u32)
+    let bb: u32 = bottom % (256 as u32)
+    let tr: u32 = (top / (65536 as u32)) % (256 as u32)
+    let tg: u32 = (top / (256 as u32)) % (256 as u32)
+    let tb: u32 = top % (256 as u32)
+    let red: u32 = (tr * alpha + br * inv + (127 as u32)) / (255 as u32)
+    let green: u32 = (tg * alpha + bg * inv + (127 as u32)) / (255 as u32)
+    let blue: u32 = (tb * alpha + bb * inv + (127 as u32)) / (255 as u32)
+    return red * (65536 as u32) + green * (256 as u32) + blue
+}
+
 function framebuffer_clear(tag: usize, rgb: u32): bool {
     if !framebuffer_valid(tag) { return false }
     let fb: *Mb2FramebufferTag = tag as *Mb2FramebufferTag
@@ -169,6 +210,53 @@ function framebuffer_blit_rgb32(tag: usize, destX: usize, destY: usize,
         let x: usize = 0 as usize
         while x < w {
             pixels[row + x] = framebuffer_pack_rgb(source.pixels[sourceRow + x], swap)
+            x = x + (1 as usize)
+        }
+        y = y + (1 as usize)
+    }
+    return true
+}
+
+// ARGB32 source-over blit for translucent icons, window shadows and
+// cursor surfaces. Source format is 0xAARRGGBB, destination RGB/BGR comes
+// from the Multiboot2 color descriptor. Caller owns the source image.
+function framebuffer_blit_argb32(tag: usize, destX: usize, destY: usize,
+                                 source: *FramebufferImage): bool {
+    if !framebuffer_valid(tag) || source == null ||
+       source.pixels == null || source.width == (0 as usize) ||
+       source.height == (0 as usize) ||
+       source.stride < source.width ||
+       source.stride > (16384 as usize) { return false }
+    let fb: *Mb2FramebufferTag = tag as *Mb2FramebufferTag
+    let maxWidth: usize = fb.width as usize
+    let maxHeight: usize = fb.height as usize
+    if destX >= maxWidth || destY >= maxHeight { return false }
+    let w: usize = source.width
+    let h: usize = source.height
+    if w > maxWidth - destX { w = maxWidth - destX }
+    if h > maxHeight - destY { h = maxHeight - destY }
+    let channels: *u8 = (tag + (32 as usize)) as *u8
+    let swap: bool = channels[0] == (0 as u8)
+    let pixels: *volatile u32 = (fb.address as usize) as *volatile u32
+    let stride: usize = (fb.pitch as usize) / (4 as usize)
+    let y: usize = 0 as usize
+    while y < h {
+        let row: usize = (destY + y) * stride + destX
+        let sourceRow: usize = y * source.stride
+        let x: usize = 0 as usize
+        while x < w {
+            let argb: u32 = source.pixels[sourceRow + x]
+            let alpha: u32 = argb / (16777216 as u32)
+            if alpha != (0 as u32) {
+                let rgb: u32 = argb % (16777216 as u32)
+                if alpha == (255 as u32) {
+                    pixels[row + x] = framebuffer_pack_rgb(rgb, swap)
+                } else {
+                    let background: u32 = framebuffer_pack_rgb(pixels[row + x], swap)
+                    let mixed: u32 = framebuffer_blend_rgb(background, rgb, alpha)
+                    pixels[row + x] = framebuffer_pack_rgb(mixed, swap)
+                }
+            }
             x = x + (1 as usize)
         }
         y = y + (1 as usize)
