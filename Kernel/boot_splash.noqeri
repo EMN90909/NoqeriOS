@@ -9,7 +9,7 @@ function boot_splash_fill(fb: *Mb2FramebufferTag,
                           left: usize, top: usize, width: usize,
                           height: usize, color: u32): void {
     // Same pitch, clipping and RGB/BGR conversion as the desktop.
-    if !framebuffer_fill_rect(fb as usize, left, top, width, height, color) { return }
+    let painted: bool = framebuffer_fill_rect(fb as usize, left, top, width, height, color)
 }
 
 // Six five-by-seven glyphs spelling "Noqeri" in title case.
