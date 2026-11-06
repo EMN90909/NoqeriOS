@@ -65,14 +65,9 @@ function boot_splash_update(info: usize, progress: usize): void {
     }
     let left: usize = ((fb.width as usize) - barWidth) / (2 as usize)
     let top: usize = ((fb.height as usize) / (2 as usize)) + (28 as usize)
-    // Redraw the track at every milestone so the width never depends on
-    // stale firmware pixels or incremental rounding errors.
-    boot_splash_fill(fb, left, top, barWidth, 9 as usize, 0x454545 as u32)
-    let done: usize = progress
-    if done > (100 as usize) { done = 100 as usize }
-    boot_splash_fill(fb, left, top,
-                     (barWidth * done) / (100 as usize),
-                     9 as usize, 0xfb5607 as u32)
+    // Shared Noqeri drawing core handles clipped track/fill on UEFI GOP
+    // and Multiboot2 RGB/BGR framebuffers.
+    framebuffer_progress(tag, left, top, barWidth, 9 as usize, progress)
 }
 
 function boot_splash_begin(info: usize): bool {
@@ -84,6 +79,11 @@ function boot_splash_begin(info: usize): bool {
     boot_splash_fill(fb, 0 as usize, 0 as usize,
                      fb.width as usize, fb.height as usize, 0x101010 as u32)
     boot_splash_logo(fb, redLow)
+    // Subtle splash frame stays inside the validated framebuffer mode.
+    framebuffer_stroke_rect(tag, 12 as usize, 12 as usize,
+                            (fb.width as usize) - (24 as usize),
+                            (fb.height as usize) - (24 as usize),
+                            1 as usize, 0x002a2a2a as u32)
     boot_splash_update(info, 8 as usize)
     return true
 }
