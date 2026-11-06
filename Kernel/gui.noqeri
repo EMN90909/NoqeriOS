@@ -32,30 +32,13 @@ record GuiDesktop {
 }
 
 function gui_color(g: *GuiDesktop, rgb: u32): u32 {
-    if !g.swapRedBlue { return rgb }
-    let red: u32 = rgb / (65536 as u32)
-    let green: u32 = (rgb / (256 as u32)) % (256 as u32)
-    let blue: u32 = rgb % (256 as u32)
-    return blue * (65536 as u32) + green * (256 as u32) + red
+    return framebuffer_pack_rgb(rgb, g.swapRedBlue)
 }
 function gui_fill(g: *GuiDesktop, left: usize, top: usize,
                   width: usize, height: usize, color: u32): void {
-    if g == null || left >= g.width || top >= g.height { return }
-    let w: usize = width
-    let h: usize = height
-    if w > g.width - left { w = g.width - left }
-    if h > g.height - top { h = g.height - top }
-    let packed: u32 = gui_color(g, color)
-    let y: usize = 0 as usize
-    while y < h {
-        let row: usize = (top + y) * g.stride + left
-        let x: usize = 0 as usize
-        while x < w {
-            g.pixels[row + x] = packed
-            x = x + (1 as usize)
-        }
-        y = y + (1 as usize)
-    }
+    if g == null { return }
+    framebuffer_fill_pixels(g.pixels, g.stride, g.width, g.height,
+                            g.swapRedBlue, left, top, width, height, color)
 }
 // 4-sample corner antialiasing and clipped pixel blending.
 // Only panels use this path; large wallpaper fills stay on the fast path.
