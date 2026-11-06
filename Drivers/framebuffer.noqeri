@@ -86,20 +86,24 @@ function framebuffer_pack_rgb(rgb: u32, swapRedBlue: bool): u32 {
     return blue * (65536 as u32) + green * (256 as u32) + red
 }
 
-// Internal clipped pixel fill also supports an off-screen GPU backing buffer.
-// Consumers must provide a mapped writable buffer of stride*height pixels.
-function framebuffer_fill_pixels(pixels: *volatile u32, stride: usize,
-                                 width: usize, height: usize,
-                                 swapRedBlue: bool, left: usize, top: usize,
-                                 rectWidth: usize, rectHeight: usize,
-                                 color: u32): void {
-    if pixels == null || stride < width || width == (0 as usize) ||
-       height == (0 as usize) || left >= width || top >= height { return }
-    let w: usize = rectWidth
-    let h: usize = rectHeight
-    if w > width - left { w = width - left }
-    if h > height - top { h = height - top }
-    let packed: u32 = framebuffer_pack_rgb(color, swapRedBlue)
+// Direct-MMIO rectangle draw. Six parameters fit the current Noqeri ABI.
+// The framebuffer tag provides the pitch and bounds.
+function framebuffer_fill_rect(tag: usize, left: usize, top: usize,
+                               width: usize, height: usize,
+                               rgb: u32): bool {
+    if !framebuffer_valid(tag) { return false }
+    let fb: *Mb2FramebufferTag = tag as *Mb2FramebufferTag
+    let maxWidth: usize = fb.width as usize
+    let maxHeight: usize = fb.height as usize
+    if left >= maxWidth || top >= maxHeight { return true }
+    let w: usize = width
+    let h: usize = height
+    if w > maxWidth - left { w = maxWidth - left }
+    if h > maxHeight - top { h = maxHeight - top }
+    let channels: *u8 = (tag + (32 as usize)) as *u8
+    let packed: u32 = framebuffer_pack_rgb(rgb, channels[0] == (0 as u8))
+    let pixels: *volatile u32 = (fb.address as usize) as *volatile u32
+    let stride: usize = (fb.pitch as usize) / (4 as usize)
     let y: usize = 0 as usize
     while y < h {
         let row: usize = (top + y) * stride + left
@@ -110,20 +114,6 @@ function framebuffer_fill_pixels(pixels: *volatile u32, stride: usize,
         }
         y = y + (1 as usize)
     }
-}
-
-// The Multiboot2 RGB descriptor is checked before every direct-MMIO draw.
-function framebuffer_fill_rect(tag: usize, left: usize, top: usize,
-                               width: usize, height: usize,
-                               rgb: u32): bool {
-    if !framebuffer_valid(tag) { return false }
-    let fb: *Mb2FramebufferTag = tag as *Mb2FramebufferTag
-    let channels: *u8 = (tag + (32 as usize)) as *u8
-    framebuffer_fill_pixels((fb.address as usize) as *volatile u32,
-                            (fb.pitch as usize) / (4 as usize),
-                            fb.width as usize, fb.height as usize,
-                            channels[0] == (0 as u8),
-                            left, top, width, height, rgb)
     return true
 }
 
@@ -145,20 +135,27 @@ function framebuffer_pixel(tag: usize, x: usize, y: usize, rgb: u32): bool {
     return true
 }
 
+record FramebufferImage {
+    pixels: *u32;
+    stride: usize;
+    width: usize;
+    height: usize;
+}
+
 // Blit RGB32 source pixels with software clipping and row-pitch awareness.
 // The caller owns the source allocation; no unbounded reads are performed
 // when sourceStride >= sourceWidth and sourceHeight is accurate.
 function framebuffer_blit_rgb32(tag: usize, destX: usize, destY: usize,
-                                source: *u32, sourceStride: usize,
-                                sourceWidth: usize, sourceHeight: usize): bool {
+                                source: *FramebufferImage): bool {
     if !framebuffer_valid(tag) || source == null ||
-       sourceStride < sourceWidth { return false }
+       source.pixels == null || source.stride < source.width ||
+       source.stride > (16384 as usize) { return false }
     let fb: *Mb2FramebufferTag = tag as *Mb2FramebufferTag
     let maxWidth: usize = fb.width as usize
     let maxHeight: usize = fb.height as usize
     if destX >= maxWidth || destY >= maxHeight { return false }
-    let w: usize = sourceWidth
-    let h: usize = sourceHeight
+    let w: usize = source.width
+    let h: usize = source.height
     if w > maxWidth - destX { w = maxWidth - destX }
     if h > maxHeight - destY { h = maxHeight - destY }
     let channels: *u8 = (tag + (32 as usize)) as *u8
@@ -168,10 +165,10 @@ function framebuffer_blit_rgb32(tag: usize, destX: usize, destY: usize,
     let y: usize = 0 as usize
     while y < h {
         let row: usize = (destY + y) * stride + destX
-        let sourceRow: usize = y * sourceStride
+        let sourceRow: usize = y * source.stride
         let x: usize = 0 as usize
         while x < w {
-            pixels[row + x] = framebuffer_pack_rgb(source[sourceRow + x], swap)
+            pixels[row + x] = framebuffer_pack_rgb(source.pixels[sourceRow + x], swap)
             x = x + (1 as usize)
         }
         y = y + (1 as usize)
