@@ -57,8 +57,11 @@ pub fn validateElf(bytes: []const u8) bool {
         const paddr = le64(bytes, pos + 24);
         const file_size = le64(bytes, pos + 32);
         const mem_size = le64(bytes, pos + 40);
+        const segment_align = le64(bytes, pos + 48);
         if (!rangeFits(file_offset, file_size, @intCast(bytes.len))) return false;
         if (file_size > mem_size or paddr < 0x10_0000) return false;
+        // ELF alignment must be absent, one, or a power of two.
+        if (segment_align > 1 and (segment_align & (segment_align - 1)) != 0) return false;
         if (!rangeFits(paddr, mem_size, identity_limit) or vaddr != paddr) return false;
         if ((paddr & 4095) != (file_offset & 4095)) return false;
         if (mem_size == 0) continue;
@@ -72,9 +75,18 @@ pub fn validateElf(bytes: []const u8) bool {
             const old_len = le64(bytes, old + 40);
             // The earlier segment is already validated.
             if (overlaps(paddr, mem_size, old_start, old_len)) return false;
+            // UEFI AllocatePages reserves whole pages, even when ELF segments
+            // contain disjoint byte ranges. Detect conflicting reservations.
+            if (old_len > 0) {
+                const page_start = paddr & ~@as(u64, 4095);
+                const old_page_start = old_start & ~@as(u64, 4095);
+                const page_end = (paddr + mem_size + 4095) & ~@as(u64, 4095);
+                const old_page_end = (old_start + old_len + 4095) & ~@as(u64, 4095);
+                if (page_start < old_page_end and old_page_start < page_end) return false;
+            }
         }
         has_load = true;
-        if ((flags & 1) != 0 and entry >= paddr and entry - paddr < mem_size)
+        if ((flags & 1) != 0 and entry >= paddr and entry - paddr < file_size)
             executable_entry = true;
     }
     return has_load and executable_entry;
@@ -129,5 +141,16 @@ test "reject invalid segment addresses, sizes and overlap" {
     b = sample();
     b[64 + 32] = 65;
     b[64 + 40] = 64;
+    try std.testing.expect(!validateElf(&b));
+}
+
+test "reject executable entry in zero-filled memory" {
+    var b = sample();
+    b[64 + 32] = 0; // filesz 0: entry has no executable bytes
+    try std.testing.expect(!validateElf(&b));
+}
+test "reject non-power-of-two PT_LOAD alignment" {
+    var b = sample();
+    b[64 + 48] = 3; // invalid p_align
     try std.testing.expect(!validateElf(&b));
 }
