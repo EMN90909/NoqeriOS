@@ -20,7 +20,16 @@ for dir in /usr/lib /usr/lib64 /usr/lib/gnuefi /usr/lib/x86_64-linux-gnu; do
 done
 [[ -n "$EFI_CRT" ]] || { echo "GNU-EFI CRT/linker script missing (install gnu-efi)" >&2; exit 3; }
 
+ZIG_BOOT_OBJECTS=()
+if [[ "${NOQERIOS_ZIG_BOOT:-0}" == 1 ]]; then
+  command -v zig >/dev/null || { echo "Zig is required for NOQERIOS_ZIG_BOOT=1" >&2; exit 3; }
+  zig build-obj "$ROOT/Bootloader/zig/elf.zig" -target x86_64-freestanding -O ReleaseSmall -fPIC \
+    -femit-bin="$UEFI_OUT/zig_elf.o"
+  ZIG_BOOT_OBJECTS+=("$UEFI_OUT/zig_elf.o")
+fi
+
 LOADER_DEFINES=()
+if [[ "${NOQERIOS_ZIG_BOOT:-0}" == 1 ]]; then LOADER_DEFINES+=(-DNOQERIOS_ZIG_BOOT); fi
 if [[ "${NOQERIOS_LENOVO_VERIFY:-0}" == 1 ]]; then
   LOADER_DEFINES+=(-DNOQERIOS_LENOVO_VERIFY)
   echo "Building dedicated Lenovo G500 GOP verification loader"
@@ -43,7 +52,7 @@ gcc -std=gnu11 -O2 -fpic -ffreestanding -fshort-wchar \
 
 ld -nostdlib -znocombreloc -shared -Bsymbolic \
   -T "$EFI_CRT/elf_x86_64_efi.lds" \
-  "$EFI_CRT/crt0-efi-x86_64.o" "$UEFI_OUT/loader.o" "$UEFI_OUT/boot_menu.o" \
+  "$EFI_CRT/crt0-efi-x86_64.o" "$UEFI_OUT/loader.o" "$UEFI_OUT/boot_menu.o" "${ZIG_BOOT_OBJECTS[@]}" \
   -L "$EFI_CRT" -o "$UEFI_OUT/loader.so" \
   -lgnuefi -lefi "$(gcc -print-libgcc-file-name)"
 
