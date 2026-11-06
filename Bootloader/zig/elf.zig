@@ -36,19 +36,20 @@ pub fn validateElf(bytes: []const u8) bool {
     if (!std.mem.eql(u8, bytes[0..4], "\x7fELF")) return false;
     if (bytes[4] != 2 or bytes[5] != 1 or bytes[6] != 1) return false;
     if (le16(bytes, 16) != 2 or le16(bytes, 18) != 62 or le32(bytes, 20) != 1) return false;
-    if (le16(bytes, 52) != header_bytes) return false;
+    if (le16(bytes, 52) != 64) return false;
     const entry = le64(bytes, 24);
     const phoff = le64(bytes, 32);
     const phsize = le16(bytes, 54);
     const phcount = le16(bytes, 56);
     if (entry < 0x10_0000 or entry >= identity_limit) return false;
-    if (phsize != program_bytes or phcount == 0 or phcount > max_phdrs) return false;
-    if (!rangeFits(phoff, @as(u64, phcount) * program_bytes, @intCast(bytes.len))) return false;
+    if (phsize != 56 or phcount == 0 or phcount > 128) return false;
+    if (!rangeFits(phoff, @as(u64, phcount) * 56, @intCast(bytes.len))) return false;
 
     var executable_entry = false;
     var has_load = false;
     for (0..@as(usize, phcount)) |i| {
-        const pos: usize = @intCast(phoff + i * program_bytes);
+        const base: usize = @intCast(phoff);
+        const pos: usize = base + i * program_bytes;
         if (le32(bytes, pos) != 1) continue;
         const flags = le32(bytes, pos + 4);
         const file_offset = le64(bytes, pos + 8);
@@ -65,7 +66,7 @@ pub fn validateElf(bytes: []const u8) bool {
         // Loading overlapping segments in place can overwrite the kernel
         // unpredictably, even when each individual segment passes bounds.
         for (0..i) |previous| {
-            const old: usize = @intCast(phoff + previous * program_bytes);
+            const old: usize = base + previous * program_bytes;
             if (le32(bytes, old) != 1) continue;
             const old_start = le64(bytes, old + 24);
             const old_len = le64(bytes, old + 40);
