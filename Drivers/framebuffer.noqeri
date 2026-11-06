@@ -63,7 +63,7 @@ function framebuffer_valid(tag: usize): bool {
         return false
     }
     let channels: *u8 = (tag + (32 as usize)) as *u8
-    return channels[1] == (8 as u8) &&
+    return zig_fb_valid(tag) && channels[1] == (8 as u8) &&
            channels[2] == (8 as u8) &&
            channels[3] == (8 as u8) &&
            channels[5] == (8 as u8) &&
@@ -75,9 +75,15 @@ function framebuffer_probe(info: usize): bool {
     return framebuffer_valid(mb2_find_framebuffer(info))
 }
 
-// Common Noqeri framebuffer drawing core. Colours are 0x00RRGGBB,
-// and conversion happens once per rectangle, never in the inner pixel loop.
-// No allocation or firmware calls: suitable for both boot splash and desktop.
+// Zig implements MMIO drawing; Noqeri preserves the stable driver API.
+// A raw integer tag pointer keeps the ABI independent of record padding.
+extern function zig_fb_valid(tag: usize): bool;
+extern function zig_fb_fill_rect(tag: usize, left: usize, top: usize,
+                                 width: usize, height: usize, rgb: u32): bool;
+extern function zig_fb_pixel(tag: usize, x: usize, y: usize, rgb: u32): bool;
+extern function zig_fb_blit(tag: usize, destX: usize, destY: usize,
+                            sourceAddress: usize): bool;
+
 function framebuffer_pack_rgb(rgb: u32, swapRedBlue: bool): u32 {
     if !swapRedBlue { return rgb }
     let red: u32 = rgb / (65536 as u32)
@@ -86,53 +92,23 @@ function framebuffer_pack_rgb(rgb: u32, swapRedBlue: bool): u32 {
     return blue * (65536 as u32) + green * (256 as u32) + red
 }
 
-// Direct-MMIO rectangle draw. Six parameters fit the current Noqeri ABI.
-// The framebuffer tag provides the pitch and bounds.
 function framebuffer_fill_rect(tag: usize, left: usize, top: usize,
                                width: usize, height: usize,
                                rgb: u32): bool {
     if !framebuffer_valid(tag) { return false }
-    let fb: *Mb2FramebufferTag = tag as *Mb2FramebufferTag
-    let maxWidth: usize = fb.width as usize
-    let maxHeight: usize = fb.height as usize
-    if left >= maxWidth || top >= maxHeight { return true }
-    let w: usize = width
-    let h: usize = height
-    if w > maxWidth - left { w = maxWidth - left }
-    if h > maxHeight - top { h = maxHeight - top }
-    let channels: *u8 = (tag + (32 as usize)) as *u8
-    let packed: u32 = framebuffer_pack_rgb(rgb, channels[0] == (0 as u8))
-    let pixels: *volatile u32 = (fb.address as usize) as *volatile u32
-    let stride: usize = (fb.pitch as usize) / (4 as usize)
-    let y: usize = 0 as usize
-    while y < h {
-        let row: usize = (top + y) * stride + left
-        let x: usize = 0 as usize
-        while x < w {
-            pixels[row + x] = packed
-            x = x + (1 as usize)
-        }
-        y = y + (1 as usize)
-    }
-    return true
+    return zig_fb_fill_rect(tag, left, top, width, height, rgb)
 }
 
 function framebuffer_clear(tag: usize, rgb: u32): bool {
     if !framebuffer_valid(tag) { return false }
     let fb: *Mb2FramebufferTag = tag as *Mb2FramebufferTag
-    return framebuffer_fill_rect(tag, 0 as usize, 0 as usize,
-                                 fb.width as usize, fb.height as usize, rgb)
+    return zig_fb_fill_rect(tag, 0 as usize, 0 as usize,
+                            fb.width as usize, fb.height as usize, rgb)
 }
 
 function framebuffer_pixel(tag: usize, x: usize, y: usize, rgb: u32): bool {
     if !framebuffer_valid(tag) { return false }
-    let fb: *Mb2FramebufferTag = tag as *Mb2FramebufferTag
-    if x >= (fb.width as usize) || y >= (fb.height as usize) { return false }
-    let channels: *u8 = (tag + (32 as usize)) as *u8
-    let pixels: *volatile u32 = (fb.address as usize) as *volatile u32
-    let stride: usize = (fb.pitch as usize) / (4 as usize)
-    pixels[y * stride + x] = framebuffer_pack_rgb(rgb, channels[0] == (0 as u8))
-    return true
+    return zig_fb_pixel(tag, x, y, rgb)
 }
 
 record FramebufferImage {
@@ -142,39 +118,10 @@ record FramebufferImage {
     height: usize;
 }
 
-// Blit RGB32 source pixels with software clipping and row-pitch awareness.
-// The caller owns the source allocation; no unbounded reads are performed
-// when sourceStride >= sourceWidth and sourceHeight is accurate.
 function framebuffer_blit_rgb32(tag: usize, destX: usize, destY: usize,
                                 source: *FramebufferImage): bool {
-    if !framebuffer_valid(tag) || source == null ||
-       source.pixels == null || source.stride < source.width ||
-       source.stride > (16384 as usize) { return false }
-    let fb: *Mb2FramebufferTag = tag as *Mb2FramebufferTag
-    let maxWidth: usize = fb.width as usize
-    let maxHeight: usize = fb.height as usize
-    if destX >= maxWidth || destY >= maxHeight ||
-       source.width == (0 as usize) || source.height == (0 as usize) { return false }
-    let w: usize = source.width
-    let h: usize = source.height
-    if w > maxWidth - destX { w = maxWidth - destX }
-    if h > maxHeight - destY { h = maxHeight - destY }
-    let channels: *u8 = (tag + (32 as usize)) as *u8
-    let swap: bool = channels[0] == (0 as u8)
-    let pixels: *volatile u32 = (fb.address as usize) as *volatile u32
-    let stride: usize = (fb.pitch as usize) / (4 as usize)
-    let y: usize = 0 as usize
-    while y < h {
-        let row: usize = (destY + y) * stride + destX
-        let sourceRow: usize = y * source.stride
-        let x: usize = 0 as usize
-        while x < w {
-            pixels[row + x] = framebuffer_pack_rgb(source.pixels[sourceRow + x], swap)
-            x = x + (1 as usize)
-        }
-        y = y + (1 as usize)
-    }
-    return true
+    if !framebuffer_valid(tag) || source == null { return false }
+    return zig_fb_blit(tag, destX, destY, source as usize)
 }
 
 function framebuffer_draw_boot_mark(info: usize): bool {
