@@ -58,10 +58,11 @@ ld -nostdlib -znocombreloc -shared -Bsymbolic \
 
 if [[ "${NOQERIOS_ZIG_BOOT:-0}" == 1 ]]; then
   echo "Zig EFI crash-offset disassembly (PE image offset 0x3bde):"
-  nm -n "$UEFI_OUT/loader.so" | grep -E ' (efi_main|paging|probe_gop|noq_zig_validate_elf) -j .sdata -j .data -j .rodata -j .dynamic \
-  -j .dynsym -j .rel -j .rela -j .reloc -j .rela.* \
-  --output-target=efi-app-x86_64 --subsystem=10 \
-  "$UEFI_OUT/loader.so" "$UEFI_OUT/BOOTX64.EFI"
+  nm -n "$UEFI_OUT/loader.so" | grep -E 'efi_main|paging|probe_gop|noq_zig_validate_elf' || true
+  objdump -d -M intel --start-address=0x3b70 --stop-address=0x3c40 "$UEFI_OUT/loader.so" || true
+fi
+
+objcopy -j .text -j .sdata -j .data -j .rodata -j .dynamic -j .dynsym -j .rel -j .rela -j .reloc -j .rela.* --output-target=efi-app-x86_64 --subsystem=10 "$UEFI_OUT/loader.so" "$UEFI_OUT/BOOTX64.EFI"
 test -s "$UEFI_OUT/BOOTX64.EFI"
 
 # A FAT ESP is compatible with UEFI optical emulation and disk firmware.
