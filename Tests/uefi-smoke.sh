@@ -51,6 +51,12 @@ if ! grep -q 'NoqeriOS UEFI: ExitBootServices OK' "$DEBUG" || \
     cat "$DEBUG" "$LOG" >&2
     exit 1
 fi
+# Require evidence that the Zig validator actually executed in firmware.
+if [[ "${NOQERIOS_ZIG_BOOT:-0}" == 1 ]] && ! grep -q "uefi: Zig ELF validation passed" "$DEBUG"; then
+    echo "Zig ELF validation was not reached during UEFI boot" >&2
+    cat "$DEBUG" "$LOG" >&2
+    exit 1
+fi
 # The framebuffer is optional on real machines. CI explicitly asks for
 # a GOP handoff so graphics regressions cannot hide behind serial success.
 if [[ "${NOQERIOS_REQUIRE_GOP:-0}" == 1 ]]; then

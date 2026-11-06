@@ -239,7 +239,14 @@ static UINT64 uefi_entry_symbol(const UINT8 *bytes, UINTN length, const ELF_HEAD
     return 0;
 }
 
+#ifdef NOQERIOS_ZIG_BOOT
+extern UINT32 noq_zig_validate_elf(const UINT8 *bytes, UINTN length);
+#endif
 static EFI_STATUS load_elf(EFI_SYSTEM_TABLE *st, UINT8 *file, UINTN bytes, UINT64 *entry) {
+#ifdef NOQERIOS_ZIG_BOOT
+    if (noq_zig_validate_elf(file, bytes) != 1) return EFI_LOAD_ERROR;
+    log_debug("uefi: Zig ELF validation passed\n");
+#endif
     if (bytes < sizeof(ELF_HEADER)) return EFI_LOAD_ERROR;
     ELF_HEADER *h = (ELF_HEADER *)file;
     if (h->ident[0] != 0x7f || h->ident[1] != 'E' ||

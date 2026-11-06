@@ -27,3 +27,7 @@ BIOS x86-64 is supported. A native UEFI bootloader, full filesystem loading,
 boot menu, SMP and higher-half Limine protocol are separate future projects.
 The ordinary x86 processor bring-up code is assembly; the kernel and
 interactive terminal are written in Noqeri.
+
+## Opt-in Zig-enhanced UEFI loader
+
+`Bootloader/zig/elf.zig` provides bounds-checked ELF64 validation before any UEFI segment allocation. Enable it with `NOQERIOS_ZIG_BOOT=1 bash build.sh --uefi`. The firmware adapter and boot-menu implementation remain in C, and the BIOS entry remains assembly. The CI UEFI job runs the Zig-enhanced loader in OVMF and requires a serial debug marker confirming the Zig code executed.

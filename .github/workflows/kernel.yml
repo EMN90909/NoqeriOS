@@ -132,7 +132,9 @@ jobs:
 
   uefi-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 18
+    timeout-minutes: 22
+    env:
+      NOQERIOS_ZIG_BOOT: "1"
     steps:
       - name: Checkout NoqeriOS
         uses: actions/checkout@v4
@@ -142,6 +144,14 @@ jobs:
         with:
           repository: EMN90909/Noqeri
           path: .deps/Noqeri
+
+      - name: Install Zig 0.15.2 bootloader toolchain
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Unit test Zig ELF64 loader
+        run: zig test Bootloader/zig/elf.zig
 
       - name: Install UEFI and OVMF build dependencies
         run: |
@@ -159,6 +169,7 @@ jobs:
           test -f Arch/x86_64/entry.S
           grep -q 'uefi_kernel_entry' Arch/x86_64/entry.S
           test -f Bootloader/uefi/loader.c
+          test -f Bootloader/zig/elf.zig
 
       - name: Validate GPT removable-media image builder
         run: python3 -m unittest discover -s Tests -p 'test_uefi_usb.py'
