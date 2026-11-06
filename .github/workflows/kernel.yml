@@ -153,6 +153,9 @@ jobs:
       - name: Unit test Zig ELF64 loader
         run: zig test Bootloader/zig/elf.zig
 
+      - name: Unit test Zig GOP framebuffer contract
+        run: zig test Bootloader/zig/framebuffer.zig
+
       - name: Install UEFI and OVMF build dependencies
         run: |
           sudo apt-get update
