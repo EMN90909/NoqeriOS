@@ -56,6 +56,13 @@ ld -nostdlib -znocombreloc -shared -Bsymbolic \
   -L "$EFI_CRT" -o "$UEFI_OUT/loader.so" \
   -lgnuefi -lefi "$(gcc -print-libgcc-file-name)"
 
+if [[ "${NOQERIOS_ZIG_BOOT:-0}" == 1 ]]; then
+  echo "Zig UEFI intermediate ELF diagnostics:"
+  file "$UEFI_OUT/zig_elf.o" "$UEFI_OUT/loader.so" || true
+  readelf -h "$UEFI_OUT/loader.so" || true
+  objdump -f "$UEFI_OUT/loader.so" || true
+fi
+
 objcopy -j .text -j .sdata -j .data -j .rodata -j .dynamic \
   -j .dynsym -j .rel -j .rela -j .reloc -j .rela.* \
   --target=efi-app-x86_64 --subsystem=10 \
