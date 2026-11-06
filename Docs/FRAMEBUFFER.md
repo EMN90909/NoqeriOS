@@ -1,4 +1,4 @@
-# Native Noqeri framebuffer
+# Zig framebuffer with Noqeri kernel bindings
 
 The graphics stack uses a **32-bit linear RGB framebuffer** advertised by
 Multiboot2 tag 8. The UEFI loader supplies the tag from GOP; BIOS systems
@@ -6,7 +6,7 @@ without a supported framebuffer retain the serial terminal.
 
 ## Driver primitives
 
-`Drivers/framebuffer.noqeri` owns the shared software drawing operations:
+`Drivers/framebuffer.zig` performs the low-level framebuffer MMIO writes. `Drivers/framebuffer.noqeri` preserves the existing kernel-facing API and validates Multiboot2 framebuffer tags:
 
 - `mb2_find_framebuffer(info)`: bounded, 8-byte-aligned tag discovery.
 - `framebuffer_valid(tag)`: validates 32bpp direct RGB, supported channel
@@ -20,7 +20,7 @@ without a supported framebuffer retain the serial terminal.
 - `framebuffer_blit_rgb32(...)`: clipped software copy from a caller-owned
   RGB32 image buffer.
 
-The boot splash uses the shared MMIO rectangle draw; the desktop reuses the
+The Noqeri boot splash calls Zig through the shared driver interface; the desktop reuses the
 shared RGB/BGR packing logic. The desktop may switch to a VirtIO GPU backing
 buffer using its independent rectangle painter. No UEFI Boot
 Services are called after the kernel handoff.
@@ -36,7 +36,15 @@ Services are called after the kernel handoff.
 - Graphics on physical PCs, USB keyboard input, GPU DMA, displays with other
   pixel formats and full userspace windowing remain separate work.
 
+## Build integration
+
+Zig 0.15.2 is required for BIOS and UEFI builds. `build.sh` builds `Drivers/framebuffer.zig` as a freestanding x86-64 object and links it into `kernel.elf`. The existing Noqeri renderer entrypoints continue to be callable without changes to GUI call sites.
+
 ## Verify
+
+```sh
+zig test Drivers/framebuffer.zig
+```
 
 ```sh
 bash Tests/uefi-smoke.sh
