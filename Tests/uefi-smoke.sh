@@ -51,6 +51,13 @@ if ! grep -q 'NoqeriOS UEFI: ExitBootServices OK' "$DEBUG" || \
     cat "$DEBUG" "$LOG" >&2
     exit 1
 fi
+# When requested, prove the UEFI loader actually called the Zig core.
+if [[ "${NOQERIOS_ZIG_BOOT:-0}" == 1 ]] && \
+   ! grep -q 'uefi: Zig ELF validation passed' "$DEBUG"; then
+    echo "UEFI boot did not execute Zig ELF validation:" >&2
+    cat "$DEBUG" "$LOG" >&2
+    exit 1
+fi
 # The framebuffer is optional on real machines. CI explicitly asks for
 # a GOP handoff so graphics regressions cannot hide behind serial success.
 if [[ "${NOQERIOS_REQUIRE_GOP:-0}" == 1 ]]; then
