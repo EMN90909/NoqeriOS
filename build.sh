@@ -16,7 +16,7 @@ esac
 trap 'status=$?; echo "NoqeriOS Linux build failed (exit $status) near line $LINENO" >&2; exit "$status"' ERR
 [[ "$(uname -s)" == Linux ]] || { echo "Requires Linux/WSL. On Windows run build.bat." >&2; exit 2; }
 
-need=(git cmake g++ as ld nm xorriso python3)
+need=(git cmake g++ as ld nm xorriso python3 zig)
 if (( UEFI == 1 )); then need+=(gcc objcopy mformat mmd mcopy); fi
 missing=()
 for tool in "${need[@]}"; do
@@ -41,6 +41,11 @@ if (( ${#missing[@]} > 0 )); then
     fi
 fi
 mkdir -p "$OUT"
+
+# The Zig framebuffer is a mandatory freestanding kernel object. It is not a
+# separate EFI driver and does not need firmware services after handoff.
+zig build-obj "$ROOT/Drivers/framebuffer.zig" -target x86_64-freestanding -O ReleaseSmall \\
+    -femit-bin="$OUT/framebuffer_zig.o"
 
 if [[ -n "${NOQERI:-}" ]]; then
     [[ -x "$NOQERI" ]] || { echo "NOQERI does not point to an executable compiler." >&2; exit 4; }
@@ -78,7 +83,7 @@ for module in entry arch interrupts userspace freestanding; do
 done
 ld -nostdlib -z max-page-size=0x1000 -T "$ROOT/Arch/x86_64/linker.ld" \
     -o "$OUT/kernel.elf" "$OUT/entry.o" "$OUT/arch.o" \
-    "$OUT/interrupts.o" "$OUT/userspace.o" "$OUT/freestanding.o" "$OUT/kernel_noqeri.o"
+    "$OUT/interrupts.o" "$OUT/userspace.o" "$OUT/freestanding.o" "$OUT/kernel_noqeri.o" "$OUT/framebuffer_zig.o"
 nm "$OUT/kernel.elf" | grep -Eq '[[:space:]]T[[:space:]]kernel_main$' || {
     echo "No exported kernel_main after linking." >&2
     exit 5
