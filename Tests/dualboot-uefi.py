@@ -36,7 +36,7 @@ def build_fixture(tmp):
     obj, so, efi = (tmp / "alternate.o", tmp / "alternate.so", tmp / "alternate.efi")
     command("gcc", "-std=gnu11", "-O2", "-fpic", "-ffreestanding",
             "-fshort-wchar", "-fno-stack-protector", "-fno-builtin",
-            "-mno-red-zone", "-DGNU_EFI_USE_MS_ABI",
+            "-mno-red-zone", "-march=x86-64", "-mtune=generic", "-DGNU_EFI_USE_MS_ABI",
             "-I/usr/include/efi", "-I/usr/include/efi/x86_64",
             "-c", str(ROOT / "Tests/fixtures/alternate_efi.c"), "-o", str(obj))
     libgcc = subprocess.check_output(["gcc", "-print-libgcc-file-name"], text=True).strip()
@@ -47,7 +47,7 @@ def build_fixture(tmp):
     command("objcopy", "-j", ".text", "-j", ".sdata", "-j", ".data",
             "-j", ".rodata", "-j", ".dynamic", "-j", ".dynsym",
             "-j", ".rel", "-j", ".rela", "-j", ".reloc", "-j", ".rela.*",
-            "--target=efi-app-x86_64", "--subsystem=10", str(so), str(efi))
+            "--output-target=efi-app-x86_64", "--subsystem=10", str(so), str(efi))
     disk = tmp / "windows-esp.img"
     with disk.open("wb") as fd:
         fd.truncate(32 * 1024 * 1024)
