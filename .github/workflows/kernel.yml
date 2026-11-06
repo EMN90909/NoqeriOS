@@ -27,6 +27,14 @@ jobs:
           repository: EMN90909/Noqeri
           path: .deps/Noqeri
 
+      - name: Install Zig framebuffer toolchain
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Unit test Zig framebuffer
+        run: zig test Drivers/framebuffer.zig
+
       - name: Install kernel test dependencies
         run: |
           sudo apt-get update
@@ -150,8 +158,10 @@ jobs:
         with:
           version: 0.15.2
 
-      - name: Unit test Zig ELF64 loader
-        run: zig test Bootloader/zig/elf.zig
+      - name: Unit test Zig ELF64 loader and framebuffer
+        run: |
+          zig test Bootloader/zig/elf.zig
+          zig test Drivers/framebuffer.zig
 
       - name: Install UEFI and OVMF build dependencies
         run: |
