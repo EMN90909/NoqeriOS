@@ -27,7 +27,7 @@ if [[ "${NOQERIOS_LENOVO_VERIFY:-0}" == 1 ]]; then
 fi
 gcc -std=gnu11 -O2 -fpic -ffreestanding -fshort-wchar \
   -fno-stack-protector -fno-stack-check -fno-builtin -mno-red-zone \
-  -mno-avx -mno-avx2 -mno-avx512f \
+  -march=x86-64 -mtune=generic -mno-avx -mno-avx2 -mno-avx512f \
   -DGNU_EFI_USE_MS_ABI -Wall -Wextra "${LOADER_DEFINES[@]}" \
   -I/usr/include/efi -I/usr/include/efi/x86_64 \
   -c "$ROOT/Bootloader/uefi/loader.c" -o "$UEFI_OUT/loader.o"
@@ -38,7 +38,7 @@ if [[ "${NOQERI_CI_CHAINLOAD:-0}" == 1 ]]; then
 fi
 gcc -std=gnu11 -O2 -fpic -ffreestanding -fshort-wchar \
   -fno-stack-protector -fno-stack-check -fno-builtin -mno-red-zone \
-  -mno-avx -mno-avx2 -mno-avx512f \
+  -march=x86-64 -mtune=generic -mno-avx -mno-avx2 -mno-avx512f \
   -DGNU_EFI_USE_MS_ABI -Wall -Wextra "${BOOT_MENU_DEFINES[@]}" \
   -I/usr/include/efi -I/usr/include/efi/x86_64 \
   -c "$ROOT/Bootloader/uefi/boot_menu.c" -o "$UEFI_OUT/boot_menu.o"
