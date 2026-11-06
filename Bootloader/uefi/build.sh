@@ -56,6 +56,28 @@ ld -nostdlib -znocombreloc -shared -Bsymbolic \
   -L "$EFI_CRT" -o "$UEFI_OUT/loader.so" \
   -lgnuefi -lefi "$(gcc -print-libgcc-file-name)"
 
+if [[ "${NOQERIOS_ZIG_BOOT:-0}" == 1 ]]; then
+  echo "Zig EFI crash-offset disassembly (PE image offset 0x3bde):"
+  nm -n "$UEFI_OUT/loader.so" | grep -E ' (efi_main|paging|probe_gop|noq_zig_validate_elf) -j .sdata -j .data -j .rodata -j .dynamic \
+  -j .dynsym -j .rel -j .rela -j .reloc -j .rela.* \
+  --output-target=efi-app-x86_64 --subsystem=10 \
+  "$UEFI_OUT/loader.so" "$UEFI_OUT/BOOTX64.EFI"
+test -s "$UEFI_OUT/BOOTX64.EFI"
+
+# A FAT ESP is compatible with UEFI optical emulation and disk firmware.
+ESP="$UEFI_OUT/esp.img"
+truncate -s 32M "$ESP"
+mformat -i "$ESP" -T 65536 -h 64 -s 32 -n 32 ::
+mmd -i "$ESP" ::/EFI ::/EFI/BOOT
+mcopy -i "$ESP" "$UEFI_OUT/BOOTX64.EFI" ::/EFI/BOOT/BOOTX64.EFI
+mcopy -i "$ESP" "$OUT/kernel.elf" ::/EFI/BOOT/KERNEL.ELF
+
+echo "NoqeriOS custom UEFI loader: $UEFI_OUT/BOOTX64.EFI"
+echo "NoqeriOS UEFI FAT boot image: $ESP"
+ || true
+  objdump -d -M intel --start-address=0x3b70 --stop-address=0x3c40 "$UEFI_OUT/loader.so" || true
+fi
+
 objcopy -j .text -j .sdata -j .data -j .rodata -j .dynamic \
   -j .dynsym -j .rel -j .rela -j .reloc -j .rela.* \
   --output-target=efi-app-x86_64 --subsystem=10 \
