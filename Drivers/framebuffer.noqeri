@@ -153,7 +153,8 @@ function framebuffer_blit_rgb32(tag: usize, destX: usize, destY: usize,
     let fb: *Mb2FramebufferTag = tag as *Mb2FramebufferTag
     let maxWidth: usize = fb.width as usize
     let maxHeight: usize = fb.height as usize
-    if destX >= maxWidth || destY >= maxHeight { return false }
+    if destX >= maxWidth || destY >= maxHeight ||
+       source.width == (0 as usize) || source.height == (0 as usize) { return false }
     let w: usize = source.width
     let h: usize = source.height
     if w > maxWidth - destX { w = maxWidth - destX }
@@ -180,4 +181,48 @@ function framebuffer_draw_boot_mark(info: usize): bool {
     let tag: usize = mb2_find_framebuffer(info)
     return framebuffer_fill_rect(tag, 0 as usize, 0 as usize,
                                  96 as usize, 64 as usize, 0x002022ff as u32)
+}
+
+// Outline a clipped rectangle using the shared pitch-aware fill primitive.
+// Width/height are dimensions, never exclusive end coordinates, so no
+// left+width or top+height arithmetic can overflow.
+function framebuffer_stroke_rect(tag: usize, left: usize, top: usize,
+                                 width: usize, height: usize,
+                                 thickness: usize, rgb: u32): bool {
+    if !framebuffer_valid(tag) { return false }
+    if width == (0 as usize) || height == (0 as usize) ||
+       thickness == (0 as usize) { return true }
+    let fb: *Mb2FramebufferTag = tag as *Mb2FramebufferTag
+    let maxWidth: usize = fb.width as usize
+    let maxHeight: usize = fb.height as usize
+    if left >= maxWidth || top >= maxHeight { return true }
+    let w: usize = width
+    let h: usize = height
+    if w > maxWidth - left { w = maxWidth - left }
+    if h > maxHeight - top { h = maxHeight - top }
+    let edge: usize = thickness
+    if edge > w { edge = w }
+    if edge > h { edge = h }
+    framebuffer_fill_rect(tag, left, top, w, edge, rgb)
+    framebuffer_fill_rect(tag, left, top + h - edge, w, edge, rgb)
+    framebuffer_fill_rect(tag, left, top, edge, h, rgb)
+    framebuffer_fill_rect(tag, left + w - edge, top, edge, h, rgb)
+    return true
+}
+
+// Draw a horizontal progress track with a clamped percentage. Rendering
+// stays inside Noqeri and supports both standard Multiboot2 RGB byte orders.
+function framebuffer_progress(tag: usize, left: usize, top: usize,
+                              width: usize, height: usize,
+                              percent: usize): bool {
+    if !framebuffer_valid(tag) { return false }
+    let done: usize = percent
+    if done > (100 as usize) { done = 100 as usize }
+    if !framebuffer_fill_rect(tag, left, top, width, height,
+                              0x00383838 as u32) { return false }
+    // Divide before multiplying to avoid overflow on untrusted dimensions.
+    let filled: usize = (width / (100 as usize)) * done +
+                        ((width % (100 as usize)) * done) / (100 as usize)
+    return framebuffer_fill_rect(tag, left, top, filled, height,
+                                 0x00fb5607 as u32)
 }
