@@ -109,6 +109,7 @@ fn sample() [128]u8 {
     b[64 + 4] = 5; // readable and executable
     b[64 + 16 + 2] = 0x10; // vaddr 0x100000
     b[64 + 24 + 2] = 0x10; // paddr 0x100000
+    b[64 + 32] = 1; // file-backed executable entry at the segment start
     b[64 + 40] = 64; // memsz
     return b;
 }
