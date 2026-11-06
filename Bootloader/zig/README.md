@@ -5,7 +5,8 @@ The kernel stays in **Noqeri**. The bootloader migrates to **Zig** incrementally
 ## Implemented in this branch
 
 - `elf.zig`: freestanding Zig ELF64 header and segment validation.
-- `NOQERIOS_ZIG_BOOT=1`: the UEFI build compiles and links the Zig validator as an x86-64 freestanding object.
+- `NOQERIOS_ZIG_BOOT=1`: the UEFI build compiles and links both Zig validators as freestanding x86-64 objects.
+- `framebuffer.zig`: validates GOP scanout range, pitch, dimensions and RGB/BGR channels before MMIO mapping.
 - The UEFI loader invokes Zig validation before allocating or loading ELF segments. Existing checks remain in place for defense in depth.
 - Existing BIOS stage0/stage1 and Noqeri handoff remain unchanged.
 
@@ -15,6 +16,7 @@ Install Zig (target 0.15.2), the existing kernel dependencies, GNU-EFI and mtool
 
 ```sh
 zig test Bootloader/zig/elf.zig
+zig test Bootloader/zig/framebuffer.zig
 NOQERIOS_ZIG_BOOT=1 bash build.sh --uefi
 bash Tests/uefi-smoke.sh
 ```

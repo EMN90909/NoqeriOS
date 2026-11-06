@@ -300,6 +300,13 @@ static EFI_STATUS alloc_low(EFI_BOOT_SERVICES *bs, UINTN pages, EFI_PHYSICAL_ADD
  * A 64-bit physical address is not necessarily covered by the kernel's first
  * GiB bootstrap map, so paging() explicitly maps every additional framebuffer
  * page before the kernel touches it. Unsupported GOP formats stay serial-only. */
+#ifdef NOQERIOS_ZIG_BOOT
+/* Primitive ABI avoids C/Noqeri/Zig framebuffer struct layout drift. */
+extern UINT32 noq_zig_validate_framebuffer(UINT64 address, UINT64 available_bytes,
+                                           UINT32 pitch, UINT32 width, UINT32 height,
+                                           UINT8 red_position, UINT8 blue_position);
+#endif
+
 static NOQ_FRAMEBUFFER probe_gop(EFI_SYSTEM_TABLE *st) {
     NOQ_FRAMEBUFFER fb = {0};
     NOQ_GOP *gop = NULL;
@@ -591,6 +598,19 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st) {
     log_debug("uefi:after-elf-load\n");
     if (EFI_ERROR(status)) return fail(status, L"ELF load rejected or memory occupied", "uefi:bad-elf\n");
     NOQ_FRAMEBUFFER framebuffer = probe_gop(st);
+#ifdef NOQERIOS_ZIG_BOOT
+    if (framebuffer.valid) {
+        if (noq_zig_validate_framebuffer(framebuffer.address, framebuffer.length,
+                                         framebuffer.pitch, framebuffer.width,
+                                         framebuffer.height, framebuffer.red_position,
+                                         framebuffer.blue_position) != 1) {
+            log_debug("uefi: Zig GOP handoff validation rejected mode\n");
+            framebuffer.valid = FALSE;
+        } else {
+            log_debug("uefi: Zig GOP handoff validation passed\n");
+        }
+    }
+#endif
     UINT8 acpi_rsdp[36] = {0};
     UINTN acpi_rsdp_size = capture_acpi(st, acpi_rsdp);
     if (acpi_rsdp_size) log_debug("uefi: ACPI RSDP boot tag available\n");

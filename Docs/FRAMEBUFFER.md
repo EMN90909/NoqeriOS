@@ -19,6 +19,9 @@ without a supported framebuffer retain the serial terminal.
 - `framebuffer_pixel(tag, x, y, rgb)`: bounds-checked individual pixel.
 - `framebuffer_blit_rgb32(...)`: clipped software copy from a caller-owned
   RGB32 image buffer.
+- `framebuffer_hline(...)` / `framebuffer_vline(...)`: clipped horizontal and vertical borders.
+- `framebuffer_blit_argb32(...)`: alpha-composited 0xAARRGGBB sprites,
+  icons and overlays; color channels are normalized for RGB and BGR modes.
 
 The boot splash uses the shared MMIO rectangle draw; the desktop reuses the
 shared RGB/BGR packing logic. The desktop may switch to a VirtIO GPU backing
@@ -35,6 +38,14 @@ Services are called after the kernel handoff.
 - Physical addresses above the bootloader's 512 GiB paging range are rejected.
 - Graphics on physical PCs, USB keyboard input, GPU DMA, displays with other
   pixel formats and full userspace windowing remain separate work.
+
+The driver also validates the complete `pitch × height` MMIO aperture,
+alignment and the bootloader's 512 GiB identity-map boundary. A malformed
+descriptor is rejected before touching video memory.
+
+When `NOQERIOS_ZIG_BOOT=1` is enabled, the UEFI firmware adapter additionally
+runs the independent Zig GOP contract validator before mapping the display.
+The kernel falls back to serial output if graphics are unsupported.
 
 ## Verify
 
