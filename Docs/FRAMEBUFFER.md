@@ -19,12 +19,10 @@ without a supported framebuffer retain the serial terminal.
 - `framebuffer_pixel(tag, x, y, rgb)`: bounds-checked individual pixel.
 - `framebuffer_blit_rgb32(...)`: clipped software copy from a caller-owned
   RGB32 image buffer.
-- `framebuffer_fill_pixels(...)`: internal core also used for a GPU-backed
-  offscreen surface; this operation requires that its caller own the buffer.
 
-The boot splash and desktop import these shared implementations. The desktop
-may switch to a VirtIO GPU backing buffer, in which case RGB packing and
-clipping are still performed by the same Noqeri primitives. No UEFI Boot
+The boot splash uses the shared MMIO rectangle draw; the desktop reuses the
+shared RGB/BGR packing logic. The desktop may switch to a VirtIO GPU backing
+buffer using its independent rectangle painter. No UEFI Boot
 Services are called after the kernel handoff.
 
 ## Safety and constraints
