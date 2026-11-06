@@ -57,7 +57,9 @@ function framebuffer_valid(tag: usize): bool {
        fb.width > (4096 as u32) || fb.height > (2160 as u32) ||
        fb.pitch < fb.width * (4 as u32) ||
        fb.pitch > (65536 as u32) ||
-       fb.pitch % (4 as u32) != (0 as u32) {
+       fb.pitch % (4 as u32) != (0 as u32) ||
+       fb.address >= (549755813888 as u64) {
+        // Keep MMIO below the loader's 512 GiB bootstrap PML4 window.
         return false
     }
     let channels: *u8 = (tag + (32 as usize)) as *u8
@@ -73,31 +75,109 @@ function framebuffer_probe(info: usize): bool {
     return framebuffer_valid(mb2_find_framebuffer(info))
 }
 
-function framebuffer_draw_boot_mark(info: usize): bool {
-    let address: usize = mb2_find_framebuffer(info)
-    if !framebuffer_valid(address) { return false }
+// Common Noqeri framebuffer drawing core. Colours are 0x00RRGGBB,
+// and conversion happens once per rectangle, never in the inner pixel loop.
+// No allocation or firmware calls: suitable for both boot splash and desktop.
+function framebuffer_pack_rgb(rgb: u32, swapRedBlue: bool): u32 {
+    if !swapRedBlue { return rgb }
+    let red: u32 = rgb / (65536 as u32)
+    let green: u32 = (rgb / (256 as u32)) % (256 as u32)
+    let blue: u32 = rgb % (256 as u32)
+    return blue * (65536 as u32) + green * (256 as u32) + red
+}
 
-    let fb: *Mb2FramebufferTag = address as *Mb2FramebufferTag
-    let pixels: *volatile u32 = (fb.address as usize) as *volatile u32
-    let stride: usize = (fb.pitch as usize) / (4 as usize)
+// Direct-MMIO rectangle draw. Six parameters fit the current Noqeri ABI.
+// The framebuffer tag provides the pitch and bounds.
+function framebuffer_fill_rect(tag: usize, left: usize, top: usize,
+                               width: usize, height: usize,
+                               rgb: u32): bool {
+    if !framebuffer_valid(tag) { return false }
+    let fb: *Mb2FramebufferTag = tag as *Mb2FramebufferTag
     let maxWidth: usize = fb.width as usize
     let maxHeight: usize = fb.height as usize
-    let channels: *u8 = (address + (32 as usize)) as *u8
-
-    // Blue/green/red channel positions depend on GOP's advertised layout.
-    // Use the same packing as the full graphical desktop.
-    let markColor: u32 = 0x002022ff as u32
-    if channels[0] == (0 as u8) {
-        markColor = 0x00ff2220 as u32
-    }
+    if left >= maxWidth || top >= maxHeight { return true }
+    let w: usize = width
+    let h: usize = height
+    if w > maxWidth - left { w = maxWidth - left }
+    if h > maxHeight - top { h = maxHeight - top }
+    let channels: *u8 = (tag + (32 as usize)) as *u8
+    let packed: u32 = framebuffer_pack_rgb(rgb, channels[0] == (0 as u8))
+    let pixels: *volatile u32 = (fb.address as usize) as *volatile u32
+    let stride: usize = (fb.pitch as usize) / (4 as usize)
     let y: usize = 0 as usize
-    while y < (64 as usize) && y < maxHeight {
+    while y < h {
+        let row: usize = (top + y) * stride + left
         let x: usize = 0 as usize
-        while x < (96 as usize) && x < maxWidth {
-            pixels[y * stride + x] = markColor
+        while x < w {
+            pixels[row + x] = packed
             x = x + (1 as usize)
         }
         y = y + (1 as usize)
     }
     return true
+}
+
+function framebuffer_clear(tag: usize, rgb: u32): bool {
+    if !framebuffer_valid(tag) { return false }
+    let fb: *Mb2FramebufferTag = tag as *Mb2FramebufferTag
+    return framebuffer_fill_rect(tag, 0 as usize, 0 as usize,
+                                 fb.width as usize, fb.height as usize, rgb)
+}
+
+function framebuffer_pixel(tag: usize, x: usize, y: usize, rgb: u32): bool {
+    if !framebuffer_valid(tag) { return false }
+    let fb: *Mb2FramebufferTag = tag as *Mb2FramebufferTag
+    if x >= (fb.width as usize) || y >= (fb.height as usize) { return false }
+    let channels: *u8 = (tag + (32 as usize)) as *u8
+    let pixels: *volatile u32 = (fb.address as usize) as *volatile u32
+    let stride: usize = (fb.pitch as usize) / (4 as usize)
+    pixels[y * stride + x] = framebuffer_pack_rgb(rgb, channels[0] == (0 as u8))
+    return true
+}
+
+record FramebufferImage {
+    pixels: *u32;
+    stride: usize;
+    width: usize;
+    height: usize;
+}
+
+// Blit RGB32 source pixels with software clipping and row-pitch awareness.
+// The caller owns the source allocation; no unbounded reads are performed
+// when sourceStride >= sourceWidth and sourceHeight is accurate.
+function framebuffer_blit_rgb32(tag: usize, destX: usize, destY: usize,
+                                source: *FramebufferImage): bool {
+    if !framebuffer_valid(tag) || source == null ||
+       source.pixels == null || source.stride < source.width ||
+       source.stride > (16384 as usize) { return false }
+    let fb: *Mb2FramebufferTag = tag as *Mb2FramebufferTag
+    let maxWidth: usize = fb.width as usize
+    let maxHeight: usize = fb.height as usize
+    if destX >= maxWidth || destY >= maxHeight { return false }
+    let w: usize = source.width
+    let h: usize = source.height
+    if w > maxWidth - destX { w = maxWidth - destX }
+    if h > maxHeight - destY { h = maxHeight - destY }
+    let channels: *u8 = (tag + (32 as usize)) as *u8
+    let swap: bool = channels[0] == (0 as u8)
+    let pixels: *volatile u32 = (fb.address as usize) as *volatile u32
+    let stride: usize = (fb.pitch as usize) / (4 as usize)
+    let y: usize = 0 as usize
+    while y < h {
+        let row: usize = (destY + y) * stride + destX
+        let sourceRow: usize = y * source.stride
+        let x: usize = 0 as usize
+        while x < w {
+            pixels[row + x] = framebuffer_pack_rgb(source.pixels[sourceRow + x], swap)
+            x = x + (1 as usize)
+        }
+        y = y + (1 as usize)
+    }
+    return true
+}
+
+function framebuffer_draw_boot_mark(info: usize): bool {
+    let tag: usize = mb2_find_framebuffer(info)
+    return framebuffer_fill_rect(tag, 0 as usize, 0 as usize,
+                                 96 as usize, 64 as usize, 0x002022ff as u32)
 }

@@ -5,39 +5,11 @@ import "../Drivers/framebuffer.noqeri"
 // Native Noqeri boot splash, entirely software-rendered to a validated
 // Multiboot2/GOP linear framebuffer. No firmware services needed after handoff.
 // The bar represents completed kernel milestones, not a fabricated timer.
-function boot_splash_pack(rgb: u32, redLow: bool): u32 {
-    if !redLow { return rgb }
-    let red: u32 = rgb / (65536 as u32)
-    let green: u32 = (rgb / (256 as u32)) % (256 as u32)
-    let blue: u32 = rgb % (256 as u32)
-    return blue * (65536 as u32) + green * (256 as u32) + red
-}
-
 function boot_splash_fill(fb: *Mb2FramebufferTag,
                           left: usize, top: usize, width: usize,
                           height: usize, color: u32): void {
-    let maxWidth: usize = fb.width as usize
-    let maxHeight: usize = fb.height as usize
-    if left >= maxWidth || top >= maxHeight { return }
-    let w: usize = width
-    let h: usize = height
-    if w > maxWidth - left { w = maxWidth - left }
-    if h > maxHeight - top { h = maxHeight - top }
-    let pitchPixels: usize = (fb.pitch as usize) / (4 as usize)
-    let pixels: *volatile u32 = (fb.address as usize) as *volatile u32
-    let channels: *u8 = ((fb as usize) + (32 as usize)) as *u8
-    let redLow: bool = channels[0] == (0 as u8)
-    let ink: u32 = boot_splash_pack(color, redLow)
-    let y: usize = 0 as usize
-    while y < h {
-        let row: usize = (top + y) * pitchPixels + left
-        let x: usize = 0 as usize
-        while x < w {
-            pixels[row + x] = ink
-            x = x + (1 as usize)
-        }
-        y = y + (1 as usize)
-    }
+    // Same pitch, clipping and RGB/BGR conversion as the desktop.
+    let painted: bool = framebuffer_fill_rect(fb as usize, left, top, width, height, color)
 }
 
 // Six five-by-seven glyphs spelling "Noqeri" in title case.

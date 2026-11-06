@@ -22,30 +22,41 @@ def check_elf64(kernel: bytes) -> None:
         raise ValueError("kernel must be a little-endian ELF64")
     if struct.unpack_from("<HH", kernel, 16) != (2, 62):
         raise ValueError("kernel must be an x86-64 ELF executable (ET_EXEC)")
+    if struct.unpack_from("<I", kernel, 20)[0] != 1 or struct.unpack_from("<H", kernel, 52)[0] != 64:
+        raise ValueError("unexpected ELF64 version or header size")
     entry = struct.unpack_from("<Q", kernel, 24)[0]
     phoff = struct.unpack_from("<Q", kernel, 32)[0]
     phentsize, phcount = struct.unpack_from("<HH", kernel, 54)
     if not 0x100000 <= entry < 0x40000000:
         raise ValueError("entry must be 32-bit and within bootstrap identity mapping")
-    if phentsize < 56 or not (1 <= phcount <= 128):
+    if phentsize != 56 or not (1 <= phcount <= 128):
         raise ValueError("invalid program header table")
     if phoff + phentsize * phcount > len(kernel):
         raise ValueError("program headers exceed the kernel ELF")
-    loads = 0
+    loads = []
     entry_covered = False
     for i in range(phcount):
         h = phoff + i * phentsize
         kind = struct.unpack_from("<I", kernel, h)[0]
         if kind != 1:
             continue
-        _, _, offset, vaddr, paddr, filesz, memsz, _ = struct.unpack_from("<IIQQQQQQ", kernel, h)
+        _, flags, offset, vaddr, paddr, filesz, memsz, _ = struct.unpack_from("<IIQQQQQQ", kernel, h)
         if filesz > memsz or offset + filesz > len(kernel):
             raise ValueError("PT_LOAD file/memory bounds invalid")
         if paddr < 0x100000 or paddr + memsz > 0x40000000 or vaddr != paddr:
             raise ValueError("PT_LOAD must use low identity-mapped physical addresses")
-        if paddr <= entry < paddr + memsz:
+        if (paddr & 4095) != (offset & 4095):
+            raise ValueError("PT_LOAD offset and address page alignment differ")
+        if memsz == 0:
+            continue
+        if any(paddr < other_end and other_start < paddr + memsz
+               for other_start, other_end in loads):
+            raise ValueError("overlapping ELF PT_LOAD memory segments")
+        loads.append((paddr, paddr + memsz))
+        if paddr <= entry < paddr + memsz and flags & 1:
             entry_covered = True
-        loads += 1
+        continue
+
     if not loads or not entry_covered:
         raise ValueError("kernel entry is not covered by a PT_LOAD segment")
 
