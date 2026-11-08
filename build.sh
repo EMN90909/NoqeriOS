@@ -16,7 +16,7 @@ esac
 trap 'status=$?; echo "NoqeriOS Linux build failed (exit $status) near line $LINENO" >&2; exit "$status"' ERR
 [[ "$(uname -s)" == Linux ]] || { echo "Requires Linux/WSL. On Windows run build.bat." >&2; exit 2; }
 
-need=(git cmake g++ as ld nm xorriso python3 zig)
+need=(git cmake g++ as ld nm xorriso python3)
 if (( UEFI == 1 )); then need+=(gcc objcopy mformat mmd mcopy); fi
 missing=()
 for tool in "${need[@]}"; do
@@ -42,10 +42,25 @@ if (( ${#missing[@]} > 0 )); then
 fi
 mkdir -p "$OUT"
 
-# The Zig framebuffer is a mandatory freestanding kernel object. It is not a
-# separate EFI driver and does not need firmware services after handoff.
-zig build-obj "$ROOT/Drivers/framebuffer.zig" -target x86_64-freestanding -O ReleaseSmall \\
+# Do not attempt an apt install of Zig; Zig is shipped separately on many
+# distributions. Fail with a clear, actionable error before any kernel build.
+if ! command -v zig >/dev/null 2>&1; then
+    echo "Missing Zig compiler (0.15.2). Install Zig, add it to PATH, then rerun." >&2
+    exit 3
+fi
+ZIG_VERSION="$(zig version)"
+if [[ "$ZIG_VERSION" != "0.15.2" ]]; then
+    echo "Unsupported Zig version $ZIG_VERSION (expected 0.15.2)." >&2
+    exit 3
+fi
+# Mandatory freestanding framebuffer object for BIOS and UEFI kernel builds.
+zig build-obj "$ROOT/Drivers/framebuffer.zig" -target x86_64-freestanding \
+    -O ReleaseSmall -mno-red-zone -fno-stack-protector \
     -femit-bin="$OUT/framebuffer_zig.o"
+[[ -s "$OUT/framebuffer_zig.o" ]] || {
+    echo "Zig framebuffer compilation did not produce an object." >&2
+    exit 5
+}
 
 if [[ -n "${NOQERI:-}" ]]; then
     [[ -x "$NOQERI" ]] || { echo "NOQERI does not point to an executable compiler." >&2; exit 4; }
