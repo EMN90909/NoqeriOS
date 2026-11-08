@@ -14,22 +14,46 @@ record Mb2MmapEntry {
     reserved: u32;
 }
 
+// Walk only within the allocated Multiboot2 information buffer. A malformed
+// or zero-length tag must never advance into unrelated kernel memory.
 function mb2_find_memory_map(info: usize): usize {
-    let cursor: usize = info + 8
-    while true {
+    if info == (0 as usize) || info % (8 as usize) != (0 as usize) {
+        return 0 as usize
+    }
+    let totalPtr: *u32 = info as *u32
+    let total: usize = totalPtr[0] as usize
+    if total < (16 as usize) || total > (1048576 as usize) ||
+       total % (8 as usize) != (0 as usize) {
+        return 0 as usize
+    }
+    let cursor: usize = info + (8 as usize)
+    let end: usize = info + total
+    if end < cursor { return 0 as usize }
+    while cursor <= end - (8 as usize) {
         let kind: *u32 = cursor as *u32
-        let sizePtr: *u32 = (cursor + 4) as *u32
-        if *kind == (6 as u32) {
+        let sizePtr: *u32 = (cursor + (4 as usize)) as *u32
+        let size: usize = sizePtr[0] as usize
+        if size < (8 as usize) || size > end - cursor {
+            return 0 as usize
+        }
+        if kind[0] == (0 as u32) {
+            return 0 as usize
+        }
+        if kind[0] == (6 as u32) {
+            if size < (16 as usize) { return 0 as usize }
+            let tag: *Mb2MmapTag = cursor as *Mb2MmapTag
+            let stride: usize = tag.entrySize as usize
+            if stride < (24 as usize) ||
+               (size - (16 as usize)) % stride != (0 as usize) {
+                return 0 as usize
+            }
             return cursor
         }
-        if *kind == (0 as u32) {
-            return 0
-        }
-        let size: usize = (*sizePtr) as usize
-        let padding: usize = ((8 as usize) - (size % (8 as usize))) % (8 as usize)
-        cursor = cursor + size + padding
+        let padded: usize = size + (((8 as usize) - (size % (8 as usize))) % (8 as usize))
+        if padded > end - cursor { return 0 as usize }
+        cursor = cursor + padded
     }
-    return 0
+    return 0 as usize
 }
 
 // Choose the largest contiguous usable low-memory window for bootstrap
