@@ -323,13 +323,13 @@ static NOQ_FRAMEBUFFER probe_gop(EFI_SYSTEM_TABLE *st) {
         if (!EFI_ERROR(mode_status) && gop->mode && gop->mode->info) {
             mode = gop->mode;
             info = mode->info;
-            log_debug("uefi: GOP mode reinitialized by explicit request\\n");
+            log_debug("uefi: GOP mode reinitialized by explicit request\n");
         } else {
-            log_debug("uefi: GOP SetMode failed; using current scanout\\n");
+            log_debug("uefi: GOP SetMode failed; using current scanout\n");
         }
     }
 #else
-    log_debug("uefi: preserving firmware GOP mode and scanout\\n");
+    log_debug("uefi: preserving firmware GOP mode and scanout\n");
 #endif
     if (info->pixel_format > 2 || info->width == 0 || info->height == 0 ||
         info->width > 4096 || info->height > 2160 ||
