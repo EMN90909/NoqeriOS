@@ -43,6 +43,12 @@ build.bat           Windows self-bootstrapping ISO builder
 Bootloader/native/  original BIOS stage0/stage1, ELF loader, image packager
 ```
 
+## Zig graphics build prerequisite
+
+The kernel now links a freestanding Zig framebuffer driver. **Install Zig 0.15.2** on Linux or inside WSL and check `zig version` before building; `--bootstrap` installs apt-based tools but does not install Zig for you. The UEFI loader retains its existing firmware adapter while the kernel framebuffer uses Zig.
+
+For **local verification only**, without GitHub Actions, run `bash Tests/local-verify.sh --unit` and then `bash Tests/local-verify.sh --full`. See [boot recovery and physical display diagnostics](Docs/BOOT_RECOVERY_NO_ACTIONS.md). QEMU/OVMF success is not proof of Lenovo G500 physical screen compatibility.
+
 ## Build on Linux or WSL
 
 The recommended one-command setup is:
