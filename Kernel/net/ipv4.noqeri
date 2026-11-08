@@ -267,13 +267,17 @@ function network_is_dhcp(n: *Network, bytes: usize): bool {
     let offered: u32 = network_read32(n.rx, dhcp + (16 as usize))
     let option: usize = dhcp + (240 as usize)
     let message: u8 = 0 as u8
+    let terminated: bool = false
     let server: u32 = 0 as u32
     let mask: u32 = 0 as u32
     let router: u32 = 0 as u32
     let dns: u32 = 0 as u32
     while option < end {
         let tag: u8 = network_byte(n.rx, option)
-        if tag == (255 as u8) { break }
+        if tag == (255 as u8) {
+            terminated = true
+            break
+        }
         if tag == (0 as u8) {
             option = option + (1 as usize)
         } else {
@@ -293,6 +297,9 @@ function network_is_dhcp(n: *Network, bytes: usize): bool {
             option = option + (2 as usize) + size
         }
     }
+    // RFC 2131 requires an explicit End option. Do not accept a partial
+    // option stream that happens to contain a valid OFFER or ACK.
+    if !terminated { return false }
     // Only DHCP offers and ACKs with a valid server identity may update
     // the current lease. Unrelated or malformed traffic must not move state.
     if offered == (0 as u32) || server == (0 as u32) { return false }
@@ -642,6 +649,11 @@ function network_packet_fixture_self_test(): bool {
     network_write16(rx, 38 as usize, 248 as u16)
     if network_is_dhcp(n, 292 as usize) { return false }
     network_write16(rx, 38 as usize, 258 as u16)
+
+    // Require an explicit option terminator, not merely a buffer boundary.
+    network_put(rx, 291 as usize, 0 as u8)
+    if network_is_dhcp(n, 292 as usize) { return false }
+    network_put(rx, 291 as usize, 255 as u8)
 
     // Reject fragments even if the IPv4 checksum is recomputed correctly.
     network_write16(rx, 20 as usize, 8192 as u16)
