@@ -430,7 +430,9 @@ function network_ip_mask(value: u32, mask: u32): u32 {
         }
         left = left / (2 as u32)
         right = right / (2 as u32)
-        bit = bit * (2 as u32)
+        // Never shift past bit 31. A wrapped/trapping u32 multiply on the
+        // last iteration could break subnet routing on some backends.
+        if index < (31 as usize) { bit = bit * (2 as u32) }
         index = index + (1 as usize)
     }
     return result
