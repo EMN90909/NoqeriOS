@@ -29,6 +29,12 @@ if [[ "${NOQERIOS_ZIG_BOOT:-0}" == 1 ]]; then
 fi
 
 LOADER_DEFINES=()
+# Hardware debug only: default is to preserve the firmware's existing GOP
+# scanout. Explicitly opt into SetMode(current) for A/B diagnostics.
+if [[ "${NOQERIOS_GOP_REINIT:-0}" == 1 ]]; then
+  LOADER_DEFINES+=(-DNOQERIOS_GOP_REINIT)
+  echo "Diagnostic: explicitly reinitialize current GOP mode"
+fi
 if [[ "${NOQERIOS_ZIG_BOOT:-0}" == 1 ]]; then LOADER_DEFINES+=(-DNOQERIOS_ZIG_BOOT); fi
 if [[ "${NOQERIOS_LENOVO_VERIFY:-0}" == 1 ]]; then
   LOADER_DEFINES+=(-DNOQERIOS_LENOVO_VERIFY)
