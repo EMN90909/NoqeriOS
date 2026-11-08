@@ -269,6 +269,11 @@ export function kernel_main(multibootInfo: usize): void {
 
     // Optional network adapter: DHCP and ARP use bounded polling, never
     // block kernel boot permanently when networking is absent.
+    if network_packet_fixture_self_test() {
+        serial_write("NoqeriOS: IPv4 DHCP packet validation fixture passed\n")
+    } else {
+        serial_write("NoqeriOS: IPv4 DHCP packet validation fixture failed\n")
+    }
     if dns_fixture_self_test() {
         serial_write("NoqeriOS: DNS wire parser fixture passed\n")
     } else {
