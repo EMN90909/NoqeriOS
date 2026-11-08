@@ -76,6 +76,16 @@ typedef struct {
     VOID *query_mode, *set_mode, *blt;
     NOQ_GOP_MODE *mode;
 } NOQ_GOP;
+
+/* Hard ABI boundaries: the Zig and Noqeri framebuffer parsers expect the
+ * Multiboot2 RGB tag in exactly this layout. A compiler change must fail
+ * the build rather than silently moving color channels or the row pitch. */
+_Static_assert(sizeof(MB2_FRAMEBUFFER) == 38, "MB2 RGB framebuffer tag must be 38 bytes");
+_Static_assert(__builtin_offsetof(MB2_FRAMEBUFFER, address) == 8, "MB2 framebuffer address offset");
+_Static_assert(__builtin_offsetof(MB2_FRAMEBUFFER, pitch) == 16, "MB2 framebuffer pitch offset");
+_Static_assert(__builtin_offsetof(MB2_FRAMEBUFFER, red_position) == 32, "MB2 RGB channel offset");
+_Static_assert(__builtin_offsetof(MB2_FRAMEBUFFER, blue_mask_size) == 37, "MB2 RGB last byte offset");
+_Static_assert(sizeof(NOQ_GOP_INFO) == 36, "UEFI GOP information ABI changed");
 /* Calling firmware GOP methods requires the UEFI ABI, not a void* call.
  * GNU-EFI's uefi_call_wrapper in GNU_EFI_USE_MS_ABI mode invokes the
  * function pointer directly; give it the correct typed signature. */
