@@ -1,5 +1,48 @@
 # NoqeriOS networking milestone: Ethernet + IPv4 boot bring-up
 
+## November 2026: packet handling reliability upgrade
+
+This iteration strengthens the existing polling network stack **without claiming
+general internet safety**:
+
+- DHCP OFFER/ACK parsing validates IPv4 version/IHL, header checksum, total
+  length, TTL and fragmentation state; verifies UDP ports and UDP length
+  before reading any BOOTP options. Rejects malformed packets and unrelated
+  server/transaction/client MAC identifiers.
+- DHCP transaction IDs vary per request attempt using the CPU timestamp
+  counter. This helps avoid stale replies, but **is not cryptographic
+  randomness**. The network stack remains unsuitable for hostile LANs.
+- ARP resolution verifies Ethernet/ARP sender consistency, exact requested
+  IPv4 address, client destination and unicast MAC, and clears Ethernet
+  padding before transmission.
+- An acquired DHCP lease survives an unreachable/missing gateway in
+  **LAN-only mode**. Off-subnet routing stays disabled without a gateway.
+- DNS, TCP and ICMP receive paths share checksum and fragmentation checks.
+- An offline DHCP parser fixture exercises a valid OFFER, a truncated UDP
+  options boundary, IPv4 fragmentation, corrupted checksum and wrong MAC.
+
+### Test locally (without GitHub Actions)
+
+```sh
+bash Tests/network-local-verify.sh
+```
+
+The script boots **VirtIO**, **Intel 82540EM** and **RTL8139** through
+QEMU user-mode NAT and checks DHCP, ARP, boot-time parser fixtures and
+the restricted local TCP/HTTP response. It requires the Noqeri toolchain,
+Zig 0.15.2, QEMU and other ISO build dependencies. These tests were added
+but **were not executed in this editing environment**, which lacks those
+compilers and QEMU.
+
+### Remaining work
+
+This is still an experimental single-interface stack. It lacks DHCP lease
+expiration/renewal, DNS caching, ARP cache and spoof protection,
+interrupt-driven NIC RX, IPv4 reassembly, production TCP retransmission,
+TLS, IPv6, USB/Wi-Fi drivers and a secure entropy source. The current
+local TCP probe is limited to QEMU's test gateway.
+
+
 ## Implemented in this change
 
 - **VirtIO PCI network driver** for a modern `virtio-net-pci` adapter, PCI
