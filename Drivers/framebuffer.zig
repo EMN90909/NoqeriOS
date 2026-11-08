@@ -114,3 +114,38 @@ test "clipping and row pitch in memory framebuffer" {
     try std.testing.expectEqual(@as(u32, 0xabcdef), pixels[239 * 330 + 319]);
     try std.testing.expectEqual(@as(u32, 0), pixels[239 * 330 + 320]);
 }
+
+fn testGopTag() [48]u8 {
+    // MB2 tag 8: 1366x768, 32-bpp, 5464 bytes/row (Intel laptop-like).
+    var tag = [_]u8{0} ** 48;
+    tag[0] = 8; tag[4] = 38;
+    tag[10] = 0x40; // physical linear framebuffer 0x00400000
+    tag[16] = 0x58; tag[17] = 0x15; // pitch 5464
+    tag[20] = 0x56; tag[21] = 0x05; // width 1366
+    tag[25] = 3; // height 768
+    tag[28] = 32; tag[29] = 1; // direct-RGB
+    tag[32] = 16; tag[33] = 8;
+    tag[34] = 8; tag[35] = 8;
+    tag[36] = 0; tag[37] = 8;
+    return tag;
+}
+test "validate actual GOP stride and reject malformed channel layouts" {
+    var tag: [48]u8 align(8) = testGopTag();
+    const frame = descriptor(@intFromPtr(&tag)) orelse return error.InvalidGopFixture;
+    try std.testing.expectEqual(@as(usize, 1366), frame.width);
+    try std.testing.expectEqual(@as(usize, 768), frame.height);
+    try std.testing.expectEqual(@as(usize, 1366), frame.stride);
+    try std.testing.expect(!frame.swap);
+    tag[35] = 7; // non-eight-bit green mask
+    try std.testing.expect(descriptor(@intFromPtr(&tag)) == null);
+    tag[35] = 8;
+    tag[16] = 0; tag[17] = 0; // invalid pitch
+    try std.testing.expect(descriptor(@intFromPtr(&tag)) == null);
+}
+test "reject framebuffer extending beyond the mapped physical aperture" {
+    var tag: [48]u8 align(8) = testGopTag();
+    // Set framebuffer base at 512 GiB - 4096, but framebuffer spans ~4 MiB.
+    tag[8] = 0; tag[9] = 0xf0; tag[10] = 0xff;
+    tag[11] = 0xff; tag[12] = 0x7f;
+    try std.testing.expect(descriptor(@intFromPtr(&tag)) == null);
+}
