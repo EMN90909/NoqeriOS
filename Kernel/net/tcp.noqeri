@@ -59,9 +59,7 @@ function tcp_emit(n: *Network, t: *TcpProbe, flags: u8, payloadLength: usize): b
 // Returns the packet's TCP header offset, 0 if invalid.
 function tcp_receive_valid(n: *Network, t: *TcpProbe, bytes: usize): usize {
     if bytes < (54 as usize) || bytes > (1514 as usize) ||
-       network_read16(n.rx, 12 as usize) != (2048 as u16) ||
-       network_byte(n.rx, 14 as usize) != (69 as u8) ||
-       network_byte(n.rx, 23 as usize) != (6 as u8) ||
+       network_ipv4_header(n.rx, bytes, 6 as u8) != (20 as usize) ||
        network_read32(n.rx, 26 as usize) != t.remote ||
        network_read32(n.rx, 30 as usize) != n.ip ||
        network_read16(n.rx, 34 as usize) != t.port ||
@@ -69,8 +67,9 @@ function tcp_receive_valid(n: *Network, t: *TcpProbe, bytes: usize): usize {
         return 0 as usize
     }
     let ipLength: usize = network_read16(n.rx, 16 as usize) as usize
-    if ipLength < (40 as usize) || ipLength > bytes - (14 as usize) ||
-       network_read16(n.rx, 20 as usize) % (8192 as u16) != (0 as u16) {
+    // IPv4 header checksum and complete non-fragmented packet are already
+    // verified by network_ipv4_header().
+    if ipLength < (40 as usize) || ipLength > bytes - (14 as usize) {
         return 0 as usize
     }
     let segment: usize = ipLength - (20 as usize)
