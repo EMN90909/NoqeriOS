@@ -575,6 +575,87 @@ function network_service_poll(n: *Network): void {
     network_send(n, n.frame, 34 as usize + payload)
 }
 
+// Deterministic, isolated packet validation fixture. This runs without a
+// NIC, external DHCP server or public network. No DMA buffer is shared with
+// the real network adapter.
+function network_packet_fixture_self_test(): bool {
+    let rx: usize = arch_alloc_page()
+    let state: usize = arch_alloc_page()
+    let macPage: usize = arch_alloc_page()
+    if rx == (0 as usize) || state == (0 as usize) ||
+       macPage == (0 as usize) { return false }
+    network_fill(rx, 0 as usize, 512 as usize, 0 as u8)
+    network_fill(state, 0 as usize, 4096 as usize, 0 as u8)
+    let n: *Network = state as *Network
+    n.rx = rx
+    n.mac = macPage as *u8
+    network_put(macPage, 0 as usize, 82 as u8)
+    network_put(macPage, 1 as usize, 84 as u8)
+    network_put(macPage, 2 as usize, 0 as u8)
+    network_put(macPage, 3 as usize, 18 as u8)
+    network_put(macPage, 4 as usize, 52 as u8)
+    network_put(macPage, 5 as usize, 86 as u8)
+    // Ethernet + IPv4 + UDP + BOOTP + DHCP options, 292 wire bytes.
+    network_write16(rx, 12 as usize, 2048 as u16)
+    network_put(rx, 14 as usize, 69 as u8)
+    network_write16(rx, 16 as usize, 278 as u16)
+    network_put(rx, 22 as usize, 64 as u8)
+    network_put(rx, 23 as usize, 17 as u8)
+    network_write32(rx, 26 as usize, 0x0a000202 as u32)
+    network_write32(rx, 30 as usize, 0xffffffff as u32)
+    network_write16(rx, 24 as usize, network_checksum(rx, 14 as usize, 20 as usize))
+    network_write16(rx, 34 as usize, 67 as u16)
+    network_write16(rx, 36 as usize, 68 as u16)
+    network_write16(rx, 38 as usize, 258 as u16)
+    network_put(rx, 42 as usize, 2 as u8)
+    network_put(rx, 43 as usize, 1 as u8)
+    network_put(rx, 44 as usize, 6 as u8)
+    network_write32(rx, 46 as usize, 0x4e4f5145 as u32)
+    network_write32(rx, 58 as usize, 0x0a00020f as u32)
+    network_copy(rx, 70 as usize, macPage, 0 as usize, 6 as usize)
+    network_write32(rx, 278 as usize, 0x63825363 as u32)
+    network_put(rx, 282 as usize, 53 as u8)
+    network_put(rx, 283 as usize, 1 as u8)
+    network_put(rx, 284 as usize, 2 as u8)
+    network_put(rx, 285 as usize, 54 as u8)
+    network_put(rx, 286 as usize, 4 as u8)
+    network_write32(rx, 287 as usize, 0x0a000202 as u32)
+    network_put(rx, 291 as usize, 255 as u8)
+
+    if !network_is_dhcp(n, 292 as usize) ||
+       n.dhcpType != (2 as u8) ||
+       n.offer != (0x0a00020f as u32) { return false }
+
+    // The DHCP option 53 exists past the newly shortened UDP datagram:
+    // its presence in the Ethernet buffer must no longer make this valid.
+    network_write16(rx, 38 as usize, 248 as u16)
+    if network_is_dhcp(n, 292 as usize) { return false }
+    network_write16(rx, 38 as usize, 258 as u16)
+
+    // Reject fragments even if the IPv4 checksum is recomputed correctly.
+    network_write16(rx, 20 as usize, 8192 as u16)
+    network_write16(rx, 24 as usize, 0 as u16)
+    network_write16(rx, 24 as usize, network_checksum(rx, 14 as usize, 20 as usize))
+    if network_is_dhcp(n, 292 as usize) { return false }
+    network_write16(rx, 20 as usize, 0 as u16)
+    network_write16(rx, 24 as usize, 0 as u16)
+    network_write16(rx, 24 as usize, network_checksum(rx, 14 as usize, 20 as usize))
+
+    // Reject corrupted IPv4 header even when BOOTP fields still look valid.
+    network_put(rx, 22 as usize, 63 as u8)
+    if network_is_dhcp(n, 292 as usize) { return false }
+    network_put(rx, 22 as usize, 64 as u8)
+
+    // Restore checksum, then check the DHCP client MAC binding.
+    network_put(rx, 70 as usize, 1 as u8)
+    network_write16(rx, 24 as usize, 0 as u16)
+    network_write16(rx, 24 as usize, network_checksum(rx, 14 as usize, 20 as usize))
+    if network_is_dhcp(n, 292 as usize) { return false }
+    network_put(rx, 70 as usize, 82 as u8)
+
+    return network_is_dhcp(n, 292 as usize)
+}
+
 function network_boot_probe(): *Network {
     let virtioLocation: u32 = pci_find_device_location(6900 as u16, 4161 as u16)
     let intelLocation: u32 = pci_find_device_location(32902 as u16, 4110 as u16)
