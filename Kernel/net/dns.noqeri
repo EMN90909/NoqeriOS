@@ -30,14 +30,12 @@ function dns_skip_name(packet: usize, start: usize, limit: usize): usize {
 function dns_parse_a(frame: usize, length: usize, dnsServer: u32): u32 {
     if length < (14 as usize + 20 as usize + 8 as usize + 12 as usize) ||
        length > (1514 as usize) { return 0 as u32 }
-    if network_read16(frame, 12 as usize) != (2048 as u16) ||
-       network_byte(frame, 14 as usize) != (69 as u8) ||
-       network_byte(frame, 23 as usize) != (17 as u8) ||
+    if network_ipv4_header(frame, length, 17 as u8) != (20 as usize) ||
        network_read32(frame, 26 as usize) != dnsServer { return 0 as u32 }
     let ipLength: usize = network_read16(frame, 16 as usize) as usize
     if ipLength < (40 as usize) || ipLength > length - (14 as usize) { return 0 as u32 }
-    // Ignore fragmented UDP datagrams.
-    if (network_read16(frame, 20 as usize) % (8192 as u16)) != (0 as u16) { return 0 as u32 }
+    // The shared IPv4 parser has already checked the header checksum
+    // and rejected all fragmented packets.
     if network_read16(frame, 34 as usize) != (53 as u16) ||
        network_read16(frame, 36 as usize) != (53000 as u16) { return 0 as u32 }
     let udpLength: usize = network_read16(frame, 38 as usize) as usize
@@ -85,9 +83,11 @@ function dns_fixture_self_test(): bool {
     network_fill(frame, 0 as usize, 128 as usize, 0 as u8)
     network_write16(frame, 12 as usize, 2048 as u16)
     network_put(frame, 14 as usize, 69 as u8)
+    network_put(frame, 22 as usize, 64 as u8)
     network_put(frame, 23 as usize, 17 as u8)
     network_write16(frame, 16 as usize, 73 as u16)
     network_write32(frame, 26 as usize, 0x0a000203 as u32)
+    network_write16(frame, 24 as usize, network_checksum(frame, 14 as usize, 20 as usize))
     network_write16(frame, 34 as usize, 53 as u16)
     network_write16(frame, 36 as usize, 53000 as u16)
     network_write16(frame, 38 as usize, 53 as u16)
