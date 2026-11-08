@@ -25,6 +25,7 @@ record Network {
     dns: u32;
     offer: u32;
     server: u32;
+    dhcpXid: u32;
     dhcpType: u8;
     online: bool;
 }
@@ -169,7 +170,7 @@ function network_dhcp_send(n: *Network, kind: u8): bool {
     network_put(n.payload, 0 as usize, 1 as u8) // BOOTREQUEST
     network_put(n.payload, 1 as usize, 1 as u8) // Ethernet
     network_put(n.payload, 2 as usize, 6 as u8)
-    network_write32(n.payload, 4 as usize, 0x4e4f5145 as u32) // transaction ID
+    network_write32(n.payload, 4 as usize, n.dhcpXid) // current transaction ID
     network_write16(n.payload, 10 as usize, 32768 as u16) // broadcast flag
     network_copy(n.payload, 28 as usize, n.mac as usize, 0 as usize, 6 as usize)
     network_write32(n.payload, 236 as usize, 0x63825363 as u32) // magic cookie
@@ -252,7 +253,7 @@ function network_is_dhcp(n: *Network, bytes: usize): bool {
     if network_byte(n.rx, dhcp) != (2 as u8) ||
        network_byte(n.rx, dhcp + (1 as usize)) != (1 as u8) ||
        network_byte(n.rx, dhcp + (2 as usize)) != (6 as u8) ||
-       network_read32(n.rx, dhcp + (4 as usize)) != (0x4e4f5145 as u32) ||
+       network_read32(n.rx, dhcp + (4 as usize)) != n.dhcpXid ||
        network_read32(n.rx, dhcp + (236 as usize)) != (0x63825363 as u32) {
         return false
     }
@@ -317,6 +318,10 @@ function network_dhcp(n: *Network): bool {
     while attempt < (3 as usize) {
         // Do not allow a previous attempt's OFFER or ACK to satisfy a new
         // retry after the old one timed out.
+        // TSC-derived per-attempt transaction ID avoids a constant, easily
+        // replayed value. This is NOT cryptographically secure entropy.
+        n.dhcpXid = (arch_read_tsc() % (4294967295 as u64)) as u32
+        if n.dhcpXid == (0 as u32) { n.dhcpXid = 0x4e4f5145 as u32 }
         n.dhcpType = 0 as u8
         n.offer = 0 as u32
         n.server = 0 as u32
@@ -385,6 +390,9 @@ function network_arp_resolve(n: *Network, address: u32, destinationMac: usize): 
     network_write32(n.frame, 28 as usize, n.ip)
     network_fill(n.frame, 32 as usize, 6 as usize, 0 as u8)
     network_write32(n.frame, 38 as usize, address)
+    // Ethernet minimum frame length is 60 bytes without FCS. Never send
+    // stale bytes from a preceding IPv4/TCP packet as ARP padding.
+    network_fill(n.frame, 42 as usize, 18 as usize, 0 as u8)
     let tries: usize = 0 as usize
     while tries < (3 as usize) {
         if !network_send(n, n.frame, 60 as usize) { return false }
@@ -591,6 +599,7 @@ function network_packet_fixture_self_test(): bool {
     let n: *Network = state as *Network
     n.rx = rx
     n.mac = macPage as *u8
+    n.dhcpXid = 0x4e4f5145 as u32
     network_put(macPage, 0 as usize, 82 as u8)
     network_put(macPage, 1 as usize, 84 as u8)
     network_put(macPage, 2 as usize, 0 as u8)
