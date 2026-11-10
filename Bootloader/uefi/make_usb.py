@@ -59,9 +59,12 @@ def create_usb_image(esp: bytes) -> bytes:
     entries_crc = zlib.crc32(entries)
     image = bytearray(total * SECTOR)
 
-    # Protective MBR. No active MBR partition: this is UEFI-only boot media.
+    # Protective MBR with standard UEFI CHS fields (start CHS 0x000200, type 0xEE, end CHS 0xFFFFFF).
     mbr = 446
-    image[mbr+4] = 0xEE
+    image[mbr] = 0x00          # Boot indicator (non-bootable MBR partition)
+    image[mbr+1:mbr+4] = b"\x00\x02\x00"  # Starting CHS
+    image[mbr+4] = 0xEE        # GPT Protective MBR type
+    image[mbr+5:mbr+8] = b"\xff\xff\xff"  # Ending CHS
     struct.pack_into("<II", image, mbr+8, 1, min(total-1, 0xFFFFFFFF))
     image[510:512] = b"\x55\xaa"
 

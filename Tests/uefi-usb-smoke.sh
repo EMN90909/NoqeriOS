@@ -8,10 +8,10 @@ IMAGE="$OUT/noqerios-uefi-usb.img"
 
 CODE=""
 VARS=""
-for path in /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd; do
+for path in /home/antigravity/local-root/usr/share/OVMF/OVMF_CODE_4M.fd /home/antigravity/local-root/usr/share/OVMF/OVMF_CODE.fd; do
     if [[ -f "$path" ]]; then CODE="$path"; break; fi
 done
-for path in /usr/share/OVMF/OVMF_VARS_4M.fd /usr/share/OVMF/OVMF_VARS.fd; do
+for path in /home/antigravity/local-root/usr/share/OVMF/OVMF_VARS_4M.fd /home/antigravity/local-root/usr/share/OVMF/OVMF_VARS.fd; do
     if [[ -f "$path" ]]; then VARS="$path"; break; fi
 done
 [[ -n "$CODE" && -n "$VARS" ]] || { echo "Missing OVMF firmware" >&2; exit 2; }

@@ -22,8 +22,8 @@ def command(*args):
 
 
 def firmware():
-    codes = ["/usr/share/OVMF/OVMF_CODE_4M.fd", "/usr/share/OVMF/OVMF_CODE.fd"]
-    vars_files = ["/usr/share/OVMF/OVMF_VARS_4M.fd", "/usr/share/OVMF/OVMF_VARS.fd"]
+    codes = ["/home/antigravity/local-root/usr/share/OVMF/OVMF_CODE_4M.fd", "/home/antigravity/local-root/usr/share/OVMF/OVMF_CODE.fd"]
+    vars_files = ["/home/antigravity/local-root/usr/share/OVMF/OVMF_VARS_4M.fd", "/home/antigravity/local-root/usr/share/OVMF/OVMF_VARS.fd"]
     return (next(Path(x) for x in codes if Path(x).exists()),
             next(Path(x) for x in vars_files if Path(x).exists()))
 

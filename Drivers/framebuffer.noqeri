@@ -130,30 +130,33 @@ function framebuffer_draw_boot_mark(info: usize): bool {
                                  96 as usize, 64 as usize, 0x002022ff as u32)
 }
 
-// Outline a clipped rectangle using the shared pitch-aware fill primitive.
-// Width/height are dimensions, never exclusive end coordinates, so no
-// left+width or top+height arithmetic can overflow.
-function framebuffer_stroke_rect(tag: usize, left: usize, top: usize,
-                                 width: usize, height: usize,
+record RectBounds {
+    left: usize;
+    top: usize;
+    width: usize;
+    height: usize;
+}
+
+function framebuffer_stroke_rect(tag: usize, bounds: *RectBounds,
                                  thickness: usize, rgb: u32): bool {
-    if !framebuffer_valid(tag) { return false }
-    if width == (0 as usize) || height == (0 as usize) ||
+    if !framebuffer_valid(tag) || bounds == null { return false }
+    if bounds.width == (0 as usize) || bounds.height == (0 as usize) ||
        thickness == (0 as usize) { return true }
     let fb: *Mb2FramebufferTag = tag as *Mb2FramebufferTag
     let maxWidth: usize = fb.width as usize
     let maxHeight: usize = fb.height as usize
-    if left >= maxWidth || top >= maxHeight { return true }
-    let w: usize = width
-    let h: usize = height
-    if w > maxWidth - left { w = maxWidth - left }
-    if h > maxHeight - top { h = maxHeight - top }
+    if bounds.left >= maxWidth || bounds.top >= maxHeight { return true }
+    let w: usize = bounds.width
+    let h: usize = bounds.height
+    if w > maxWidth - bounds.left { w = maxWidth - bounds.left }
+    if h > maxHeight - bounds.top { h = maxHeight - bounds.top }
     let edge: usize = thickness
     if edge > w { edge = w }
     if edge > h { edge = h }
-    framebuffer_fill_rect(tag, left, top, w, edge, rgb)
-    framebuffer_fill_rect(tag, left, top + h - edge, w, edge, rgb)
-    framebuffer_fill_rect(tag, left, top, edge, h, rgb)
-    framebuffer_fill_rect(tag, left + w - edge, top, edge, h, rgb)
+    framebuffer_fill_rect(tag, bounds.left, bounds.top, w, edge, rgb)
+    framebuffer_fill_rect(tag, bounds.left, bounds.top + h - edge, w, edge, rgb)
+    framebuffer_fill_rect(tag, bounds.left, bounds.top, edge, h, rgb)
+    framebuffer_fill_rect(tag, bounds.left + w - edge, bounds.top, edge, h, rgb)
     return true
 }
 

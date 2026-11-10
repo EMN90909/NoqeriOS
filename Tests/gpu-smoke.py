@@ -16,10 +16,10 @@ ISO = ROOT / "build" / "noqerios.iso"
 
 
 def find_firmware():
-    codes = ("/usr/share/OVMF/OVMF_CODE_4M.fd",
-             "/usr/share/OVMF/OVMF_CODE.fd")
-    variables = ("/usr/share/OVMF/OVMF_VARS_4M.fd",
-                 "/usr/share/OVMF/OVMF_VARS.fd")
+    codes = ("/home/antigravity/local-root/usr/share/OVMF/OVMF_CODE_4M.fd",
+             "/home/antigravity/local-root/usr/share/OVMF/OVMF_CODE.fd")
+    variables = ("/home/antigravity/local-root/usr/share/OVMF/OVMF_VARS_4M.fd",
+                 "/home/antigravity/local-root/usr/share/OVMF/OVMF_VARS.fd")
     code = next((p for p in codes if Path(p).exists()), None)
     vars_file = next((p for p in variables if Path(p).exists()), None)
     if not code or not vars_file:

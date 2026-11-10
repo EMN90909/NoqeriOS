@@ -154,9 +154,24 @@ static void log_debug(const char *s) {
         __asm__ volatile("outb %0, $0xe9" : : "a"(b));
     }
 }
-static BOOLEAN eq(const char *a, const char *b) {
+static BOOLEAN eq(const void *a_ptr, const char *b) {
+    const char *a = (const char *)a_ptr;
     while (*a && *b) if (*a++ != *b++) return FALSE;
     return *a == *b;
+}
+
+static EFI_GUID global_var_guid = EFI_GLOBAL_VARIABLE;
+
+static UINT8 query_secure_boot_state(EFI_SYSTEM_TABLE *st) {
+    UINT8 secboot = 0;
+    UINTN data_size = sizeof(secboot);
+    EFI_STATUS st_sec = uefi_call_wrapper(st->RuntimeServices->GetVariable, 5,
+                                          L"SecureBoot", &global_var_guid,
+                                          NULL, &data_size, &secboot);
+    if (!EFI_ERROR(st_sec) && secboot == 1) {
+        return 1; /* Secure Boot is enabled and enforcing */
+    }
+    return 0; /* Secure Boot disabled or unsupported */
 }
 static BOOLEAN bounds(UINT64 start, UINT64 length, UINT64 limit) {
     return start <= limit && length <= limit - start;
@@ -590,6 +605,13 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st) {
     screen_table = st;
     EFI_STATUS menu_status = noq_boot_menu(image, st);
     if (EFI_ERROR(menu_status)) return menu_status;
+    UINT8 secure_boot = query_secure_boot_state(st);
+    if (secure_boot) {
+        log_debug("uefi: SecureBoot active on firmware\n");
+        screen_message(L"NoqeriOS UEFI: Secure Boot active\r\n");
+    } else {
+        log_debug("uefi: SecureBoot inactive or standard UEFI\n");
+    }
     screen_message(L"NoqeriOS UEFI x64: loading kernel...\r\n");
     log_debug("NoqeriOS UEFI: entered firmware application\n");
     log_debug("uefi:before-console-print\n");

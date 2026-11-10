@@ -11,10 +11,10 @@ DEBUG="$OUT/uefi-boot-debug.log"
 : >"$DEBUG"
 CODE=""
 VARS=""
-for p in /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd /usr/share/ovmf/OVMF.fd; do
+for p in /home/antigravity/local-root/usr/share/OVMF/OVMF_CODE_4M.fd /home/antigravity/local-root/usr/share/OVMF/OVMF_CODE.fd /usr/share/ovmf/OVMF.fd; do
     if [[ -f "$p" ]]; then CODE="$p"; break; fi
 done
-for p in /usr/share/OVMF/OVMF_VARS_4M.fd /usr/share/OVMF/OVMF_VARS.fd; do
+for p in /home/antigravity/local-root/usr/share/OVMF/OVMF_VARS_4M.fd /home/antigravity/local-root/usr/share/OVMF/OVMF_VARS.fd; do
     if [[ -f "$p" ]]; then VARS="$p"; break; fi
 done
 [[ -n "$CODE" && -n "$VARS" ]] || { echo "OVMF firmware missing (install ovmf)" >&2; exit 3; }

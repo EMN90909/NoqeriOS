@@ -30,7 +30,7 @@ for command_name in qemu-system-x86_64 xorriso mformat mmd mcopy ld as; do
     echo "Missing $command_name; install QEMU, binutils, xorriso, and mtools." >&2; exit 3;
   }
 done
-[[ -f /usr/include/efi/efi.h ]] || { echo "Missing GNU-EFI headers" >&2; exit 3; }
+[[ -f /usr/include/efi/efi.h || -f /home/antigravity/local-root/usr/include/efi/efi.h ]] || { echo "Missing GNU-EFI headers" >&2; exit 3; }
 
 # Run the actual kernel in SeaBIOS and OVMF rather than testing code paths
 # with mocked firmware. Both paths must reach a Noqeri serial terminal.

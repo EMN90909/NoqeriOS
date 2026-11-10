@@ -80,10 +80,12 @@ function boot_splash_begin(info: usize): bool {
                      fb.width as usize, fb.height as usize, 0x101010 as u32)
     boot_splash_logo(fb, redLow)
     // Subtle splash frame stays inside the validated framebuffer mode.
-    framebuffer_stroke_rect(tag, 12 as usize, 12 as usize,
-                            (fb.width as usize) - (24 as usize),
-                            (fb.height as usize) - (24 as usize),
-                            1 as usize, 0x002a2a2a as u32)
+    let w: usize = (fb.width as usize) - (24 as usize)
+    let h: usize = (fb.height as usize) - (24 as usize)
+    framebuffer_fill_rect(tag, 12 as usize, 12 as usize, w, 1 as usize, 0x002a2a2a as u32)
+    framebuffer_fill_rect(tag, 12 as usize, 12 as usize + h - (1 as usize), w, 1 as usize, 0x002a2a2a as u32)
+    framebuffer_fill_rect(tag, 12 as usize, 12 as usize, 1 as usize, h, 0x002a2a2a as u32)
+    framebuffer_fill_rect(tag, 12 as usize + w - (1 as usize), 12 as usize, 1 as usize, h, 0x002a2a2a as u32)
     boot_splash_update(info, 8 as usize)
     return true
 }

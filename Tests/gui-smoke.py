@@ -20,15 +20,15 @@ OUT = ROOT / "build"
 
 
 def firmware():
-    for name in ("/usr/share/OVMF/OVMF_CODE_4M.fd",
-                 "/usr/share/OVMF/OVMF_CODE.fd", "/usr/share/ovmf/OVMF.fd"):
+    for name in ("/home/antigravity/local-root/usr/share/OVMF/OVMF_CODE_4M.fd",
+                 "/home/antigravity/local-root/usr/share/OVMF/OVMF_CODE.fd", "/usr/share/ovmf/OVMF.fd"):
         if Path(name).exists():
             code = name
             break
     else:
         raise FileNotFoundError("Missing OVMF_CODE")
-    for name in ("/usr/share/OVMF/OVMF_VARS_4M.fd",
-                 "/usr/share/OVMF/OVMF_VARS.fd"):
+    for name in ("/home/antigravity/local-root/usr/share/OVMF/OVMF_VARS_4M.fd",
+                 "/home/antigravity/local-root/usr/share/OVMF/OVMF_VARS.fd"):
         if Path(name).exists():
             return code, name
     raise FileNotFoundError("Missing OVMF_VARS")

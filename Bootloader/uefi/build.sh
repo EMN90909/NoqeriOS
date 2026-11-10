@@ -12,13 +12,21 @@ done
 test -f "$ROOT/build/kernel.elf" || { echo "Build kernel.elf first with build.sh --uefi" >&2; exit 4; }
 
 EFI_CRT=""
-for dir in /usr/lib /usr/lib64 /usr/lib/gnuefi /usr/lib/x86_64-linux-gnu; do
+for dir in "${GNU_EFI_DIR:-/nonexistent}" /home/antigravity/local-root/usr/lib /usr/lib /usr/lib64 /usr/lib/gnuefi /usr/lib/x86_64-linux-gnu; do
   if [[ -f "$dir/crt0-efi-x86_64.o" && -f "$dir/elf_x86_64_efi.lds" ]]; then
     EFI_CRT="$dir"
     break
   fi
 done
 [[ -n "$EFI_CRT" ]] || { echo "GNU-EFI CRT/linker script missing (install gnu-efi)" >&2; exit 3; }
+
+EFI_INC_FLAGS=()
+for inc in "${GNU_EFI_DIR:-/nonexistent}/include" /home/antigravity/local-root/usr/include /usr/include; do
+  if [[ -d "$inc/efi" ]]; then
+    EFI_INC_FLAGS+=("-I$inc/efi" "-I$inc/efi/x86_64")
+    break
+  fi
+done
 
 ZIG_BOOT_OBJECTS=()
 if [[ "${NOQERIOS_ZIG_BOOT:-0}" == 1 ]]; then
@@ -44,7 +52,7 @@ gcc -std=gnu11 -O2 -fpic -ffreestanding -fshort-wchar \
   -fno-stack-protector -fno-stack-check -fno-builtin -mno-red-zone \
   -march=x86-64 -mtune=generic -mno-avx -mno-avx2 -mno-avx512f \
   -DGNU_EFI_USE_MS_ABI -Wall -Wextra "${LOADER_DEFINES[@]}" \
-  -I/usr/include/efi -I/usr/include/efi/x86_64 \
+  "${EFI_INC_FLAGS[@]}" \
   -c "$ROOT/Bootloader/uefi/loader.c" -o "$UEFI_OUT/loader.o"
 
 BOOT_MENU_DEFINES=()
@@ -55,7 +63,7 @@ gcc -std=gnu11 -O2 -fpic -ffreestanding -fshort-wchar \
   -fno-stack-protector -fno-stack-check -fno-builtin -mno-red-zone \
   -march=x86-64 -mtune=generic -mno-avx -mno-avx2 -mno-avx512f \
   -DGNU_EFI_USE_MS_ABI -Wall -Wextra "${BOOT_MENU_DEFINES[@]}" \
-  -I/usr/include/efi -I/usr/include/efi/x86_64 \
+  "${EFI_INC_FLAGS[@]}" \
   -c "$ROOT/Bootloader/uefi/boot_menu.c" -o "$UEFI_OUT/boot_menu.o"
 
 ld -nostdlib -znocombreloc -shared -Bsymbolic \

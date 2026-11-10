@@ -23,7 +23,13 @@ for tool in "${need[@]}"; do
     command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
 done
 # GNU-EFI headers are not executables: detect them separately for --uefi-bootstrap.
-if (( UEFI == 1 )) && [[ ! -f /usr/include/efi/efi.h ]]; then
+EFI_INC="/usr/include/efi"
+if [[ -f "${GNU_EFI_DIR:-}/include/efi/efi.h" ]]; then
+    EFI_INC="${GNU_EFI_DIR}/include/efi"
+elif [[ -f "/home/antigravity/local-root/usr/include/efi/efi.h" ]]; then
+    EFI_INC="/home/antigravity/local-root/usr/include/efi"
+fi
+if (( UEFI == 1 )) && [[ ! -f "$EFI_INC/efi.h" ]]; then
     missing+=(gnu-efi)
 fi
 if (( ${#missing[@]} > 0 )); then
@@ -99,10 +105,10 @@ done
 ld -nostdlib -z max-page-size=0x1000 -T "$ROOT/Arch/x86_64/linker.ld" \
     -o "$OUT/kernel.elf" "$OUT/entry.o" "$OUT/arch.o" \
     "$OUT/interrupts.o" "$OUT/userspace.o" "$OUT/freestanding.o" "$OUT/kernel_noqeri.o" "$OUT/framebuffer_zig.o"
-nm "$OUT/kernel.elf" | grep -Eq '[[:space:]]T[[:space:]]kernel_main$' || {
+if ! nm "$OUT/kernel.elf" | grep -E '[[:space:]]T[[:space:]]kernel_main$' >/dev/null; then
     echo "No exported kernel_main after linking." >&2
     exit 5
-}
+fi
 bash "$ROOT/Bootloader/native/build.sh"
 ISO_ROOT="$OUT/iso-root"
 rm -rf "$ISO_ROOT"

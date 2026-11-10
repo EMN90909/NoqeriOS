@@ -25,12 +25,12 @@ BARS = [
 
 def firmware():
     codes = [
-        "/usr/share/OVMF/OVMF_CODE_4M.fd",
-        "/usr/share/OVMF/OVMF_CODE.fd", "/usr/share/ovmf/OVMF.fd",
+        "/home/antigravity/local-root/usr/share/OVMF/OVMF_CODE_4M.fd",
+        "/home/antigravity/local-root/usr/share/OVMF/OVMF_CODE.fd", "/usr/share/ovmf/OVMF.fd",
     ]
     variables = [
-        "/usr/share/OVMF/OVMF_VARS_4M.fd",
-        "/usr/share/OVMF/OVMF_VARS.fd",
+        "/home/antigravity/local-root/usr/share/OVMF/OVMF_VARS_4M.fd",
+        "/home/antigravity/local-root/usr/share/OVMF/OVMF_VARS.fd",
     ]
     return next((Path(p) for p in codes if Path(p).exists()), None), next(
         (Path(p) for p in variables if Path(p).exists()), None
