@@ -38,6 +38,7 @@ bash Tests/qemu-smoke.sh
 NOQERIOS_ZIG_BOOT=1 NOQERIOS_REQUIRE_GOP=1 bash Tests/uefi-smoke.sh
 python3 Tests/gui-smoke.py
 python3 Tests/mouse-smoke.py
+python3 Tests/fs-write-smoke.py
 NOQERIOS_ZIG_BOOT=1 NOQERIOS_REQUIRE_GOP=1 NOQERIOS_UEFI_MEDIA=usb bash Tests/uefi-smoke.sh
 bash Tests/uefi-usb-smoke.sh
 echo "PASS: local BIOS, UEFI, framebuffer, desktop and USB-boot QEMU gates"

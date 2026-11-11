@@ -125,7 +125,7 @@ function shell_exec(buffer: *u8, size: usize, network: *Network, desktop: *GuiDe
         serial_write("\nNoqeri Shell - Windows-style, fewer commands\n")
         serial_write("help  cls/clear  ver/info  mem  tasks  net  ping  dns  tcp\n")
         serial_write("dir/ls/list  cd/go NAME  up/back  pwd/where\n\n")
-        serial_write("files  start  gui  reboot  shutdown  noed inspect FILE.EXE\n")
+        serial_write("files  start  gui  touch NAME  mkdir NAME  write FILE TEXT  reboot  shutdown\n")
         serial_write("NoqFS browsing is read-only. Press Enter to run.\n")
     } else if hash == (2090550987 as u32) {
         if args == size {
@@ -283,6 +283,81 @@ function shell_exec(buffer: *u8, size: usize, network: *Network, desktop: *GuiDe
         shell_reboot()
     } else if hash == (4232446817 as u32) {
         shell_poweroff()
+    } else if hash == (275838856 as u32) {
+        if m == null { serial_write("\nNoqFS drive not mounted\n") }
+        else if args == size { serial_write("\nUsage: touch FILENAME\n") }
+        else {
+            if files_create_file(m, buffer + args, size - args) {
+                serial_write("\nFile created\n")
+            } else {
+                serial_write("\nFailed to create file\n")
+            }
+        }
+    } else if hash == (267375356 as u32) {
+        if m == null { serial_write("\nNoqFS drive not mounted\n") }
+        else if args == size { serial_write("\nUsage: mkdir DIRNAME\n") }
+        else {
+            if files_create_dir(m, buffer + args, size - args) {
+                serial_write("\nDirectory created\n")
+            } else {
+                serial_write("\nFailed to create directory\n")
+            }
+        }
+    } else if hash == (279491920 as u32) {
+        if m == null { serial_write("\nNoqFS drive not mounted\n") }
+        else if args == size { serial_write("\nUsage: write FILENAME TEXT\n") }
+        else {
+            // Find space separating filename and text
+            let fileEnd: usize = args
+            while fileEnd < size && buffer[fileEnd] != (32 as u8) {
+                fileEnd = fileEnd + (1 as usize)
+            }
+            if fileEnd == size {
+                serial_write("\nUsage: write FILENAME TEXT\n")
+            } else {
+                let nameLen: usize = fileEnd - args
+                let textStart: usize = fileEnd + (1 as usize)
+                let textLen: usize = size - textStart
+                let item: isize = shell_find(m, buffer + args, nameLen)
+                if item < (0 as isize) {
+                    // Try to touch file first
+                    if !files_create_file(m, buffer + args, nameLen) {
+                        serial_write("\nFailed to open or create file\n")
+                        item = -1 as isize
+                    } else {
+                        item = shell_find(m, buffer + args, nameLen)
+                    }
+                }
+                if item >= (0 as isize) {
+                    m.selected = item as usize
+                    let index: usize = m.visible[m.selected] as usize
+                    let nodePage: usize = arch_alloc_page()
+                    if nodePage != (0 as usize) {
+                        let node: *VfsNode = nodePage as *VfsNode
+                        if vfs_open_key_address(m.mount as usize, m.keys[index], nodePage) {
+                            let textBuf: usize = arch_alloc_page()
+                            if textBuf != (0 as usize) {
+                                let dst: *u8 = textBuf as *u8
+                                let k: usize = 0 as usize
+                                while k < textLen {
+                                    dst[k] = buffer[textStart + k]
+                                    k = k + (1 as usize)
+                                }
+                                let writtenBytes: usize = vfs_write(node, 0 as usize, textLen, textBuf)
+                                files_reload(m)
+                                serial_write("\nWrote ")
+                                shell_number(writtenBytes as u64)
+                                serial_write(" bytes\n")
+                            } else {
+                                serial_write("\nOut of memory\n")
+                            }
+                        } else {
+                            serial_write("\nFailed to open file node\n")
+                        }
+                    }
+                }
+            }
+        }
     } else {
         serial_write("\nUnknown command. Type help.\n")
     }
