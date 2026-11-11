@@ -82,6 +82,32 @@ function shell_find(m: *FileManager, input: *u8, length: usize): isize {
     }
     return -1 as isize
 }
+// Real reset: pulse the 8042 reset line (port 0x64 <- 0xFE), then fall back to
+// the PCI reset-control register 0xCF9. Interrupts are masked first.
+function shell_reboot(): void {
+    arch_cli()
+    let spins: usize = 0 as usize
+    while (arch_in8(100 as u16) % (4 as u8)) >= (2 as u8) &&
+          spins < (100000 as usize) {
+        arch_pause()
+        spins = spins + (1 as usize)
+    }
+    arch_out8(100 as u16, 254 as u8)
+    arch_out8(3321 as u16, 6 as u8)
+    while true { arch_halt() }
+}
+
+// Power off on emulators/hypervisors exposing ACPI PM1a at 0x604 (QEMU/Q35)
+// or the legacy Bochs/older-QEMU port 0xB004. Real hardware needs a parsed
+// ACPI FADT; if the write has no effect we halt and say so.
+function shell_poweroff(): void {
+    serial_write("\nSystem halted. It is now safe to power off.\n")
+    arch_cli()
+    arch_out16(1540 as u16, 8192 as u16)
+    arch_out16(45060 as u16, 8192 as u16)
+    while true { arch_halt() }
+}
+
 function shell_prompt(): void { serial_write("\nN:\\> ") }
 
 function shell_exec(buffer: *u8, size: usize, network: *Network, desktop: *GuiDesktop, filesAddress: usize): void {
@@ -99,7 +125,7 @@ function shell_exec(buffer: *u8, size: usize, network: *Network, desktop: *GuiDe
         serial_write("\nNoqeri Shell - Windows-style, fewer commands\n")
         serial_write("help  cls/clear  ver/info  mem  tasks  net  ping  dns  tcp\n")
         serial_write("dir/ls/list  cd/go NAME  up/back  pwd/where\n\n")
-        serial_write("files  start  gui  reboot  noed inspect FILE.EXE\n")
+        serial_write("files  start  gui  reboot  shutdown  noed inspect FILE.EXE\n")
         serial_write("NoqFS browsing is read-only. Press Enter to run.\n")
     } else if hash == (2090550987 as u32) {
         if args == size {
@@ -253,7 +279,10 @@ function shell_exec(buffer: *u8, size: usize, network: *Network, desktop: *GuiDe
         if desktop == null { serial_write("\nGraphical desktop unavailable\n") }
         else { gui_key(desktop, 115 as u8); serial_write("\nStart selection changed\n") }
     } else if hash == (421948272 as u32) {
-        serial_write("\nReboot is not implemented; use QEMU reset\n")
+        serial_write("\nRebooting...\n")
+        shell_reboot()
+    } else if hash == (4232446817 as u32) {
+        shell_poweroff()
     } else {
         serial_write("\nUnknown command. Type help.\n")
     }
