@@ -29,6 +29,17 @@ record GuiDesktop {
     gpuDisplay: *GpuDisplay;
     fallbackPixels: *volatile u32;
     fallbackSwap: bool;
+    mouseX: usize;
+    mouseY: usize;
+    mouseIndex: usize;
+    mouseB0: u8;
+    mouseB1: u8;
+    mouseLeft: bool;
+    mouseReady: bool;
+    cursorSaved: bool;
+    cursorX: usize;
+    cursorY: usize;
+    cursorBg: *u32;
 }
 
 function gui_color(g: *GuiDesktop, rgb: u32): u32 {
@@ -492,14 +503,23 @@ function gui_paint(g: *GuiDesktop): void {
     gui_fill(g, 0 as usize, barY, g.width, 45 as usize, 0x242424 as u32)
     gui_fill(g, 17 as usize, barY + (8 as usize), 115 as usize, 28 as usize, 0x565656 as u32)
     gui_label(g, 13 as u32, 33 as usize, barY + (15 as usize), 0xffffff as u32)
-    if g.width >= (530 as usize) {
-        gui_label(g, 7 as u32, 180 as usize, barY + (15 as usize), 0xd9d9d9 as u32)
+    // Dock quick-launch icons: Files (F) and Terminal (>_)
+    gui_fill(g, 142 as usize, barY + (8 as usize), 32 as usize, 28 as usize, 0x3d3d3d as u32)
+    gui_fill(g, 147 as usize, barY + (14 as usize), 12 as usize, 3 as usize, 0xeeeeee as u32)
+    gui_fill(g, 147 as usize, barY + (17 as usize), 22 as usize, 12 as usize, 0xeeeeee as u32)
+    gui_fill(g, 180 as usize, barY + (8 as usize), 32 as usize, 28 as usize, 0x3d3d3d as u32)
+    gui_letter(g, 62 as u8, 186 as usize, barY + (15 as usize), 0xffffff as u32)
+    gui_fill(g, 196 as usize, barY + (24 as usize), 8 as usize, 2 as usize, 0xffffff as u32)
+    if g.width >= (580 as usize) {
+        gui_label(g, 7 as u32, 230 as usize, barY + (15 as usize), 0xd9d9d9 as u32)
     }
     if g.terminalVisible { gui_terminal_paint(g) }
     if g.explorerVisible && g.width >= (520 as usize) && g.height >= (360 as usize) {
         explorer_paint(g)
     }
     g.redraws = g.redraws + (1 as usize)
+    g.cursorSaved = false
+    gui_cursor_draw(g)
     if g.gpuDisplay != null {
         if !gpu_display_present(g.gpuDisplay) {
             g.gpuDisplay = null
@@ -554,6 +574,18 @@ function gui_open(info: usize): *GuiDesktop {
     g.gpuDisplay = null
     g.fallbackPixels = g.pixels
     g.fallbackSwap = g.swapRedBlue
+    g.mouseX = g.width / (2 as usize)
+    g.mouseY = g.height / (2 as usize)
+    g.mouseIndex = 0 as usize
+    g.mouseB0 = 0 as u8
+    g.mouseB1 = 0 as u8
+    g.mouseLeft = false
+    g.mouseReady = false
+    g.cursorSaved = false
+    g.cursorX = 0 as usize
+    g.cursorY = 0 as usize
+    g.cursorBg = arch_alloc_page() as *u32
+    gui_mouse_init(g)
     gui_paint(g)
     arch_console_attach(g as usize)
     return g
@@ -603,6 +635,183 @@ function gui_key(g: *GuiDesktop, key: u8): bool {
     }
     return changed
 }
+// ---- PS/2 mouse (i8042 aux port), software cursor and click routing ----
+// Polled, like the keyboard: no IRQ12 dependency, so it works on firmware
+// that leaves the PIC masked. USB HID mice need a USB stack (not present).
+function gui_i8042_wait_write(): bool {
+    let n: usize = 0 as usize
+    while (arch_in8(100 as u16) / (2 as u8)) % (2 as u8) == (1 as u8) {
+        n = n + (1 as usize)
+        if n > (100000 as usize) { return false }
+    }
+    return true
+}
+function gui_i8042_wait_read(): bool {
+    let n: usize = 0 as usize
+    while arch_in8(100 as u16) % (2 as u8) == (0 as u8) {
+        n = n + (1 as usize)
+        if n > (100000 as usize) { return false }
+    }
+    return true
+}
+function gui_mouse_command(value: u8): bool {
+    if !gui_i8042_wait_write() { return false }
+    arch_out8(100 as u16, 212 as u8)
+    if !gui_i8042_wait_write() { return false }
+    arch_out8(96 as u16, value)
+    if !gui_i8042_wait_read() { return false }
+    return arch_in8(96 as u16) == (250 as u8)
+}
+function gui_mouse_init(g: *GuiDesktop): void {
+    if g == null { return }
+    if !gui_i8042_wait_write() { return }
+    arch_out8(100 as u16, 168 as u8)
+    if !gui_i8042_wait_write() { return }
+    arch_out8(100 as u16, 32 as u8)
+    if !gui_i8042_wait_read() { return }
+    let config: u8 = arch_in8(96 as u16)
+    // Bit 5 set means the aux clock is disabled; clear it.
+    if (config / (32 as u8)) % (2 as u8) == (1 as u8) { config = config - (32 as u8) }
+    if !gui_i8042_wait_write() { return }
+    arch_out8(100 as u16, 96 as u8)
+    if !gui_i8042_wait_write() { return }
+    arch_out8(96 as u16, config)
+    if !gui_mouse_command(246 as u8) { return }
+    if !gui_mouse_command(244 as u8) { return }
+    g.mouseReady = true
+    serial_write("NoqeriOS: PS/2 mouse enabled\n")
+}
+function gui_cursor_erase(g: *GuiDesktop): void {
+    if g == null || !g.cursorSaved || g.cursorBg == null { return }
+    let y: usize = 0 as usize
+    while y < (16 as usize) {
+        let x: usize = 0 as usize
+        while x < (12 as usize) {
+            if g.cursorX + x < g.width && g.cursorY + y < g.height {
+                g.pixels[(g.cursorY + y) * g.stride + g.cursorX + x] = g.cursorBg[y * (12 as usize) + x]
+            }
+            x = x + (1 as usize)
+        }
+        y = y + (1 as usize)
+    }
+    g.cursorSaved = false
+}
+function gui_cursor_draw(g: *GuiDesktop): void {
+    if g == null || !g.mouseReady || g.cursorBg == null { return }
+    g.cursorX = g.mouseX
+    g.cursorY = g.mouseY
+    // Save the 12x16 background so the cursor can be erased without a repaint.
+    let y: usize = 0 as usize
+    while y < (16 as usize) {
+        let x: usize = 0 as usize
+        while x < (12 as usize) {
+            if g.cursorX + x < g.width && g.cursorY + y < g.height {
+                g.cursorBg[y * (12 as usize) + x] = g.pixels[(g.cursorY + y) * g.stride + g.cursorX + x]
+            }
+            x = x + (1 as usize)
+        }
+        y = y + (1 as usize)
+    }
+    g.cursorSaved = true
+    // Arrow built from horizontal spans: black outline, white interior.
+    let row: usize = 0 as usize
+    while row < (13 as usize) {
+        let edge: usize = row / (2 as usize)
+        if row == (12 as usize) {
+            gui_fill(g, g.cursorX, g.cursorY + row, 7 as usize, 1 as usize, 0x000000 as u32)
+        } else {
+            gui_fill(g, g.cursorX, g.cursorY + row, 1 as usize, 1 as usize, 0x000000 as u32)
+            if edge >= (1 as usize) {
+                gui_fill(g, g.cursorX + edge, g.cursorY + row, 1 as usize, 1 as usize, 0x000000 as u32)
+            }
+            if edge >= (2 as usize) {
+                gui_fill(g, g.cursorX + (1 as usize), g.cursorY + row, edge - (1 as usize), 1 as usize, 0xffffff as u32)
+            }
+        }
+        row = row + (1 as usize)
+    }
+}
+function gui_click(g: *GuiDesktop, mx: usize, my: usize): void {
+    if g == null { return }
+    let barY: usize = g.height - (45 as usize)
+    if my >= barY && mx >= (17 as usize) && mx < (132 as usize) {
+        g.focused = 3 as usize
+        gui_key(g, 122 as u8)
+        return
+    }
+    if my >= barY && mx >= (142 as usize) && mx < (174 as usize) {
+        g.explorerVisible = !g.explorerVisible
+        gui_paint(g)
+        serial_write("NoqeriOS: GUI compositor window focus updated\n")
+        return
+    }
+    if my >= barY && mx >= (180 as usize) && mx < (212 as usize) {
+        g.terminalVisible = !g.terminalVisible
+        if g.terminalVisible { g.explorerVisible = false; g.startVisible = false }
+        gui_paint(g)
+        serial_write("NoqeriOS: GUI compositor window focus updated\n")
+        return
+    }
+    if !g.startVisible || g.terminalVisible || g.explorerVisible { return }
+    let margin: usize = 28 as usize
+    let gap: usize = 10 as usize
+    let tileWidth: usize = (g.width - margin * (2 as usize) - gap) / (2 as usize)
+    let tileHeight: usize = 110 as usize
+    let top: usize = 126 as usize
+    if g.height < (440 as usize) { top = 98 as usize; tileHeight = 74 as usize }
+    if tileWidth > (255 as usize) { tileWidth = 255 as usize }
+    let item: usize = 0 as usize
+    while item < (4 as usize) {
+        let x: usize = margin + (item % (2 as usize)) * (tileWidth + gap)
+        let y: usize = top + (item / (2 as usize)) * (tileHeight + gap)
+        if mx >= x && mx < x + tileWidth && my >= y && my < y + tileHeight {
+            g.focused = item
+            gui_key(g, 122 as u8)
+            return
+        }
+        item = item + (1 as usize)
+    }
+}
+function gui_mouse_byte(g: *GuiDesktop, value: u8): void {
+    if g == null { return }
+    if g.mouseIndex == (0 as usize) {
+        // Bit 3 is always set in byte 0; use it to resynchronise.
+        if (value / (8 as u8)) % (2 as u8) == (0 as u8) { return }
+        g.mouseB0 = value
+        g.mouseIndex = 1 as usize
+        return
+    }
+    if g.mouseIndex == (1 as usize) {
+        g.mouseB1 = value
+        g.mouseIndex = 2 as usize
+        return
+    }
+    g.mouseIndex = 0 as usize
+    // Drop packets whose X/Y overflow bits (6,7) are set.
+    if g.mouseB0 >= (64 as u8) { return }
+    let dx: isize = g.mouseB1 as isize
+    if (g.mouseB0 / (16 as u8)) % (2 as u8) == (1 as u8) { dx = dx - (256 as isize) }
+    let dy: isize = value as isize
+    if (g.mouseB0 / (32 as u8)) % (2 as u8) == (1 as u8) { dy = dy - (256 as isize) }
+    let nx: isize = (g.mouseX as isize) + dx
+    let ny: isize = (g.mouseY as isize) - dy
+    if nx < (0 as isize) { nx = 0 as isize }
+    if ny < (0 as isize) { ny = 0 as isize }
+    if nx > (g.width as isize) - (1 as isize) { nx = (g.width as isize) - (1 as isize) }
+    if ny > (g.height as isize) - (1 as isize) { ny = (g.height as isize) - (1 as isize) }
+    let left: bool = g.mouseB0 % (2 as u8) == (1 as u8)
+    let pressed: bool = left && !g.mouseLeft
+    g.mouseLeft = left
+    if (nx as usize) != g.mouseX || (ny as usize) != g.mouseY {
+        gui_cursor_erase(g)
+        g.mouseX = nx as usize
+        g.mouseY = ny as usize
+        gui_cursor_draw(g)
+        if g.gpuDisplay != null { gpu_display_present(g.gpuDisplay) }
+    }
+    if pressed { gui_click(g, g.mouseX, g.mouseY) }
+}
+
 // Optional legacy i8042 keyboard input. No assumption of a USB keyboard.
 // QEMU PS/2 set-1 make codes: A=0x1e S=0x1f Z=0x2c Enter=0x1c.
 // Drain AUX/mouse packets but do not attempt to interpret them as keys.
@@ -612,6 +821,17 @@ function gui_keyboard_poll(g: *GuiDesktop): void {
     if status % (2 as u8) != (1 as u8) { return }
     let code: u8 = arch_in8(96 as u16)
     if ((status as u32) / (32 as u32)) % (2 as u32) == (1 as u32) {
+        if g.mouseReady {
+            gui_mouse_byte(g, code)
+            // Drain the rest of a burst so the cursor never lags the device.
+            let drained: usize = 0 as usize
+            while drained < (48 as usize) {
+                let more: u8 = arch_in8(100 as u16)
+                if more % (2 as u8) != (1 as u8) || (more / (32 as u8)) % (2 as u8) != (1 as u8) { break }
+                gui_mouse_byte(g, arch_in8(96 as u16))
+                drained = drained + (1 as usize)
+            }
+        }
         return
     }
     if g.terminalVisible {
